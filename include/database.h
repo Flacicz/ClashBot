@@ -17,6 +17,8 @@ public:
 	Database(const std::string& path);
 	~Database();
 
+	void initDatabase();
+
 	void execute(const std::string& sql);
 	QueryResult query(const std::string& sql);
 };

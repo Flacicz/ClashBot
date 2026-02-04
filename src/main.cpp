@@ -32,14 +32,6 @@ int main() {
 		json parsed = json::parse(response.text);
 
 		std::cout << "Статус запроса : " << response.status_code << "\n\n";
-
-		std::cout << "Информация о клане: " << std::endl;
-		std::cout << "Тег: " << parsed["tag"] << std::endl;
-		std::cout << "Количесво игроков: " << parsed["members"] << std::endl;
-		std::cout << "Уровень клана: " << parsed["clanLevel"] << std::endl;
-		std::cout << "Необходимый уровень ратуши для вступления: " << parsed["requiredTownhallLevel"] << std::endl;
-		std::cout << "Необходимое кол-во трофеев для вступления: " << parsed["requiredTrophies"] << std::endl;
-		std::cout << "Необходимое кол-во трофеев деревни стротеля для вступления: " << parsed["requiredBuilderBaseTrophies"] << std::endl;
 	}
 	catch (const std::exception& e) {
 		std::cout << e.what() << std::endl;
