@@ -6,7 +6,8 @@
 *.slnx
 *.vcxproj
 *.vcxproj.*
-*.dblite
+database.dblite
+/data
 
 # User-specific files
 *.rsuser
