@@ -18,15 +18,5 @@ int main() {
 	APIClient apiClient("#2J8PJ9VLG", isTunnel);
 	Database db("data/database.dblite");
 
-	Database::QueryResult res = db.query("SELECT * FROM players_info");
-
-	for (int i = 0; i < res.rows.size(); i++) {
-		for (int j = 0; j < res.columns.size(); j++) {
-			std::cout << res.rows[i][j] << " ";
-		}
-
-		std::cout << std::endl;
-	}
-
 	return 0;
 }

@@ -54,17 +54,19 @@ struct PlayerWarStats {
 struct CapitalRaid {
     std::string clanTag;
     std::string date;
-    unsigned short totalLoot;
+    unsigned int totalLoot;
+    unsigned short raidsCompleted;
     unsigned short totalAttacks;
+    unsigned short enemyDistrictsDestroyed;
     unsigned short offensiveReward;
     unsigned short defensiveReward;
-    unsigned short capitalRank;
-    long long createdAt;
+
+    bool isEmpty() const { return clanTag == ""; };
 };
 
 struct PlayerRaidStats {
     std::string playerTag;
-    unsigned short raidId;
+    std::string name;
     unsigned short attacksCount;
     unsigned short totalLoot;
     long long createdAt;

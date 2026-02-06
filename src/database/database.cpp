@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <chrono>
+#include <string>
 
 Database::Database(const std::string& path) : db(nullptr), pathToDb(path) {
 	if (sqlite3_open(path.c_str(), &db) != SQLITE_OK) {
@@ -70,6 +71,31 @@ Database::QueryResult Database::query(const std::string& sql) {
 	return result;
 }
 
+Database::QueryResult Database::queryWithParam(const std::string& sql, const std::string& param) {
+	QueryResult result;
+	sqlite3_stmt* stmt;
+
+	if (sqlite3_prepare_v2(getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+		std::cerr << "Не удалось подготовить запрос: " << sqlite3_errmsg(getDBInstance()) << std::endl;
+		return result;
+	}
+
+	sqlite3_bind_text(stmt, 1, param.c_str(), -1, SQLITE_TRANSIENT);
+
+	while (sqlite3_step(stmt) == SQLITE_ROW) {
+
+		std::vector<std::string> row;
+		for (int i = 0; i < sqlite3_column_count(stmt); i++) {
+			row.push_back((const char*)sqlite3_column_text(stmt, i));
+		}
+
+		result.rows.push_back(row);
+	}
+
+	sqlite3_finalize(stmt);
+	return result;
+}
+
 bool Database::insertOrUpdateClanInfo(const ClanInfo& clanInfo) {
 	sqlite3_stmt* stmt;
 
@@ -98,6 +124,8 @@ bool Database::insertOrUpdateClanInfo(const ClanInfo& clanInfo) {
 
 	auto now = std::chrono::system_clock::now();
 	auto duration = now.time_since_epoch();
+
+	sqlite3_reset(stmt);
 
 	sqlite3_bind_text(stmt, 1, clanInfo.tag.c_str(), -1, SQLITE_TRANSIENT);
 	sqlite3_bind_text(stmt, 2, clanInfo.name.c_str(), -1, SQLITE_TRANSIENT);
@@ -167,6 +195,75 @@ bool Database::insertOrUpdatePlayersInfo(const std::vector<Player>& players) {
 	return true;
 }
 
+bool Database::insertSingleRaidInfo(const CapitalRaid& raid) {
+	if (raid.isEmpty()) return 0;
+
+	sqlite3_stmt* stmt;
+
+	std::string sql = R"(
+		INSERT INTO raid_info(clan_tag, date, total_loot, raids_completed, total_attacks, enemy_districts_destroyed,
+							  offensive_reward, defensive_reward)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	)";
+
+	if (sqlite3_prepare_v2(getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+		std::cerr << "Не удалось подготовить запрос: " << sqlite3_errmsg(getDBInstance()) << std::endl;
+		return false;
+	}
+
+	sqlite3_reset(stmt);
+
+	sqlite3_bind_text(stmt, 1, raid.clanTag.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 2, raid.date.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_int(stmt, 3, raid.totalLoot);
+	sqlite3_bind_int(stmt, 4, raid.raidsCompleted);
+	sqlite3_bind_int(stmt, 5, raid.totalAttacks);
+	sqlite3_bind_int(stmt, 6, raid.enemyDistrictsDestroyed);
+	sqlite3_bind_int(stmt, 7, raid.offensiveReward);
+	sqlite3_bind_int(stmt, 8, raid.defensiveReward);
+
+	bool result = executePrepeared(stmt);
+	sqlite3_finalize(stmt);
+
+	return result;
+}
+
+bool Database::insertSinglePlayersRaidInfo(const std::map<std::string, std::vector<PlayerRaidStats>>& players) {
+	if (players.empty()) return 0;
+
+	sqlite3_stmt* stmt;
+
+	std::string sql = R"(
+		INSERT INTO players_raid_info(raid_id, player_tag, name, attacks_count, total_loot)
+		VALUES (?, ?, ?, ?, ?)
+	)";
+
+	if (sqlite3_prepare_v2(getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+		std::cerr << "Не удалось подготовить запрос: " << sqlite3_errmsg(getDBInstance()) << std::endl;
+		return false;
+	}
+	
+	std::string id = "SELECT id FROM raid_info WHERE date = ?";
+
+	QueryResult res = queryWithParam(id, players.begin()->first);
+
+	for (int i = 0; i < players.begin()->second.size(); i++) {
+		sqlite3_reset(stmt);
+
+		sqlite3_bind_int(stmt, 1, std::stoi(res.rows[0][0]));
+		sqlite3_bind_text(stmt, 2, players.begin()->second[i].playerTag.c_str(), -1, SQLITE_TRANSIENT);
+		sqlite3_bind_text(stmt, 3, players.begin()->second[i].name.c_str(), -1, SQLITE_TRANSIENT);
+		sqlite3_bind_int(stmt, 4, players.begin()->second[i].attacksCount);
+		sqlite3_bind_int(stmt, 5, players.begin()->second[i].totalLoot);
+
+		if (!executePrepeared(stmt)) return false;
+	}
+
+	sqlite3_finalize(stmt);
+
+	return true;
+}
+
 void Database::initDatabase() {
 	std::string clanTable = R"(
 		CREATE TABLE IF NOT EXISTS clan_info(
@@ -209,10 +306,11 @@ void Database::initDatabase() {
 			clan_tag TEXT NOT NULL,
 			date DATE NOT NULL,
 			total_loot INTEGER DEFAULT 0,
-			totalAttacks INTEGER DEFAULT 0,
-			offensiveReward INTEGER DEFAULT 0,
-			defensiveReward INTEGER DEFAULT 0,
-			capital_rank INTEGER,
+			raids_completed INTEGER DEFAULT 0,
+			total_attacks INTEGER DEFAULT 0,
+			enemy_districts_destroyed INTEGER DEFAULT 0,
+			offensive_reward INTEGER DEFAULT 0,
+			defensive_reward INTEGER DEFAULT 0,
 			created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
 			FOREIGN KEY (clan_tag) REFERENCES clan_info(tag) ON DELETE CASCADE,
 			UNIQUE(clan_tag, date)
@@ -224,6 +322,7 @@ void Database::initDatabase() {
 			player_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			raid_id INTEGER NOT NULL,
 			player_tag TEXT NOT NULL,
+			name TEXT NOT NULL,
 			attacks_count INTEGER DEFAULT 0,
 			total_loot INTEGER DEFAULT 0,
 			created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),

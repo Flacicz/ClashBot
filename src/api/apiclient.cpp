@@ -81,3 +81,64 @@ std::vector<Player> APIClient::getPlayersInfo() const {
 	return players;
 }
 
+CapitalRaid APIClient::getRaidInfo() const {
+	std::string url = "/clans/%23" + getClanTag().substr(1, getClanTag().length() - 1) + "/capitalraidseasons?limit=1";
+	auto response = getResponse(url);
+
+	json parsed = json::parse(response.text);
+	
+	CapitalRaid raid;
+	for (const auto& part : parsed["items"]) {
+		raid = {
+			getClanTag(),
+			part["endTime"],
+			part["capitalTotalLoot"],
+			part["raidsCompleted"],
+			part["totalAttacks"],
+			part["enemyDistrictsDestroyed"],
+			part["offensiveReward"],
+			part["defensiveReward"],
+		};
+	}
+
+	return raid;
+}
+
+std::map<std::string, std::vector<PlayerRaidStats>> APIClient::getPlayersRaidInfo() const {
+	std::string url = "/clans/%23" + getClanTag().substr(1, getClanTag().length() - 1) + "/capitalraidseasons?limit=1";
+	auto response = getResponse(url);
+
+	json parsed = json::parse(response.text);
+
+	std::vector<PlayerRaidStats> players;
+	std::string time; int flag = 0;
+	for (const auto& part : parsed["items"]) {
+
+		if (part["state"] == "ongoing") {
+			if (!flag) {
+				time = part["endTime"].get<std::string>();
+				flag = 1;
+			}
+
+			for (const auto& member : part["members"]) {
+				PlayerRaidStats player = {
+					member["tag"],
+					member["name"],
+					member["attacks"],
+					member["capitalResourcesLooted"],
+				};
+
+				players.push_back(player);
+			}
+
+		}
+		else return {};
+		
+	}
+
+	std::map<std::string, std::vector<PlayerRaidStats>> data = {
+		std::pair<std::string, std::vector<PlayerRaidStats>>{time,players}
+	};
+
+	return data;
+}
