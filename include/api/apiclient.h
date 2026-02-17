@@ -28,5 +28,7 @@ public:
 	ClanInfo getClanInfo() const;
 	std::vector<Player> getPlayersInfo() const;
 	CapitalRaid getRaidInfo() const;
-	std::map<std::string ,std::vector<PlayerRaidStats>> getPlayersRaidInfo() const;
+	std::vector<PlayerRaidStats> getPlayersRaidInfo() const;
+	ClanWar getClanwarInfo() const;
+	std::vector<PlayerWarStats> getPlayersClanwarInfo() const;
 };

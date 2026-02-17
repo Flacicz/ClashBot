@@ -2,17 +2,26 @@
 
 #include <string>
 #include <vector>
-#include <map>
+#include <memory>
 #include <sqlite3.h>
 
-#include "../models/models.h"
+#include "../database/tableManager.h"
+#include "../database/repos/clanInfoRepo.h"
+#include "../database/repos/raidRepo.h"
+
+class TableManager;
+class ClanInfoRepo;
+class RaidRepo;
 
 class Database {
 private:
 	sqlite3* db;
 	std::string pathToDb;
 
-	
+	mutable std::unique_ptr<TableManager> tableManager;
+
+	mutable std::unique_ptr<ClanInfoRepo> clanInfoRepo;
+	mutable std::unique_ptr<RaidRepo> raidRepo;
 public:
 	struct QueryResult {
 		std::vector<std::string> columns;
@@ -24,15 +33,29 @@ public:
 
 	sqlite3* getDBInstance() const { return db; };
 
-	void initDatabase();
+	TableManager& getTableManager() {
+		if (!tableManager) {
+			tableManager = std::make_unique<TableManager>(this);
+		}
+		return *tableManager;
+	}
 
-	void execute(const std::string& sql);
+	ClanInfoRepo& getClanInfoRepo() {
+		if (!clanInfoRepo) {
+			clanInfoRepo = std::make_unique<ClanInfoRepo>(this);
+		}
+		return *clanInfoRepo;
+	}
+
+	RaidRepo& getRaidRepo() {
+		if (!raidRepo) {
+			raidRepo = std::make_unique<RaidRepo>(this);
+		}
+		return *raidRepo;
+	}
+
+	bool execute(const std::string& sql);
 	bool executePrepeared(sqlite3_stmt* stmt) const;
 	QueryResult query(const std::string& sql);
 	QueryResult queryWithParam(const std::string& sql, const std::string& param);
-
-	bool insertOrUpdateClanInfo(const ClanInfo& clanInfo);
-	bool insertOrUpdatePlayersInfo(const std::vector<Player>& players);
-	bool insertSingleRaidInfo(const CapitalRaid& raid);
-	bool insertSinglePlayersRaidInfo(const std::map<std::string, std::vector<PlayerRaidStats>>& players);
 };

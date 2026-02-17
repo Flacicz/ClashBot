@@ -38,17 +38,16 @@ struct ClanWar {
     std::string result;  // "win", "lose", "tie"
     unsigned short expEarned;
     unsigned short destructionPercentage;
-    long long createdAt;
+
+    bool isEmpty() const { return clanTag == ""; };
 };
 
 struct PlayerWarStats {
     std::string playerTag;
-    unsigned short warId;
     unsigned short attacksCount;
     unsigned short starsCount;
     unsigned short mapPosition;
     std::string rules;
-    long long createdAt;
 };
 
 struct CapitalRaid {
@@ -69,5 +68,4 @@ struct PlayerRaidStats {
     std::string name;
     unsigned short attacksCount;
     unsigned short totalLoot;
-    long long createdAt;
 };
