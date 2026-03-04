@@ -2,7 +2,6 @@
 
 #include "../database/database.h"
 
-#include <iostream>
 #include <vector>
 #include <map>
 #include <string>

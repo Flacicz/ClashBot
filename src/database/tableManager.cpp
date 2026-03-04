@@ -81,7 +81,7 @@ bool TableManager::initRaidDetails() {
 			attacks_count INTEGER DEFAULT 0,
 			total_loot INTEGER DEFAULT 0,
 			created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
-			FOREIGN KEY (raid_id) REFERENCES raid_info(id) ON DELETE CASCADE,
+			FOREIGN KEY (raid_id) REFERENCES raid_summary(id) ON DELETE CASCADE,
 			FOREIGN KEY (player_tag) REFERENCES players_info(tag) ON DELETE CASCADE,
 			UNIQUE (raid_id, player_tag)
 		)
@@ -122,7 +122,7 @@ bool TableManager::initClanwarDetails() {
 			mapPosition INTEGER NOT NULL,
 			rules TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
-			FOREIGN KEY (clanwar_id) REFERENCES cw_info(id) ON DELETE CASCADE,
+			FOREIGN KEY (clanwar_id) REFERENCES clanwar_summary(id) ON DELETE CASCADE,
 			FOREIGN KEY (player_tag) REFERENCES players_info(tag) ON DELETE CASCADE,
 			UNIQUE (clanwar_id, player_tag)
 		)
@@ -131,9 +131,75 @@ bool TableManager::initClanwarDetails() {
 	return db->execute(sql);
 }
 
+bool TableManager::initClanwarLeagueSeason() {
+	std::string sql = R"(
+		CREATE TABLE IF NOT EXISTS clanwar_league_seasons(
+			season_id TEXT PRIMARY KEY,
+			clan_tag TEXT NOT NULL,
+			league TEXT NOT NULL,
+			state TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT (strftime('%s', 'now'))
+		)
+	)";
+
+	return db->execute(sql);
+}
+
+bool TableManager::initClanwaLeagueRounds() {
+	std::string sql = R"(
+		CREATE TABLE IF NOT EXISTS clanwar_league_rounds(
+			war_tag TEXT PRIMARY KEY,
+			season_id TEXT NOT NULL,
+			round INTEGER NOT NULL,
+			opponent_tag TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
+			FOREIGN KEY (season_id) REFERENCES clanwar_league_seasons(season_id) ON DELETE CASCADE
+		)
+	)";
+
+	return db->execute(sql);
+}
+
+bool TableManager::initClanwarLeagueAttacks() {
+	std::string sql = R"(
+		CREATE TABLE IF NOT EXISTS clanwar_league_attacks(
+			attack_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			war_tag TEXT NOT NULL,
+			attacker_tag TEXT NOT NULL,
+			attacker_map_position INTEGER NOT NULL,
+			defender_tag TEXT NOT NULL,
+			defender_map_position INTEGER NOT NULL,
+			rules TEXT NOT NULL,
+			stars INTEGER NOT NULL,
+			destruction INTEGER NOT NULL,
+			duration INTEGER NOT NULL,
+			attacker_th INTEGER NOT NULL,
+			defender_th INTEGER NOT NULL,
+			created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
+			FOREIGN KEY (war_tag) REFERENCES clanwar_league_rounds(war_tag) ON DELETE CASCADE
+		)
+	)";
+
+	return db->execute(sql);
+}
+
+bool TableManager::initClanwarMembers() {
+	std::string sql = R"(
+		CREATE TABLE IF NOT EXISTS clanwar_league_members(
+			player_tag TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			clan_tag TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT (strftime('%s', 'now'))
+		)
+	)";
+
+	return db->execute(sql);
+}
+
 bool TableManager::initAllTables() {
 	return initClanTable() && initPlayersInfoTable() && initRaidSummary() && initRaidDetails() &&
-		   initClanwarSummary() && initClanwarDetails();
+		initClanwarSummary() && initClanwarDetails() && initClanwarLeagueSeason() && initClanwaLeagueRounds() &&
+		initClanwarLeagueAttacks() && initClanwarMembers();
 }
 
 bool TableManager::dropAllTables() {

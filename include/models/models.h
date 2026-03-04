@@ -69,3 +69,17 @@ struct PlayerRaidStats {
     unsigned short attacksCount;
     unsigned short totalLoot;
 };
+
+struct LeagueClanwarSeason {
+    std::string seasonId;
+    std::string clanTag;
+    std::string leagueId;
+    std::string state;
+};
+
+struct LeagueClanwarRound {
+    std::string warTag;
+    std::string seasonId;
+    unsigned short round;
+    std::string opponent_tag;
+};

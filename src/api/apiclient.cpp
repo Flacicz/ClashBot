@@ -155,14 +155,10 @@ ClanWar APIClient::getClanwarInfo() const {
 
 	ClanWar clanwar;
 	if (parsed["state"] == "ended") {
-		std::string win;
-		if (parsed["clan"]["stars"] > parsed["opponent"]["stars"]) win = "win";
-		else if (parsed["clan"]["stars"] == parsed["opponent"]["stars"]) {
-			if (parsed["clan"]["destructionPercentage"] > parsed["opponent"]["destructionPercentage"]) win = "win";
-			else if (parsed["clan"]["destructionPercentage"] == parsed["opponent"]["destructionPercentage"]) win = "tie";
-			else win = "lose";
-		}
-		else win = "lose";
+		std::string win = (parsed["clan"]["stars"] > parsed["opponent"]["stars"]) ? "win" :
+			(parsed["clan"]["stars"] < parsed["opponent"]["stars"]) ? "lose" :
+			(parsed["clan"]["destructionPercentage"] > parsed["opponent"]["destructionPercentage"]) ? "win" :
+			(parsed["clan"]["destructionPercentage"] < parsed["opponent"]["destructionPercentage"]) ? "lose" : "tie";
 		
 		clanwar = {
 			getClanTag(),
@@ -171,7 +167,7 @@ ClanWar APIClient::getClanwarInfo() const {
 			parsed["clan"]["attacks"],
 			parsed["clan"]["stars"],
 			win,
-			0, // parsed["expEarned"],
+			parsed["expEarned"],
 			parsed["clan"]["destructionPercentage"],
 		};
 	}
@@ -219,4 +215,56 @@ std::vector<PlayerWarStats> APIClient::getPlayersClanwarInfo() const {
 	}
 
 	return players;
+}
+
+LeagueClanwarSeason APIClient::getLeagueClanwarSeasonInfo() const {
+	std::string leagueGroupUrl = "/clans/%23" + getClanTag().substr(1, getClanTag().length() - 1) + "/currentwar/leaguegroup";
+	auto leagueGroup = getResponse(leagueGroupUrl);
+
+	std::string clanDataUrl = "/clans/%23" + getClanTag().substr(1, getClanTag().length() - 1);
+	auto clanData = getResponse(clanDataUrl);
+
+	json leagueGroupParsed = json::parse(leagueGroup.text);
+	json clanDataParsed = json::parse(clanData.text);
+
+	LeagueClanwarSeason season = {
+		leagueGroupParsed["season"],
+		getClanTag(),
+		clanDataParsed["warLeague"]["name"],
+		leagueGroupParsed["state"]
+	};
+
+	return season;
+}
+
+std::vector<LeagueClanwarRound> APIClient::getLeagueClanwarRoundsInfo() const {
+	std::string leagueGroupUrl = "/clans/%23" + getClanTag().substr(1, getClanTag().length() - 1) + "/currentwar/leaguegroup";
+	auto leagueGroup = getResponse(leagueGroupUrl);
+
+	json parsed = json::parse(leagueGroup.text);
+
+	std::vector<LeagueClanwarRound> rounds; int counter = 1;
+	for (const auto& round : parsed["rounds"]) {
+		for (const auto& war : round["warTags"]) {
+			std::string warUrl = "/clanwarleagues/wars/%23" + war.get<std::string>().substr(1, getClanTag().length() - 1);
+			auto singleWar = getResponse(warUrl);
+
+			json warParsed = json::parse(singleWar.text);
+
+			if (warParsed["clan"]["tag"] == getClanTag() || warParsed["opponent"]["tag"] == getClanTag()) {
+				LeagueClanwarRound warRound = {
+					war.get<std::string>(),
+					parsed["season"],
+					counter++,
+					(warParsed["clan"]["tag"] == getClanTag()) ? warParsed["opponent"]["tag"] : warParsed["clan"]["tag"]
+				};
+
+				rounds.push_back(warRound);
+
+				break;
+			}
+		}
+	}
+
+	return rounds;
 }

@@ -2,7 +2,6 @@
 
 #include <string>
 #include <vector>
-#include <map>
 
 #include ".././models/models.h"
 
@@ -31,4 +30,6 @@ public:
 	std::vector<PlayerRaidStats> getPlayersRaidInfo() const;
 	ClanWar getClanwarInfo() const;
 	std::vector<PlayerWarStats> getPlayersClanwarInfo() const;
+	LeagueClanwarSeason getLeagueClanwarSeasonInfo() const;
+	std::vector<LeagueClanwarRound> getLeagueClanwarRoundsInfo() const;
 };

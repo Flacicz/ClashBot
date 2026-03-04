@@ -14,18 +14,9 @@ int main() {
 
 	bool isTunnel = 1;
 	APIClient apiClient("#2J8PJ9VLG", isTunnel);
-	Database db("data/database.dblite"); 
+	Database db("data/database.dblite");
 
-	/*db.getClanInfoRepo().insertOrUpdateClanInfo(apiClient.getClanInfo());
-	db.getClanInfoRepo().insertOrUpdatePlayersInfo(apiClient.getPlayersInfo());
-	db.getRaidRepo().insertSingleRaidInfo(apiClient.getRaidInfo());
-	db.getRaidRepo().insertSinglePlayersRaidInfo(apiClient.getPlayersRaidInfo());*/
-
-	//apiClient.getClanwarInfo();
-	apiClient.getPlayersClanwarInfo();
-
-	db.getTableManager().dropAllTables();
-
+	apiClient.getLeagueClanwarRoundsInfo();
 
 	return 0;
 }
