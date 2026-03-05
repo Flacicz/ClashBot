@@ -16,7 +16,7 @@ int main() {
 	APIClient apiClient("#2J8PJ9VLG", isTunnel);
 	Database db("data/database.dblite");
 
-	apiClient.getLeagueClanwarRoundsInfo();
+	db.getTableManager().initAllTables();
 
 	return 0;
 }

@@ -32,4 +32,6 @@ public:
 	std::vector<PlayerWarStats> getPlayersClanwarInfo() const;
 	LeagueClanwarSeason getLeagueClanwarSeasonInfo() const;
 	std::vector<LeagueClanwarRound> getLeagueClanwarRoundsInfo() const;
+	std::vector<LeagueClanwarAttack> getLeagueClanwarAttacksInfo(const std::vector<LeagueClanwarRound>& rounds) const;
+	std::vector<LeagueClanwarMember> getLeagueClanwarMembers() const;
 };

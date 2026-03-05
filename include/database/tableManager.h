@@ -18,7 +18,7 @@ public:
 	bool initClanwarSummary();
 	bool initClanwarDetails();
 	bool initClanwarLeagueSeason();
-	bool initClanwaLeagueRounds();
+	bool initClanwarLeagueRounds();
 	bool initClanwarLeagueAttacks();
 	bool initClanwarMembers();
 

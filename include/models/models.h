@@ -83,3 +83,25 @@ struct LeagueClanwarRound {
     unsigned short round;
     std::string opponent_tag;
 };
+
+struct LeagueClanwarAttack {
+    std::string warTag;
+    std::string attackerClanTag;
+    std::string attackerTag;
+    unsigned short attackerMapPosition;
+    std::string defenderTag;
+    unsigned short defenderMapPosition;
+    std::string rules;
+    unsigned short stars;
+    unsigned short destruction;
+    unsigned short duration;
+    unsigned short attackerTHlvl;
+    unsigned short defenderTHlvl;
+};
+
+struct LeagueClanwarMember {
+    std::string playerTag;
+    std::string seasonId;
+    std::string name;
+    std::string clanTag;
+};
