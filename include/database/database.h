@@ -8,10 +8,12 @@
 #include "../database/tableManager.h"
 #include "../database/repos/clanInfoRepo.h"
 #include "../database/repos/raidRepo.h"
+#include "../database/repos/leagueClanwarRepo.h"
 
 class TableManager;
 class ClanInfoRepo;
 class RaidRepo;
+class LeagueClanwarRepo;
 
 class Database {
 private:
@@ -22,6 +24,7 @@ private:
 
 	mutable std::unique_ptr<ClanInfoRepo> clanInfoRepo;
 	mutable std::unique_ptr<RaidRepo> raidRepo;
+	mutable std::unique_ptr<LeagueClanwarRepo> cwlRepo;
 public:
 	struct QueryResult {
 		std::vector<std::string> columns;
@@ -52,6 +55,13 @@ public:
 			raidRepo = std::make_unique<RaidRepo>(this);
 		}
 		return *raidRepo;
+	}
+
+	LeagueClanwarRepo& getCwlRepo() {
+		if (!cwlRepo) {
+			cwlRepo = std::make_unique<LeagueClanwarRepo>(this);
+		}
+		return *cwlRepo;
 	}
 
 	bool execute(const std::string& sql);
