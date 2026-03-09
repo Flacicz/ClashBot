@@ -16,6 +16,4 @@ public:
 	bool insertOrUpdateSingleCWLRoundsInfo(const std::vector<LeagueClanwarRound>& rounds);
 	bool insertOrUpdateSingleCWLAttacksInfo(const std::vector<LeagueClanwarAttack>& attacks);
 	bool insertOrUpdateSingleCWLMembersInfo(const std::vector<LeagueClanwarMember>& members);
-
-	void updateCWLData();
 };

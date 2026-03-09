@@ -8,6 +8,7 @@
 #include "../include/database/database.h"
 #include "../include/api/apiclient.h"
 #include "../include/service/clanwarLeagueService.h"
+#include "../include/service/raidService.h"
 
 
 using json = nlohmann::json;
@@ -22,10 +23,12 @@ int main() {
 	Database db("data/database.dblite");
 
 	ClanwarLeagueService cwlService(&db, &apiClient);
+	RaidService raidService(&db, &apiClient);
 
 	while (true) {
 		try {
-			cwlService.updateCWLData();
+			//cwlService.updateCWLData();
+			raidService.updateRaidData();
 		}
 		catch (const std::exception& e) {
 			std::cerr << "Критическая ошибка: " << e.what() << std::endl;

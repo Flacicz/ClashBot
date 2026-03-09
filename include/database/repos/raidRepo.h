@@ -13,6 +13,8 @@ private:
 public:
 	RaidRepo(Database* db);
 
-	bool insertSingleRaidInfo(const CapitalRaid& raid);
-	bool insertSinglePlayersRaidInfo(const std::map<std::string, std::vector<PlayerRaidStats>>& players);
+	long long getRaidIdByDate(const std::string& clanTag, const std::string& date);
+
+	bool insertOrUpdateSingleRaidInfo(const CapitalRaid& raid);
+	bool insertOrUpdateSinglePlayersRaidInfo(long long raidId, const std::vector<PlayerRaidStats>& members);
 };

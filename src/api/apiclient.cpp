@@ -86,25 +86,46 @@ CapitalRaid APIClient::getRaidInfo() const {
 	std::string url = "/clans/%23" + getClanTag().substr(1) + "/capitalraidseasons?limit=1";
 	auto response = getResponse(url);
 
+	if (response.status_code != 200) return {};
+
 	json parsed = json::parse(response.text);
+
+	if (!parsed.contains("items") || parsed["items"].empty()) {
+		return {};
+	}
+
+	const auto& part = parsed["items"][0];
+
+	std::string state = part.value("state", "");
+	if (state == "scheduled") {
+		std::cout << "Рейды еще не начались" << std::endl;
+		return {};
+	}
 	
 	CapitalRaid raid;
-	for (const auto& part : parsed["items"]) {
-		if (part["state"] == "ongoing") {
-			raid = {
-				getClanTag(),
-				part["endTime"],
-				part["capitalTotalLoot"],
-				part["raidsCompleted"],
-				part["totalAttacks"],
-				part["enemyDistrictsDestroyed"],
-				part["offensiveReward"],
-				part["defensiveReward"],
-			};
-		}
-		else {
-			std::cout << "Рейд не идет в данное время" << std::endl;
-			return {};
+
+	raid.clanTag = getClanTag();
+
+	std::string fullTime = part.value("endTime", "00000000");
+	raid.date = fullTime.substr(0, 8);
+	raid.state = state;
+
+	raid.totalLoot = part.value("capitalTotalLoot", 0);
+	raid.raidsCompleted = part.value("raidsCompleted", 0);
+	raid.totalAttacks = part.value("totalAttacks", 0);
+	raid.enemyDistrictsDestroyed = part.value("enemyDistrictsDestroyed", 0);
+	raid.offensiveReward = part.value("offensiveReward", 0);
+	raid.defensiveReward = part.value("defensiveReward", 0);
+
+	if (part.contains("members")) {
+		for (const auto& m : part["members"]) {
+			PlayerRaidStats member;
+			member.playerTag = m.value("tag", "");
+			member.name = m.value("name", "Unknown");
+			member.attacksCount = m.value("attacks", 0);
+			member.totalLoot = m.value("capitalResourcesLooted", 0);
+
+			raid.members.push_back(member);
 		}
 	}
 
@@ -112,40 +133,8 @@ CapitalRaid APIClient::getRaidInfo() const {
 }
 
 std::vector<PlayerRaidStats> APIClient::getPlayersRaidInfo() const {
-	std::string url = "/clans/%23" + getClanTag().substr(1) + "/capitalraidseasons?limit=1";
-	auto response = getResponse(url);
-
-	json parsed = json::parse(response.text);
-
-	std::vector<PlayerRaidStats> players;
-	std::string time; int flag = 0;
-	for (const auto& part : parsed["items"]) {
-
-		if (part["state"] == "ongoing") {
-			if (!flag) {
-				time = part["endTime"].get<std::string>();
-				flag = 1;
-			}
-
-			for (const auto& member : part["members"]) {
-				PlayerRaidStats player = {
-					member["tag"],
-					member["name"],
-					member["attacks"],
-					member["capitalResourcesLooted"],
-				};
-
-				players.push_back(player);
-			}
-
-		}
-		else {
-			std::cout << "Рейд не идет в данное время" << std::endl;
-			return {};
-		}
-	}
-
-	return players;
+	auto raid = getRaidInfo();
+	return raid.members;
 }
 
 ClanWar APIClient::getClanwarInfo() const {

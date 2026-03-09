@@ -55,7 +55,8 @@ bool TableManager::initRaidSummary() {
 		CREATE TABLE IF NOT EXISTS raid_summary(
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			clan_tag TEXT NOT NULL,
-			date DATE NOT NULL,
+			date TEXT NOT NULL,
+			state TEXT NOT NULL,
 			total_loot INTEGER DEFAULT 0,
 			raids_completed INTEGER DEFAULT 0,
 			total_attacks INTEGER DEFAULT 0,
@@ -74,7 +75,7 @@ bool TableManager::initRaidSummary() {
 bool TableManager::initRaidDetails() {
 	std::string sql = R"(
 		CREATE TABLE IF NOT EXISTS raid_details(
-			player_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			raid_id INTEGER NOT NULL,
 			player_tag TEXT NOT NULL,
 			name TEXT NOT NULL,
@@ -82,7 +83,6 @@ bool TableManager::initRaidDetails() {
 			total_loot INTEGER DEFAULT 0,
 			created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
 			FOREIGN KEY (raid_id) REFERENCES raid_summary(id) ON DELETE CASCADE,
-			FOREIGN KEY (player_tag) REFERENCES players_info(tag) ON DELETE CASCADE,
 			UNIQUE (raid_id, player_tag)
 		)
 	)";

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 struct ClanInfo {
 	std::string tag;
@@ -50,9 +51,17 @@ struct PlayerWarStats {
     std::string rules;
 };
 
+struct PlayerRaidStats {
+    std::string playerTag;
+    std::string name;
+    unsigned short attacksCount;
+    unsigned short totalLoot;
+};
+
 struct CapitalRaid {
     std::string clanTag;
     std::string date;
+    std::string state;
     unsigned int totalLoot;
     unsigned short raidsCompleted;
     unsigned short totalAttacks;
@@ -60,14 +69,7 @@ struct CapitalRaid {
     unsigned short offensiveReward;
     unsigned short defensiveReward;
 
-    bool isEmpty() const { return clanTag == ""; };
-};
-
-struct PlayerRaidStats {
-    std::string playerTag;
-    std::string name;
-    unsigned short attacksCount;
-    unsigned short totalLoot;
+    std::vector<PlayerRaidStats> members;
 };
 
 struct LeagueClanwarSeason {
