@@ -26,10 +26,15 @@ public:
 
 	ClanInfo getClanInfo() const;
 	std::vector<Player> getPlayersInfo() const;
+
 	CapitalRaid getRaidInfo() const;
 	std::vector<PlayerRaidStats> getPlayersRaidInfo() const;
+
+	ClanwarSeason getClanwarSeason() const;
 	ClanWar getClanwarInfo() const;
-	std::vector<PlayerWarStats> getPlayersClanwarInfo() const;
+	std::vector<ClanwarAttack> getClanwarAttacks() const;
+
+
 	LeagueClanwarSeason getLeagueClanwarSeasonInfo() const;
 	std::vector<LeagueClanwarRound> getLeagueClanwarRoundsInfo() const;
 	std::vector<LeagueClanwarAttack> getLeagueClanwarAttacksInfo(const std::vector<LeagueClanwarRound>& rounds) const;

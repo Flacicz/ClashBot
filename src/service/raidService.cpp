@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <clocale>
+#include <exception>
 
 RaidService::RaidService(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {};
 

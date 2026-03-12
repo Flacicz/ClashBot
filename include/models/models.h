@@ -30,25 +30,35 @@ struct Player {
     long long updatedAt;
 };
 
-struct ClanWar {
+struct ClanwarSeason {
+    std::string seasonId;
     std::string clanTag;
-    std::string date;  // YYYY-MM-DD
-    unsigned short teamSize;
-    unsigned short attacks;
-    unsigned short stars;
-    std::string result;  // "win", "lose", "tie"
-    unsigned short expEarned;
-    unsigned short destructionPercentage;
-
-    bool isEmpty() const { return clanTag == ""; };
 };
 
-struct PlayerWarStats {
-    std::string playerTag;
-    unsigned short attacksCount;
-    unsigned short starsCount;
+struct ClanWar {
+    std::string seasonId;
+    std::string prep_start_time;
+    std::string clanTag;
+    std::string opponentTag;
+    std::string opponentName;
+    unsigned short teamSize;
+    unsigned short clanStars;
+    unsigned short opponentStars;
+    std::string result;  // "win", "lose", "tie"
+};
+
+struct ClanwarAttack {
+    std::string attackerTag;
+    std::string attackerName;
+    unsigned short attackerTh;
     unsigned short mapPosition;
+    std::string defenderTag;
+    unsigned short stars;
+    unsigned short destruction;
+    unsigned short duration;
+    unsigned short orderNum;
     std::string rules;
+    bool isOpponentAttack;
 };
 
 struct PlayerRaidStats {

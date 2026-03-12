@@ -13,10 +13,14 @@ public:
 
 	bool initClanTable();
 	bool initPlayersInfoTable();
+
 	bool initRaidSummary();
 	bool initRaidDetails();
+
+	bool initClanwarSeason();
 	bool initClanwarSummary();
-	bool initClanwarDetails();
+	bool initClanwarAttacks();
+
 	bool initClanwarLeagueSeason();
 	bool initClanwarLeagueRounds();
 	bool initClanwarLeagueAttacks();

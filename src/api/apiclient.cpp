@@ -137,74 +137,166 @@ std::vector<PlayerRaidStats> APIClient::getPlayersRaidInfo() const {
 	return raid.members;
 }
 
+ClanwarSeason APIClient::getClanwarSeason() const {
+	std::string url = "/clans/%23" + getClanTag().substr(1) + "/currentwar";
+	auto response = getResponse(url);
+	
+	if (response.status_code != 200) return {};
+
+	json parsed = json::parse(response.text);
+
+	if (!parsed.contains("preparationStartTime") || parsed["state"] == "notInWar") {
+		return {};
+	}
+
+	ClanwarSeason season = {
+		parsed["preparationStartTime"].get<std::string>().substr(0, 6),
+		getClanTag()
+	};
+
+	return season;
+}
+
 ClanWar APIClient::getClanwarInfo() const {
 	std::string url = "/clans/%23" + getClanTag().substr(1) + "/currentwar";
 	auto response = getResponse(url);
 
+	if (response.status_code != 200) return {};
+
 	json parsed = json::parse(response.text);
 
+	if (!parsed.contains("state") || parsed["state"] == "notInWar") {
+		std::cout << "Клан не участвует в войне в данный момент." << std::endl;
+		return {};
+	}
+
 	ClanWar clanwar;
-	if (parsed["state"] == "ended") {
-		std::string win = (parsed["clan"]["stars"] > parsed["opponent"]["stars"]) ? "win" :
-			(parsed["clan"]["stars"] < parsed["opponent"]["stars"]) ? "lose" :
-			(parsed["clan"]["destructionPercentage"] > parsed["opponent"]["destructionPercentage"]) ? "win" :
-			(parsed["clan"]["destructionPercentage"] < parsed["opponent"]["destructionPercentage"]) ? "lose" : "tie";
-		
+	std::string state = parsed["state"];
+
+	if (state == "warEnded" || state == "inWar") {
+
+		int clanStars = parsed["clan"]["stars"].get<int>();
+		int oppStars = parsed["opponent"]["stars"].get<int>();
+		double clanDestr = parsed["clan"]["destructionPercentage"].get<double>();
+		double oppDestr = parsed["opponent"]["destructionPercentage"].get<double>();
+
+		std::string result = "ongoing";
+
+		if (state == "warEnded") {
+			if (clanStars > oppStars) result = "win";
+			else if (clanStars < oppStars) result = "lose";
+			else {
+				if (clanDestr > oppDestr) result = "win";
+				else if (clanDestr < oppDestr) result = "lose";
+				else result = "tie";
+			}
+		}
+
 		clanwar = {
+			parsed["preparationStartTime"].get<std::string>().substr(0, 6),
+			parsed["preparationStartTime"],
 			getClanTag(),
-			parsed["endTime"],
-			parsed["teamSize"],
-			parsed["clan"]["attacks"],
-			parsed["clan"]["stars"],
-			win,
-			parsed["expEarned"],
-			parsed["clan"]["destructionPercentage"],
+			parsed["opponent"]["tag"],
+			parsed["opponent"]["name"],
+			(unsigned short)parsed["teamSize"].get<int>(),
+			(unsigned short)clanStars,
+			(unsigned short)oppStars,
+			result
 		};
+
 	}
 	else {
-		std::cout << "Клановая война не идет в данное время" << std::endl;
+		std::cout << "Война в состоянии подготовки или не активна." << std::endl;
 		return {};
 	}
 
 	return clanwar;
 }
 
-std::vector<PlayerWarStats> APIClient::getPlayersClanwarInfo() const {
+std::vector<ClanwarAttack> APIClient::getClanwarAttacks() const {
+	struct MemberInfo {
+		int mapPos;
+		int thLevel;
+	};
+
 	std::string url = "/clans/%23" + getClanTag().substr(1) + "/currentwar";
 	auto response = getResponse(url);
+	if (response.status_code != 200) return {};
 
 	json parsed = json::parse(response.text);
+	std::string state = parsed["state"];
+	if (state == "notInWar") return {};
+	
+	std::vector<ClanwarAttack> attacks;
+	std::map<std::string, MemberInfo> playersLookup;
 
-	std::vector<PlayerWarStats> players;
-	std::string time;
-	if (parsed["state"] == "ended") {
-
-		time = parsed["endTime"].get<std::string>();
-		for (const auto& member : parsed["clan"]["members"]) {
-			if (!member.contains("attacks")) continue;
-
-			std::string rules;
-			for (const auto& opponent : parsed["opponent"]["members"]) {
-				if (!member["attacks"].empty() && opponent["tag"] == member["attacks"][0]["defenderTag"]) {
-					rules = (member["mapPosition"] == opponent["mapPosition"]) ? "mirror" : "not mirror";
-					break;
-				}
+	for (const std::string side : {"clan", "opponent"}) {
+		if (parsed.contains(side) && parsed[side].contains("members")) {
+			for (const auto& m : parsed[side]["members"]) {
+				playersLookup[m["tag"]] = { m["mapPosition"], m["townhallLevel"] };
 			}
-
-			PlayerWarStats player = {
-				member["tag"],
-				(member.contains("attacks")) ? member["attacks"].size() : 0,
-				(member.contains("attacks")) ? member["attacks"][0]["stars"].get<int>() : 0,
-				member["mapPosition"],
-				rules
-			};
-
-			players.push_back(player);
 		}
-
 	}
 
-	return players;
+	auto processMembers = [&](const json& sideData) {
+		std::string currentClanTag = sideData["tag"];
+		bool isOurClan = (currentClanTag == getClanTag());
+
+		for (const auto& member : sideData["members"]) {
+			std::string aTag = member["tag"];
+			auto it = playersLookup.find(aTag);
+			if (it == playersLookup.end()) continue;
+
+			unsigned short aPos = (unsigned short)it->second.mapPos;
+			unsigned short aTH = (unsigned short)it->second.thLevel;
+
+			if (member.contains("attacks") && !member["attacks"].empty()) {
+				for (const auto& jsonAttack : member["attacks"]) {
+					std::string dTag = jsonAttack["defenderTag"];
+					auto dIt = playersLookup.find(dTag);
+
+					unsigned short dPos = (dIt != playersLookup.end()) ? (unsigned short)dIt->second.mapPos : 0;
+					unsigned short dTH = (dIt != playersLookup.end()) ? (unsigned short)dIt->second.thLevel : 0;
+
+					attacks.push_back({
+						aTag,
+						member["name"],
+						aTH,
+						aPos,
+						dTag,
+						(unsigned short)jsonAttack["stars"].get<int>(),
+						(unsigned short)jsonAttack["destructionPercentage"].get<int>(),
+						(unsigned short)jsonAttack["duration"].get<int>(),
+						(unsigned short)jsonAttack["order"].get<int>(),
+						(aPos == dPos) ? "Mirror" : "Not mirror",
+						!isOurClan
+					});
+				}
+
+				if (state == "warEnded" && isOurClan && member["attacks"].size() < 2) {
+					attacks.push_back({
+						aTag, member["name"], aTH, aPos, "NONE",
+						0, 0, 0, (unsigned short)998, "Missed (1/2)", false
+					});
+				}
+			}
+			else if (state == "warEnded" && isOurClan) {
+				for (int i = 0; i < 2; ++i) {
+					attacks.push_back({
+						aTag, member["name"], aTH, aPos, "NONE",
+						0, 0, 0, (unsigned short)(990 + i), "Missed", false
+						});
+				}
+			}
+		}
+		};
+
+	if (state == "warEnded" || state == "inWar") {
+		processMembers(parsed["clan"]);
+		processMembers(parsed["opponent"]);
+	}
+
+	return attacks;
 }
 
 LeagueClanwarSeason APIClient::getLeagueClanwarSeasonInfo() const {
@@ -348,6 +440,7 @@ std::vector<LeagueClanwarAttack> APIClient::getLeagueClanwarAttacksInfo(const st
                             dTH
                         });
                     }
+
                 } 
                 else if (warState == "warEnded") {
                     attacks.push_back({
@@ -365,7 +458,6 @@ std::vector<LeagueClanwarAttack> APIClient::getLeagueClanwarAttacksInfo(const st
             }
         };
 
-        // 4. Запускаем обработку для обеих сторон
         processMembers(warParsed["clan"]);
         processMembers(warParsed["opponent"]);
 	}

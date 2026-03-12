@@ -6,8 +6,6 @@
 ClanwarLeagueService::ClanwarLeagueService(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {};
 
 void ClanwarLeagueService::updateCWLData() {
-	setlocale(LC_ALL, "RUS");
-
 	std::cout << "--- Начинаю обновление данных CWL ---" << std::endl;
 
 	auto season = apiClient->getLeagueClanwarSeasonInfo();

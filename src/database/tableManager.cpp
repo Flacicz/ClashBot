@@ -90,41 +90,57 @@ bool TableManager::initRaidDetails() {
 	return db->execute(sql);
 }
 
-bool TableManager::initClanwarSummary() {
+bool TableManager::initClanwarSeason() {
 	std::string sql = R"(
-		CREATE TABLE IF NOT EXISTS clanwar_summary(
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+		CREATE TABLE IF NOT EXISTS clanwar_seasons(
+			season_id TEXT PRIMARY KEY,
 			clan_tag TEXT NOT NULL,
-			date DATE NOT NULL,
-			team_size INTEGER NOT NULL,
-			attacks INTEGER DEFAULT 0,
-			stars INTEGER DEFAULT 0,
-			result TEXT NOT NULL CHECK(result IN ('win', 'lose', 'tie')),
-			exp_earned INTEGER DEFAULT 0,
-			destruction_percentage INTEGER DEFAULT 0,
-			created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
-			FOREIGN KEY (clan_tag) REFERENCES clan_info(tag) ON DELETE CASCADE,
-			UNIQUE(clan_tag, date)
+			created_at TIMESTAMP DEFAULT (strftime('%s', 'now'))
 		)
 	)";
 
 	return db->execute(sql);
 }
 
-bool TableManager::initClanwarDetails() {
+bool TableManager::initClanwarSummary() {
+	std::string sql = R"(
+		CREATE TABLE IF NOT EXISTS clanwar_summary(
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			season_id TEXT NOT NULL,
+			prep_start_time TEXT NOT NULL,
+			clan_tag TEXT NOT NULL,
+			opponent_tag TEXT NOT NULL,
+            opponent_name TEXT,
+			team_size INTEGER NOT NULL,
+			clan_stars INTEGER DEFAULT 0,
+			opp_stars INTEGER DEFAULT 0,
+            result TEXT CHECK(result IN ('win', 'lose', 'tie', 'ongoing')),
+            FOREIGN KEY (season_id) REFERENCES clanwar_seasons(season_id) ON DELETE CASCADE,
+            UNIQUE(prep_start_time, clan_tag)
+		)
+	)";
+
+	return db->execute(sql);
+}
+
+bool TableManager::initClanwarAttacks() {
 	std::string sql = R"(
 		CREATE TABLE IF NOT EXISTS clanwar_details(
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			clanwar_id INTEGER NOT NULL,
-			player_tag TEXT NOT NULL,
-			attacks_count INTEGER DEFAULT 0,
-			stars_count INTEGER DEFAULT 0,
-			mapPosition INTEGER NOT NULL,
-			rules TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
-			FOREIGN KEY (clanwar_id) REFERENCES clanwar_summary(id) ON DELETE CASCADE,
-			FOREIGN KEY (player_tag) REFERENCES players_info(tag) ON DELETE CASCADE,
-			UNIQUE (clanwar_id, player_tag)
+			attack_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			war_id INTEGER NOT NULL,
+			attacker_tag TEXT NOT NULL,
+            attacker_name TEXT NOT NULL,
+            attacker_th INTEGER NOT NULL,
+            map_position INTEGER NOT NULL,
+            defender_tag TEXT,
+			stars INTEGER DEFAULT 0,
+            destruction INTEGER DEFAULT 0,
+            duration INTEGER DEFAULT 0,
+            order_num INTEGER,
+            rules TEXT NOT NULL,
+            is_opponent_attack INTEGER DEFAULT 0,
+            FOREIGN KEY (war_id) REFERENCES clanwar_summary(id) ON DELETE CASCADE,
+            UNIQUE(war_id, attacker_tag, order_num)
 		)
 	)";
 
@@ -201,8 +217,8 @@ bool TableManager::initClanwarMembers() {
 }
 
 bool TableManager::initAllTables() {
-	return initClanTable() && initPlayersInfoTable() && initRaidSummary() && initRaidDetails() &&
-		initClanwarSummary() && initClanwarDetails() && initClanwarLeagueSeason() && initClanwarLeagueRounds() &&
+	return initClanTable() && initPlayersInfoTable() && initRaidSummary() && initRaidDetails() && initClanwarSeason() &&
+		initClanwarSummary() && initClanwarAttacks() && initClanwarLeagueSeason() && initClanwarLeagueRounds() &&
 		initClanwarLeagueAttacks() && initClanwarMembers();
 }
 

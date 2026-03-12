@@ -14,6 +14,9 @@ private:
 public:
 	ClanwarRepo(Database* db);
 
-	bool insertSingleClanwarInfo(const ClanWar& raid);
-	bool insertSinglePlayersClanwarInfo(const std::map<std::string, std::vector<PlayerWarStats>>& players);
+	bool insertSingleClanwarSeasonInfo(const ClanwarSeason& season);
+	bool insertSingleClanwarInfo(const ClanWar& clanwar);
+	bool insertSingleClanwarAttacksInfo(std::string warId, std::vector<ClanwarAttack> attacks);
+
+	std::string getClanwarIdByDate(const std::string& clanTag, const std::string& date);
 };
