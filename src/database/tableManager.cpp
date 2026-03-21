@@ -133,6 +133,7 @@ bool TableManager::initClanwarAttacks() {
             attacker_th INTEGER NOT NULL,
             map_position INTEGER NOT NULL,
             defender_tag TEXT,
+			defender_th INTEGER NOT NULL,
 			stars INTEGER DEFAULT 0,
             destruction INTEGER DEFAULT 0,
             duration INTEGER DEFAULT 0,

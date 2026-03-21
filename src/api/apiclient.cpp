@@ -1,4 +1,4 @@
-#include "../api/apiclient.h"
+ï»¿#include "../api/apiclient.h"
 #include "../models/models.h"
 
 #include <cpr/cpr.h>
@@ -26,7 +26,7 @@ auto APIClient::getResponse(const std::string& urlPart) const {
 		cpr::Timeout(10000)
 	);
 
-	if (response.status_code != 200) std::cerr << "Íå óäàëîñü âûïîëíèòü çàïðîñ, êîä îøèáêè: " << response.status_code << std::endl;
+	if (response.status_code != 200) std::cerr << "ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð²Ñ‹Ð¿Ð¾Ð»Ð½Ð¸Ñ‚ÑŒ Ð·Ð°Ð¿Ñ€Ð¾Ñ, ÐºÐ¾Ð´ Ð¾ÑˆÐ¸Ð±ÐºÐ¸: " << response.status_code << std::endl;
 	else std::cout << response.status_code << std::endl;
 
 	return response;
@@ -98,7 +98,7 @@ CapitalRaid APIClient::getRaidInfo() const {
 
 	std::string state = part.value("state", "");
 	if (state == "scheduled") {
-		std::cout << "Ðåéäû åùå íå íà÷àëèñü" << std::endl;
+		std::cout << "Ð ÐµÐ¹Ð´Ñ‹ ÐµÑ‰Ðµ Ð½Ðµ Ð½Ð°Ñ‡Ð°Ð»Ð¸ÑÑŒ" << std::endl;
 		return {};
 	}
 	
@@ -166,7 +166,7 @@ ClanWar APIClient::getClanwarInfo() const {
 	json parsed = json::parse(response.text);
 
 	if (!parsed.contains("state") || parsed["state"] == "notInWar") {
-		std::cout << "Êëàí íå ó÷àñòâóåò â âîéíå â äàííûé ìîìåíò." << std::endl;
+		std::cout << "ÐšÐ»Ð°Ð½ Ð½Ðµ ÑƒÑ‡Ð°ÑÑ‚Ð²ÑƒÐµÑ‚ Ð² Ð²Ð¾Ð¹Ð½Ðµ Ð² Ð´Ð°Ð½Ð½Ñ‹Ð¹ Ð¼Ð¾Ð¼ÐµÐ½Ñ‚." << std::endl;
 		return {};
 	}
 
@@ -206,7 +206,7 @@ ClanWar APIClient::getClanwarInfo() const {
 
 	}
 	else {
-		std::cout << "Âîéíà â ñîñòîÿíèè ïîäãîòîâêè èëè íå àêòèâíà." << std::endl;
+		std::cout << "Ð’Ð¾Ð¹Ð½Ð° Ð² ÑÐ¾ÑÑ‚Ð¾ÑÐ½Ð¸Ð¸ Ð¿Ð¾Ð´Ð³Ð¾Ñ‚Ð¾Ð²ÐºÐ¸ Ð¸Ð»Ð¸ Ð½Ðµ Ð°ÐºÑ‚Ð¸Ð²Ð½Ð°." << std::endl;
 		return {};
 	}
 
@@ -264,6 +264,7 @@ std::vector<ClanwarAttack> APIClient::getClanwarAttacks() const {
 						aTH,
 						aPos,
 						dTag,
+						dTH,
 						(unsigned short)jsonAttack["stars"].get<int>(),
 						(unsigned short)jsonAttack["destructionPercentage"].get<int>(),
 						(unsigned short)jsonAttack["duration"].get<int>(),
@@ -276,7 +277,7 @@ std::vector<ClanwarAttack> APIClient::getClanwarAttacks() const {
 				if (state == "warEnded" && isOurClan && member["attacks"].size() < 2) {
 					attacks.push_back({
 						aTag, member["name"], aTH, aPos, "NONE",
-						0, 0, 0, (unsigned short)998, "Missed (1/2)", false
+						0, 0, 0, 0, (unsigned short)998, "Missed (1/2)", false
 					});
 				}
 			}
@@ -284,8 +285,8 @@ std::vector<ClanwarAttack> APIClient::getClanwarAttacks() const {
 				for (int i = 0; i < 2; ++i) {
 					attacks.push_back({
 						aTag, member["name"], aTH, aPos, "NONE",
-						0, 0, 0, (unsigned short)(990 + i), "Missed", false
-						});
+						0, 0, 0, 0, (unsigned short)(990 + i), "Missed", false
+					});
 				}
 			}
 		}

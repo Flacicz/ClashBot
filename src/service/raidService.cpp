@@ -1,51 +1,105 @@
-#include "../../include/service/raidService.h"
+ï»¿#include "../../include/service/raidService.h"
 
 #include <iostream>
-#include <clocale>
 #include <exception>
+#include <unordered_set>
+#include <string>
+#include <iomanip>
+
+#include "../../include/models/models.h"
 
 RaidService::RaidService(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {};
 
 void RaidService::updateRaidData() {
-    setlocale(LC_ALL, "RUS");
+    std::cout << "--- ÐÐ°Ñ‡Ð¸Ð½Ð°ÑŽ Ð¾Ð±Ð½Ð¾Ð²Ð»ÐµÐ½Ð¸Ðµ Ð´Ð°Ð½Ð½Ñ‹Ñ… Capital Raids ---" << std::endl;
 
-    std::cout << "--- Íà÷èíàþ îáíîâëåíèå äàííûõ Capital Raids ---" << std::endl;
-
-    // 1. Ïîëó÷àåì ïîëíûå äàííûå èç API (Summary + Members)
     auto raid = apiClient->getRaidInfo();
 
     if (raid.date.empty()) {
-        std::cout << "Äàííûå î ðåéäàõ ñåé÷àñ íåäîñòóïíû." << std::endl;
+        std::cout << "Ð”Ð°Ð½Ð½Ñ‹Ðµ Ð¾ Ñ€ÐµÐ¹Ð´Ð°Ñ… ÑÐµÐ¹Ñ‡Ð°Ñ Ð½ÐµÐ´Ð¾ÑÑ‚ÑƒÐ¿Ð½Ñ‹." << std::endl;
     }
     else {
-        // Íà÷èíàåì òðàíçàêöèþ ÷åðåç îáúåêò ÁÄ
         db->execute("BEGIN TRANSACTION;");
 
         try {
-            // 2. Çàïèñûâàåì îáùóþ ñâîäêó
             if (!db->getRaidRepo().insertOrUpdateSingleRaidInfo(raid)) {
-                throw std::runtime_error("Îøèáêà ïðè çàïèñè raid_summary");
+                throw std::runtime_error("ÐžÑˆÐ¸Ð±ÐºÐ° Ð¿Ñ€Ð¸ Ð·Ð°Ð¿Ð¸ÑÐ¸ raid_summary");
             }
 
-            // 3. Ïîëó÷àåì ID òåêóùåãî ðåéäà äëÿ ñâÿçè òàáëèö
             long long currentRaidId = db->getRaidRepo().getRaidIdByDate(raid.clanTag, raid.date);
             if (currentRaidId == -1) {
-                throw std::runtime_error("Íå óäàëîñü ïîëó÷èòü ID ðåéäà èç áàçû");
+                throw std::runtime_error("ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¿Ð¾Ð»ÑƒÑ‡Ð¸Ñ‚ÑŒ ID Ñ€ÐµÐ¹Ð´Ð° Ð¸Ð· Ð±Ð°Ð·Ñ‹");
             }
 
-            // 4. Çàïèñûâàåì ñïèñîê ó÷àñòíèêîâ (ïåðåäàåì ïîëó÷åííûé ID)
             if (!db->getRaidRepo().insertOrUpdateSinglePlayersRaidInfo(currentRaidId, raid.members)) {
-                throw std::runtime_error("Îøèáêà ïðè çàïèñè raid_details");
+                throw std::runtime_error("ÐžÑˆÐ¸Ð±ÐºÐ° Ð¿Ñ€Ð¸ Ð·Ð°Ð¿Ð¸ÑÐ¸ raid_details");
             }
 
             db->execute("COMMIT;");
-            std::cout << "Äàííûå ðåéäîâ çà " << raid.date << " óñïåøíî îáíîâëåíû." << std::endl;
-            std::cout << "Âñåãî ó÷àñòíèêîâ â áàçå: " << raid.members.size() << std::endl;
+            std::cout << "Ð”Ð°Ð½Ð½Ñ‹Ðµ Ñ€ÐµÐ¹Ð´Ð¾Ð² Ð·Ð° " << raid.date << " ÑƒÑÐ¿ÐµÑˆÐ½Ð¾ Ð¾Ð±Ð½Ð¾Ð²Ð»ÐµÐ½Ñ‹." << std::endl;
+            std::cout << "Ð’ÑÐµÐ³Ð¾ ÑƒÑ‡Ð°ÑÑ‚Ð½Ð¸ÐºÐ¾Ð² Ð² Ð±Ð°Ð·Ðµ: " << raid.members.size() << std::endl;
 
         }
         catch (const std::exception& e) {
             db->execute("ROLLBACK;");
-            std::cout << "Êðèòè÷åñêàÿ îøèáêà ïðè ñîõðàíåíèè ðåéäîâ: " << e.what() << std::endl;
+            std::cout << "ÐšÑ€Ð¸Ñ‚Ð¸Ñ‡ÐµÑÐºÐ°Ñ Ð¾ÑˆÐ¸Ð±ÐºÐ° Ð¿Ñ€Ð¸ ÑÐ¾Ñ…Ñ€Ð°Ð½ÐµÐ½Ð¸Ð¸ Ñ€ÐµÐ¹Ð´Ð¾Ð²: " << e.what() << std::endl;
         }
     }
+}
+
+void RaidService::printRaidSlackers(const std::vector<PlayerRaidStats>& slackers) {
+    long long lastId = db->getRaidRepo().getLastRaidId(apiClient->getClanTag());
+    if (lastId == -1) std::cout << "Ð”Ð°Ð½Ð½Ñ‹Ðµ Ð½Ðµ Ð½Ð°Ð¹Ð´ÐµÐ½Ñ‹." << std::endl;
+
+    std::unordered_set<std::string> slackers_set;
+    for (const auto& s : slackers) slackers_set.insert(s.name);
+
+    std::cout << "\n==============================================" << std::endl;
+    std::cout << "   ÐžÐ¢Ð§Ð•Ð¢ ÐŸÐž Ð Ð•Ð™Ð”ÐÐœ ÐšÐ›ÐÐÐ: " << apiClient->getClanTag() << std::endl;
+    std::cout << "==============================================" << std::endl;
+
+    std::vector<Player> players = apiClient->getPlayersInfo();
+
+    bool hasAnyProblems = false;
+
+    // 2. Ð“Ñ€ÑƒÐ¿Ð¿Ð°: ÐÐµ Ð·Ð°ÐºÐ¾Ð½Ñ‡Ð¸Ð»Ð¸ Ð°Ñ‚Ð°ÐºÐ¸ (1-5 Ð¸Ð· 6)
+    bool headerPrinted = false;
+    for (const auto& s : slackers) {
+        if (s.attacksCount > 0 && s.attacksCount < 6) {
+            if (!headerPrinted) {
+                std::cout << "\n [!] ÐÐ• Ð—ÐÐšÐžÐÐ§Ð˜Ð›Ð˜ ÐÐ¢ÐÐšÐ˜ (1-5 Ð¸Ð· 6):" << std::endl;
+                std::cout << " ----------------------------------------------" << std::endl;
+                headerPrinted = true;
+            }
+            // std::left Ð¸ std::setw(20) Ð²Ñ‹Ñ€Ð°Ð²Ð½Ð¸Ð²Ð°ÑŽÑ‚ Ð½Ð¸ÐºÐ¸ Ð¿Ð¾ Ð»ÐµÐ²Ð¾Ð¼Ñƒ ÐºÑ€Ð°ÑŽ (ÑˆÐ¸Ñ€Ð¸Ð½Ð° 20 ÑÐ¸Ð¼Ð²Ð¾Ð»Ð¾Ð²)
+            std::cout << "  " << std::left << std::setw(20) << s.name
+                << " | ÐžÑÑ‚Ð°Ð»Ð¾ÑÑŒ: " << (6 - s.attacksCount)
+                << " (Ð¡Ð´ÐµÐ»Ð°Ð½Ð¾: " << s.attacksCount << "/6)" << std::endl;
+            hasAnyProblems = true;
+        }
+    }
+
+    // 3. Ð“Ñ€ÑƒÐ¿Ð¿Ð°: ÐŸÑ€Ð¾Ð³ÑƒÐ»ÑŒÑ‰Ð¸ÐºÐ¸ (0 Ð°Ñ‚Ð°Ðº)
+    headerPrinted = false;
+    for (const auto& p : players) {
+        if (slackers_set.find(p.name) == slackers_set.end()) {
+            if (!headerPrinted) {
+                std::cout << "\n [X] Ð’ÐžÐžÐ‘Ð©Ð• ÐÐ• ÐÐ¢ÐÐšÐžÐ’ÐÐ›Ð˜ (0 Ð¸Ð· 6):" << std::endl;
+                std::cout << " ----------------------------------------------" << std::endl;
+                headerPrinted = true;
+            }
+            std::cout << "  " << p.name << std::endl;
+            hasAnyProblems = true;
+        }
+    }
+
+    // 4. Ð˜Ñ‚Ð¾Ð³Ð¾Ð²Ñ‹Ð¹ ÑÑ‚Ð°Ñ‚ÑƒÑ
+    std::cout << "\n==============================================" << std::endl;
+    if (!hasAnyProblems) {
+        std::cout << "  Ð’Ð¡Ð• ÐœÐžÐ›ÐžÐ”Ð¦Ð«! Ð’ÑÐµ Ð°Ñ‚Ð°ÐºÐ¸ Ð·Ð°Ð²ÐµÑ€ÑˆÐµÐ½Ñ‹. " << std::endl;
+    }
+    else {
+        std::cout << "  Ð˜Ð¢ÐžÐ“Ðž: ÐÑƒÐ¶Ð½Ð¾ Ð´Ð¾Ð¶Ð°Ñ‚ÑŒ Ð°Ñ‚Ð°ÐºÐ¸." << std::endl;
+    }
+    std::cout << "==============================================\n" << std::endl;
 }

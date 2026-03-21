@@ -2,6 +2,7 @@
 
 #include "../database/database.h"
 #include "../api/apiclient.h"
+#include "../models/models.h"
 
 class RaidService {
 private:
@@ -11,4 +12,5 @@ public:
 	RaidService(Database* db, APIClient* apiClient);
 
 	void updateRaidData();
+	void printRaidSlackers(const std::vector<PlayerRaidStats>& slackers);
 };

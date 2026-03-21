@@ -1,9 +1,9 @@
 ﻿#include <nlohmann/json.hpp>
 #include <iostream>
-#include <clocale>
 #include <exception>
 #include <chrono>
 #include <thread>
+#include <windows.h>
 
 #include "../include/database/database.h"
 #include "../include/api/apiclient.h"
@@ -16,7 +16,7 @@
 using json = nlohmann::json;
 
 int main() {
-	setlocale(LC_ALL, "RUS");
+	SetConsoleOutputCP(65001);
 
 	std::cout << "Clash of Clans Tracker запущен!\n\n\n";
 
@@ -32,10 +32,12 @@ int main() {
 	while (true) {
 		try {
 			clanInfoService.updateClanInfo();
-
-			cwlService.updateCWLData();
-			raidService.updateRaidData();
 			cwService.updateCWData();
+
+			//cwlService.updateCWLData();
+			//raidService.updateRaidData();
+
+			//raidService.printRaidSlackers(db.getRaidRepo().checkSlackers(db.getRaidRepo().getLastRaidId(apiClient.getClanTag())));
 		}
 		catch (const std::exception& e) {
 			std::cerr << "Критическая ошибка: " << e.what() << std::endl;

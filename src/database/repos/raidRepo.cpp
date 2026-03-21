@@ -1,4 +1,4 @@
-#include "../database/repos/raidRepo.h"
+ï»¿#include "../database/repos/raidRepo.h"
 
 #include "../database/database.h"
 
@@ -23,7 +23,7 @@ bool RaidRepo::insertOrUpdateSingleRaidInfo(const CapitalRaid& raid) {
 	)";
 
 	if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-		std::cerr << "Íå óäàëîñü ïîäãîòîâèòü çàïðîñ: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
+		std::cerr << "ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¿Ð¾Ð´Ð³Ð¾Ñ‚Ð¾Ð²Ð¸Ñ‚ÑŒ Ð·Ð°Ð¿Ñ€Ð¾Ñ: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
 		return false;
 	}
 
@@ -65,6 +65,25 @@ long long RaidRepo::getRaidIdByDate(const std::string& clanTag, const std::strin
 	return id;
 }
 
+long long RaidRepo::getLastRaidId(const std::string& clanTag) {
+	std::string getId = "SELECT id FROM raid_summary WHERE clan_tag = ? ORDER BY date DESC LIMIT 1";
+	sqlite3_stmt* stmt;
+
+	if (sqlite3_prepare_v2(db->getDBInstance(), getId.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+		return -1;
+	}
+
+	sqlite3_bind_text(stmt, 1, clanTag.c_str(), -1, SQLITE_TRANSIENT);
+
+	long long id = -1;
+	if (sqlite3_step(stmt) == SQLITE_ROW) {
+		id = sqlite3_column_int64(stmt, 0);
+	}
+
+	sqlite3_finalize(stmt);
+	return id;
+}
+
 bool RaidRepo::insertOrUpdateSinglePlayersRaidInfo(long long raidId, const std::vector<PlayerRaidStats>& members) {
 	sqlite3_stmt* stmt;
 
@@ -84,7 +103,7 @@ bool RaidRepo::insertOrUpdateSinglePlayersRaidInfo(long long raidId, const std::
 	)";
 
 	if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-		std::cerr << "Íå óäàëîñü ïîäãîòîâèòü çàïðîñ: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
+		std::cerr << "ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¿Ð¾Ð´Ð³Ð¾Ñ‚Ð¾Ð²Ð¸Ñ‚ÑŒ Ð·Ð°Ð¿Ñ€Ð¾Ñ: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
 		return false;
 	}
 
@@ -99,7 +118,7 @@ bool RaidRepo::insertOrUpdateSinglePlayersRaidInfo(long long raidId, const std::
 		sqlite3_bind_int(stmt, 5, m.totalLoot);
 
 		if (sqlite3_step(stmt) != SQLITE_DONE) {
-			std::cerr << "Îøèáêà âñòàâêè ó÷àñòíèêà ðåéäà: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
+			std::cerr << "ÐžÑˆÐ¸Ð±ÐºÐ° Ð²ÑÑ‚Ð°Ð²ÐºÐ¸ ÑƒÑ‡Ð°ÑÑ‚Ð½Ð¸ÐºÐ° Ñ€ÐµÐ¹Ð´Ð°: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
 			sqlite3_finalize(stmt);
 			return false;
 		}
@@ -107,4 +126,36 @@ bool RaidRepo::insertOrUpdateSinglePlayersRaidInfo(long long raidId, const std::
 
 	sqlite3_finalize(stmt);
 	return true;
+}
+
+std::vector<PlayerRaidStats> RaidRepo::checkSlackers(long long raidId) {
+	sqlite3_stmt* stmt;
+
+	std::string sql = R"(
+		SELECT player_tag, name, attacks_count, total_loot FROM raid_details
+		WHERE raid_id = ?
+		ORDER BY attacks_count ASC
+	)";
+
+	std::vector<PlayerRaidStats> slackers;
+
+	if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+		std::cerr << "ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¿Ð¾Ð´Ð³Ð¾Ñ‚Ð¾Ð²Ð¸Ñ‚ÑŒ Ð·Ð°Ð¿Ñ€Ð¾Ñ: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
+		return {};
+	}
+
+	sqlite3_bind_int64(stmt, 1, raidId);
+
+	while (sqlite3_step(stmt) == SQLITE_ROW) {
+		PlayerRaidStats p;
+		p.playerTag = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+		p.name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+		p.attacksCount = sqlite3_column_int(stmt, 2);
+		p.totalLoot = sqlite3_column_int(stmt, 3);
+		slackers.push_back(p);
+	}
+
+	sqlite3_finalize(stmt);
+
+	return slackers;
 }

@@ -72,26 +72,26 @@ bool ClanwarRepo::insertSingleClanwarInfo(const ClanWar& clanwar) {
 }
 
 bool ClanwarRepo::insertSingleClanwarAttacksInfo(std::string warId, std::vector<ClanwarAttack> attacks) {
-	std::string getRowId = "SELECT id FROM clanwar_summary WHERE clan_tag = ? AND prep_start_time = ?";
 	sqlite3_stmt* stmt;
 
 	std::string sql = R"(
 		INSERT INTO clanwar_details(
-        war_id, -- В таблице это INTEGER, но мы передадим строку в подзапрос
-        attacker_tag,
-        attacker_name,
-        attacker_th,
-        map_position,
-        defender_tag,
-        stars,
-        destruction,
-        duration,
-        order_num,
-        rules,
-        is_opponent_attack
+			war_id,
+			attacker_tag,
+			attacker_name,
+			attacker_th,
+			map_position,
+			defender_tag,
+			defender_th,
+			stars,
+			destruction,
+			duration,
+			order_num,
+			rules,
+			is_opponent_attack
     )
     VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     )
     ON CONFLICT(war_id, attacker_tag, order_num) DO UPDATE SET
         stars = excluded.stars,
@@ -117,12 +117,13 @@ bool ClanwarRepo::insertSingleClanwarAttacksInfo(std::string warId, std::vector<
 		sqlite3_bind_int(stmt, 4, attack.attackerTh);
 		sqlite3_bind_int(stmt, 5, attack.mapPosition);
 		sqlite3_bind_text(stmt, 6, attack.defenderTag.c_str(), -1, SQLITE_TRANSIENT);
-		sqlite3_bind_int(stmt, 7, attack.stars);
-		sqlite3_bind_int(stmt, 8, attack.destruction);
-		sqlite3_bind_int(stmt, 9, attack.duration);
-		sqlite3_bind_int(stmt, 10, attack.orderNum);
-		sqlite3_bind_text(stmt, 11, attack.rules.c_str(), -1, SQLITE_TRANSIENT);
-		sqlite3_bind_int(stmt, 12, attack.isOpponentAttack);
+		sqlite3_bind_int(stmt, 7, attack.defenderTh);
+		sqlite3_bind_int(stmt, 8, attack.stars);
+		sqlite3_bind_int(stmt, 9, attack.destruction);
+		sqlite3_bind_int(stmt, 10, attack.duration);
+		sqlite3_bind_int(stmt, 11, attack.orderNum);
+		sqlite3_bind_text(stmt, 12, attack.rules.c_str(), -1, SQLITE_TRANSIENT);
+		sqlite3_bind_int(stmt, 13, attack.isOpponentAttack);
 
 		if (!db->executePrepeared(stmt)) {
 			db->execute("ROLLBACK;");
@@ -138,6 +139,25 @@ bool ClanwarRepo::insertSingleClanwarAttacksInfo(std::string warId, std::vector<
 	return true;
 }
 
+std::string ClanwarRepo::getLastId(const std::string& clanTag) {
+	std::string getId = "SELECT prep_start_time FROM clanwar_summary WHERE clan_tag = ? ORDER BY date DESC LIMIT 1";
+	sqlite3_stmt* stmt;
+
+	if (sqlite3_prepare_v2(db->getDBInstance(), getId.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+		return "";
+	}
+
+	sqlite3_bind_text(stmt, 1, clanTag.c_str(), -1, SQLITE_TRANSIENT);
+
+	std::string id = "";
+	if (sqlite3_step(stmt) == SQLITE_ROW) {
+		id = (const char *)sqlite3_column_text(stmt, 0);
+	}
+
+	sqlite3_finalize(stmt);
+	return id;
+}
+
 std::string ClanwarRepo::getClanwarIdByDate(const std::string& clanTag, const std::string& date) {
 	std::string getRowId = "SELECT id FROM clanwar_summary WHERE clan_tag = ? AND prep_start_time = ?";
 	sqlite3_stmt* stmt;
@@ -151,7 +171,6 @@ std::string ClanwarRepo::getClanwarIdByDate(const std::string& clanTag, const st
 
 	std::string id = "";
 	if (sqlite3_step(stmt) == SQLITE_ROW) {
-		// sqlite3_column_text возвращает unsigned char*, нужно привести к char*
 		const unsigned char* text = sqlite3_column_text(stmt, 0);
 		if (text) {
 			id = reinterpret_cast<const char*>(text);
@@ -160,4 +179,46 @@ std::string ClanwarRepo::getClanwarIdByDate(const std::string& clanTag, const st
 
 	sqlite3_finalize(stmt);
 	return id;
+}
+
+std::vector<ClanwarAttack> ClanwarRepo::getClanwarAttacks(const std::string& warId) {
+	sqlite3_stmt* stmt;
+
+	std::string sql = R"(
+		SELECT attacker_tag, attacker_name, attacker_th, map_position, defender_tag, defender_th, stars,
+			   destruction, duration, order_num
+		FROM clanwar_details WHERE war_id = ? AND is_opponent_attack = 0
+	)";
+
+	std::vector<ClanwarAttack> attacks;
+
+	if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+		std::cerr << "Не удалось подготовить запрос: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
+		return {};
+	}
+
+	sqlite3_bind_text(stmt, 1, warId.c_str(), -1, SQLITE_TRANSIENT);
+
+	while (sqlite3_step(stmt) == SQLITE_ROW) {
+		ClanwarAttack attack;
+
+		attack.attackerTag = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+		attack.attackerName = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+		attack.attackerName = (sqlite3_column_int(stmt, 2));
+		attack.mapPosition = (sqlite3_column_int(stmt, 3));
+		attack.defenderTag = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+		attack.defenderTh = (sqlite3_column_int(stmt, 5));
+		attack.stars = (sqlite3_column_int(stmt, 6));
+		attack.destruction = (sqlite3_column_int(stmt, 7));
+		attack.duration = (sqlite3_column_int(stmt, 8));
+		attack.orderNum = (sqlite3_column_int(stmt, 9));
+		attack.isOpponentAttack = false;
+
+
+		attacks.push_back(attack);
+	}
+
+	sqlite3_finalize(stmt);
+
+	return attacks;
 }

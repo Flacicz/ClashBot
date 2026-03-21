@@ -19,4 +19,6 @@ public:
 	bool insertSingleClanwarAttacksInfo(std::string warId, std::vector<ClanwarAttack> attacks);
 
 	std::string getClanwarIdByDate(const std::string& clanTag, const std::string& date);
+	std::string getLastId(const std::string& clanTag);
+	std::vector<ClanwarAttack> getClanwarAttacks(const std::string& warId);
 };

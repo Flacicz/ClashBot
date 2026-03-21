@@ -53,6 +53,7 @@ struct ClanwarAttack {
     unsigned short attackerTh;
     unsigned short mapPosition;
     std::string defenderTag;
+    unsigned short defenderTh;
     unsigned short stars;
     unsigned short destruction;
     unsigned short duration;

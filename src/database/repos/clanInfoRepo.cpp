@@ -1,4 +1,4 @@
-#include "../../include/database/repos/clanInfoRepo.h"
+ï»¿#include "../../include/database/repos/clanInfoRepo.h"
 
 #include "../database/database.h"
 
@@ -29,7 +29,7 @@ bool ClanInfoRepo::insertOrUpdateClanInfo(const ClanInfo& clanInfo) {
 	)";
 
 	if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-		std::cerr << "Íå óäàëîñü ïîäãîòîâèòü çàïðîñ: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
+		std::cerr << "ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¿Ð¾Ð´Ð³Ð¾Ñ‚Ð¾Ð²Ð¸Ñ‚ÑŒ Ð·Ð°Ð¿Ñ€Ð¾Ñ: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
 		return false;
 	}
 
@@ -77,7 +77,7 @@ bool ClanInfoRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players)
 	)";
 
 	if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-		std::cerr << "Íå óäàëîñü ïîäãîòîâèòü çàïðîñ: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
+		std::cerr << "ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¿Ð¾Ð´Ð³Ð¾Ñ‚Ð¾Ð²Ð¸Ñ‚ÑŒ Ð·Ð°Ð¿Ñ€Ð¾Ñ: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
 		return false;
 	}
 

@@ -1,21 +1,21 @@
-#include "../../include/service/clanInfoService.h"
+п»ї#include "../../include/service/clanInfoService.h"
 
 #include <iostream>
 
 ClanInfoService::ClanInfoService(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {};
 
 void ClanInfoService::updateClanInfo() {
-	std::cout << "--- Начинаю обновление данных клана ---" << std::endl;
+	std::cout << "--- РќР°С‡РёРЅР°СЋ РѕР±РЅРѕРІР»РµРЅРёРµ РґР°РЅРЅС‹С… РєР»Р°РЅР° ---" << std::endl;
 
 	auto clan = apiClient->getClanInfo();
 	if (clan.tag.empty()) {
-		std::cout << "Не удалось собрать информацию о клане" << std::endl;
+		std::cout << "РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР±СЂР°С‚СЊ РёРЅС„РѕСЂРјР°С†РёСЋ Рѕ РєР»Р°РЅРµ" << std::endl;
 		return;
 	}
 	db->getClanInfoRepo().insertOrUpdateClanInfo(clan);
 
 	auto members = apiClient->getPlayersInfo();
 	if (db->getClanInfoRepo().insertOrUpdatePlayersInfo(members)) {
-		std::cout << "Данные о клане успешно обновлены." << std::endl;
+		std::cout << "Р”Р°РЅРЅС‹Рµ Рѕ РєР»Р°РЅРµ СѓСЃРїРµС€РЅРѕ РѕР±РЅРѕРІР»РµРЅС‹." << std::endl;
 	}
 }

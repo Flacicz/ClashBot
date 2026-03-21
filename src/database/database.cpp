@@ -1,15 +1,15 @@
-#include "../database/database.h"
+ï»¿#include "../database/database.h"
 
 #include <iostream>
 #include <string>
 
 Database::Database(const std::string& path) : db(nullptr), pathToDb(path) {
 	if (sqlite3_open(path.c_str(), &db) != SQLITE_OK) {
-		std::cerr << "Íå óäàëîñü îòêðûòü/ñîçäàòü áàçó: " << sqlite3_errmsg(db) << std::endl;
+		std::cerr << "ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¾Ñ‚ÐºÑ€Ñ‹Ñ‚ÑŒ/ÑÐ¾Ð·Ð´Ð°Ñ‚ÑŒ Ð±Ð°Ð·Ñƒ: " << sqlite3_errmsg(db) << std::endl;
 		return;
 	}
 
-	std::cout << "Áàçà óñïåøíî îòêðûòà!" << std::endl;
+	std::cout << "Ð‘Ð°Ð·Ð° ÑƒÑÐ¿ÐµÑˆÐ½Ð¾ Ð¾Ñ‚ÐºÑ€Ñ‹Ñ‚Ð°!" << std::endl;
 
 	execute("PRAGMA foreign_keys = ON;");
 	execute("PRAGMA journal_mode = WAL;");
@@ -18,7 +18,7 @@ Database::Database(const std::string& path) : db(nullptr), pathToDb(path) {
 Database::~Database() {
 	if (db) {
 		sqlite3_close(db);
-		std::cout << "Áàçà çàêðûòà!" << std::endl;
+		std::cout << "Ð‘Ð°Ð·Ð° Ð·Ð°ÐºÑ€Ñ‹Ñ‚Ð°!" << std::endl;
 	}
 }
 
@@ -26,7 +26,7 @@ bool Database::execute(const std::string& sql) {
 	char* err = nullptr;
 
 	if (sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &err) != SQLITE_OK) {
-		std::cerr << "Íå óäàëîñü âûïîëíèòü çàïðîñ: " << err << std::endl;
+		std::cerr << "ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð²Ñ‹Ð¿Ð¾Ð»Ð½Ð¸Ñ‚ÑŒ Ð·Ð°Ð¿Ñ€Ð¾Ñ: " << err << std::endl;
 		sqlite3_free(err);
 
 		return false;
@@ -39,7 +39,7 @@ bool Database::executePrepeared(sqlite3_stmt* stmt) const {
 	int result = sqlite3_step(stmt);
 
 	if (result != SQLITE_DONE && result != SQLITE_ROW) {
-		std::cerr << "Íå óäàëîñü âûïîëíèòü çàïðîñ: " << sqlite3_errmsg(getDBInstance()) << std::endl;
+		std::cerr << "ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð²Ñ‹Ð¿Ð¾Ð»Ð½Ð¸Ñ‚ÑŒ Ð·Ð°Ð¿Ñ€Ð¾Ñ: " << sqlite3_errmsg(getDBInstance()) << std::endl;
 		return false;
 	}
 
@@ -51,7 +51,7 @@ Database::QueryResult Database::query(const std::string& sql) {
 	sqlite3_stmt* statement;
 
 	if (sqlite3_prepare_v2(db, sql.c_str(), -1, &statement, nullptr) != SQLITE_OK) {
-		std::cerr << "Íå óäàëîñü îòêðûòü/ñîçäàòü áàçó: " << sqlite3_errmsg(db) << std::endl;
+		std::cerr << "ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¾Ñ‚ÐºÑ€Ñ‹Ñ‚ÑŒ/ÑÐ¾Ð·Ð´Ð°Ñ‚ÑŒ Ð±Ð°Ð·Ñƒ: " << sqlite3_errmsg(db) << std::endl;
 		return result;
 	}
 
@@ -78,7 +78,7 @@ Database::QueryResult Database::queryWithParam(const std::string& sql, const std
 	sqlite3_stmt* stmt;
 
 	if (sqlite3_prepare_v2(getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-		std::cerr << "Íå óäàëîñü ïîäãîòîâèòü çàïðîñ: " << sqlite3_errmsg(getDBInstance()) << std::endl;
+		std::cerr << "ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¿Ð¾Ð´Ð³Ð¾Ñ‚Ð¾Ð²Ð¸Ñ‚ÑŒ Ð·Ð°Ð¿Ñ€Ð¾Ñ: " << sqlite3_errmsg(getDBInstance()) << std::endl;
 		return result;
 	}
 

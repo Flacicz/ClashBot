@@ -1,4 +1,4 @@
-#include "../../include/service/clanwarLeagueService.h"
+п»ї#include "../../include/service/clanwarLeagueService.h"
 
 #include <iostream>
 #include <clocale>
@@ -6,11 +6,11 @@
 ClanwarLeagueService::ClanwarLeagueService(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {};
 
 void ClanwarLeagueService::updateCWLData() {
-	std::cout << "--- Начинаю обновление данных CWL ---" << std::endl;
+	std::cout << "--- РќР°С‡РёРЅР°СЋ РѕР±РЅРѕРІР»РµРЅРёРµ РґР°РЅРЅС‹С… CWL ---" << std::endl;
 
 	auto season = apiClient->getLeagueClanwarSeasonInfo();
 	if (season.seasonId.empty()) {
-		std::cout << "Лига сейчас не активна." << std::endl;
+		std::cout << "Р›РёРіР° СЃРµР№С‡Р°СЃ РЅРµ Р°РєС‚РёРІРЅР°." << std::endl;
 		return;
 	}
 	db->getCwlRepo().insertOrUpdateSingleCWLSeasonInfo(season);
@@ -23,6 +23,6 @@ void ClanwarLeagueService::updateCWLData() {
 
 	auto attacks = apiClient->getLeagueClanwarAttacksInfo(rounds);
 	if (db->getCwlRepo().insertOrUpdateSingleCWLAttacksInfo(attacks)) {
-		std::cout << "Данные успешно обновлены. Всего атак в базе: " << attacks.size() << std::endl;
+		std::cout << "Р”Р°РЅРЅС‹Рµ СѓСЃРїРµС€РЅРѕ РѕР±РЅРѕРІР»РµРЅС‹. Р’СЃРµРіРѕ Р°С‚Р°Рє РІ Р±Р°Р·Рµ: " << attacks.size() << std::endl;
 	}
 }
