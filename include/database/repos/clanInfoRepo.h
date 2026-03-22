@@ -14,4 +14,5 @@ public:
 
 	bool insertOrUpdateClanInfo(const ClanInfo& clanInfo);
 	bool insertOrUpdatePlayersInfo(const std::vector<Player>& players);
+	bool removeExitedPlayers(const std::string& clanTag, long long updated_time);
 };

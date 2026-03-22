@@ -1,9 +1,11 @@
 #pragma once
 
+#include ".././models/models.h"
+
 #include <string>
 #include <vector>
 
-#include ".././models/models.h"
+#include <cpr/response.h>
 
 class APIClient {
 private:
@@ -22,7 +24,7 @@ public:
 	const std::string getApiToken() const { return apiToken; };
 	const std::string getClanTag() const { return clanTag; };
 
-	auto getResponse(const std::string& urlPart) const;
+	cpr::Response getResponse(const std::string& urlPart) const;
 
 	ClanInfo getClanInfo() const;
 	std::vector<Player> getPlayersInfo() const;

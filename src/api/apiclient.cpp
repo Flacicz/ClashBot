@@ -1,11 +1,25 @@
 ﻿#include "../api/apiclient.h"
 #include "../models/models.h"
 
-#include <cpr/cpr.h>
+#include <cpr/response.h>
+#include <cpr/cprtypes.h>
+#include <cpr/ssl_options.h>
+#include <cpr/timeout.h>
+#include <cpr/api.h>
+
 #include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
+
 #include <iostream>
 #include <vector>
 #include <map>
+#include <string>
+#include <chrono>
+#include <stdexcept>
+
+
+
+
 
 using json = nlohmann::json;
 
@@ -13,7 +27,7 @@ APIClient::APIClient(const std::string& clanTag, bool tunnel) : clanTag(clanTag)
 
 APIClient::~APIClient() {}
 
-auto APIClient::getResponse(const std::string& urlPart) const {
+cpr::Response APIClient::getResponse(const std::string& urlPart) const {
 	std::string url = (getIsTunnel() ? tunnelUrl : baseUrl) + urlPart;
 
 	cpr::Response response = cpr::Get(
@@ -23,58 +37,112 @@ auto APIClient::getResponse(const std::string& urlPart) const {
 			{"Accept", "Application/json"},
 		},
 		cpr::VerifySsl(!getIsTunnel()),
-		cpr::Timeout(10000)
+		cpr::Timeout(std::chrono::milliseconds(10000))
 	);
 
-	if (response.status_code != 200) std::cerr << "Не удалось выполнить запрос, код ошибки: " << response.status_code << std::endl;
-	else std::cout << response.status_code << std::endl;
+	if (response.error) {
+		throw std::runtime_error("Network error " + response.error.message);
+	}
+
+	if (response.status_code != 200) {
+		throw std::runtime_error("API Error [" + std::to_string(response.status_code) + "] at URL: " + url);
+	}
 
 	return response;
 }
 
 ClanInfo APIClient::getClanInfo() const {
-	std::string url = "/clans/%23" + getClanTag().substr(1);
+	std::string tag = getClanTag();
+	if (tag[0] == '#') tag = tag.substr(1);
+	std::string url = "/clans/%23" + tag;
+
 	auto response = getResponse(url);
 
-	json parsed = json::parse(response.text);
+	if (response.status_code != 200) {
+		throw std::runtime_error("Failed to fetch ClanInfo: " + std::to_string(response.status_code));
+	}
 
-	ClanInfo clanInfo = {
-		parsed["tag"],
-		parsed["name"],
-		parsed["members"],
-		parsed["clanLevel"],
-		parsed["clanCapital"]["capitalHallLevel"],
-		parsed["capitalLeague"]["name"],
-		parsed["warLeague"]["name"],
-		parsed["warWinStreak"],
-		parsed["warWins"],
-		parsed["warTies"],
-		parsed["warLosses"]
-	};
+	json parsed = json::parse(response.text);
+	ClanInfo clanInfo;
+
+	clanInfo.tag = parsed.value("tag", "");
+	clanInfo.name = parsed.value("name", "Unknown");
+	clanInfo.type = parsed.value("type", "unknown");
+	clanInfo.description = parsed.value("description", "");
+	clanInfo.members = parsed.value("members", 0);
+
+	clanInfo.clanLevel = parsed.value("clanLevel", 0);
+	clanInfo.clanPoints = parsed.value("clanPoints", 0);
+	clanInfo.clanBuilderPoints = parsed.value("clanBuilderBasePoints", 0);
+	clanInfo.clanCapitalPoints = parsed.value("clanCapitalPoints", 0);
+
+	clanInfo.capitalHallLevel = parsed.contains("clanCapital") ? parsed["clanCapital"].value("capitalHallLevel", 0) : 0;
+
+	clanInfo.capitalLeague = parsed.contains("capitalLeague") ?
+		parsed["capitalLeague"].value("name", "Unranked") : "Unranked";
+
+	clanInfo.requiredTrophies = parsed.value("requiredTrophies", 0);
+	clanInfo.requiredBuilderBaseTrophies = parsed.value("requiredBuilderBaseTrophies", 0);
+	clanInfo.requiredTownhallLevel = parsed.value("requiredTownhallLevel", 1);
+
+	clanInfo.warFrequency = parsed.value("warFrequency", "unknown");
+	clanInfo.isWarLogPublic = parsed.value("isWarLogPublic", false);
+	clanInfo.warWinStreak = parsed.value("warWinStreak", 0);
+	clanInfo.warWins = parsed.value("warWins", 0);
+	clanInfo.warTies = parsed.value("warTies", 0);
+	clanInfo.warLosses = parsed.value("warLosses", 0);
+
+	clanInfo.warLeague = parsed.contains("warLeague") ?
+		parsed["warLeague"].value("name", "Unranked") : "Unranked";
+
+	clanInfo.locationName = parsed.contains("location") ?
+		parsed["location"].value("name", "International") : "International";
+
+	clanInfo.chatLanguage = parsed.contains("chatLanguage") ?
+		parsed["chatLanguage"].value("name", "Not Set") : "Not Set";
 
 	return clanInfo;
 }
 
 std::vector<Player> APIClient::getPlayersInfo() const {
-	std::string url = "/clans/%23" + getClanTag().substr(1) + "/members";
+	std::string tag = getClanTag();
+	if (tag[0] == '#') tag = tag.substr(1);
+	std::string url = "/clans/%23" + tag;
+
 	auto response = getResponse(url);
+
+	if (response.status_code != 200) {
+		throw std::runtime_error("Failed to fetch PlayersInfo: " + std::to_string(response.status_code));
+	}
 
 	json parsed = json::parse(response.text);
 
+	if (!parsed.contains("memberList") || !parsed["memberList"].is_array()) {
+		throw std::runtime_error("Invalid JSON: 'memberList' not found for clan " + tag);
+	}
+
 	std::vector<Player> players;
-	for (const auto& part : parsed["items"]) {
-		Player player = {
-			part["tag"],
-			getClanTag(),
-			part["name"],
-			part["role"],
-			part["townHallLevel"],
-			part["leagueTier"]["name"],
-			part["trophies"],
-			part["builderBaseTrophies"],
-			part["donations"],
-			part["donationsReceived"],
-		};
+	std::string currentClanTag = getClanTag();
+
+	for (const auto& part : parsed["memberList"]) {
+		Player player;
+
+		player.tag = part.value("tag", "");
+		player.clanTag = currentClanTag;
+		player.name = part.value("name", "Unknown");
+		player.role = part.value("role", "member");
+		player.townHallLevel = part.value("townHallLevel", 1);
+		player.expLevel = part.value("expLevel", 1);
+
+		player.leagueTier = parsed.contains("league") ?
+			part["league"].value("name", "Unranked") : "Unranked";
+
+		player.trophies = part.value("trophies", 0);
+		player.builderBaseTrophies = part.value("builderBaseTrophies", 0);
+		player.clanRank = part.value("clanRank", 0);
+
+		player.donations = part.value("donations", 0);
+		player.donationsReceived = part.value("donationsReceived", 0);
 
 		players.push_back(player);
 	}

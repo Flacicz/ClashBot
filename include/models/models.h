@@ -6,15 +6,31 @@
 struct ClanInfo {
 	std::string tag;
 	std::string name;
-	unsigned short members;
-    unsigned short clanLevel;
-    unsigned short capitalHallLevel;
-	std::string capitalLeague;
-	std::string warLeague;
-    unsigned short warWinStreak;
-    unsigned short warWins;
-    unsigned short warTies;
-    unsigned short warLosses;
+    std::string type;
+    std::string description;
+    int members;
+
+    int clanLevel;
+    int clanPoints;
+    int clanBuilderPoints;
+    int clanCapitalPoints;
+    int capitalHallLevel;
+    std::string capitalLeague;
+
+    int requiredTrophies;
+    int requiredBuilderBaseTrophies;
+    int requiredTownhallLevel;
+
+    std::string warFrequency;
+    bool isWarLogPublic;
+    int warWinStreak;
+    int warWins;
+    int warTies;
+    int warLosses;
+    std::string warLeague;
+
+    std::string locationName;
+    std::string chatLanguage;
 };
 
 struct Player {
@@ -22,12 +38,17 @@ struct Player {
     std::string clanTag;
     std::string name;
     std::string role;
-    unsigned short townHallLevel;
+    int townHallLevel;
+    int expLevel;
+
     std::string leagueTier;
-    unsigned short trophies;
-    unsigned short donations;
-    unsigned short donationsReceived;
-    long long updatedAt;
+    int trophies;
+    int builderBaseTrophies;
+
+    int donations;
+    int donationsReceived;
+
+    int clanRank;
 };
 
 struct ClanwarSeason {

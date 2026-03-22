@@ -12,15 +12,32 @@ bool TableManager::initClanTable() {
 		CREATE TABLE IF NOT EXISTS clan_info(
 			tag TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
-			members INTEGER DEFAULT 1,
+			type TEXT NOT NULL,
+			description TEXT,
+			members INTEGER DEFAULT 0,
+			
 			clan_level INTEGER DEFAULT 1,
+			clan_points INTEGER DEFAULT 0,
+			clan_builder_points INTEGER DEFAULT 0,
+			clan_capital_points INTEGER DEFAULT 0,
 			capital_hall_level INTEGER DEFAULT 1,
-			capital_league TEXT NOT NULL,
-			war_league TEXT NOT NULL,
+			capital_league TEXT DEFAULT 'Unranked',
+
+			required_trophies INTEGER DEFAULT 0,
+			required_builder_base_trophies INTEGER DEFAULT 0,
+			required_town_hall_level INTEGER DEFAULT 1,
+			
+			war_frequency TEXT,
+			is_war_log_public INTEGER DEFAULT 0,
 			war_win_streak INTEGER DEFAULT 0,
 			war_wins INTEGER DEFAULT 0,
 			war_ties INTEGER DEFAULT 0,
 			war_losses INTEGER DEFAULT 0,
+			war_league TEXT DEFAULT 'Unranked',
+
+			location_name TEXT,
+			chat_language TEXT,
+
 			created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
 			updated_at TIMESTAMP DEFAULT (strftime('%s', 'now'))
 		);
@@ -31,21 +48,29 @@ bool TableManager::initClanTable() {
 
 bool TableManager::initPlayersInfoTable() {
 	std::string sql = R"(
-		CREATE TABLE IF NOT EXISTS players_info(
-			tag TEXT PRIMARY KEY,
-			clan_tag TEXT NOT NULL,
-			name TEXT NOT NULL,
-			role TEXT NOT NULL,
-			th_level INTEGER DEFAULT 1,
-			league_tier TEXT NOT NULL,
-			trophies INTEGER DEFAULT 0,
-			donations INTEGER DEFAULT 0,
-			donations_received INTEGER DEFAULT 0,
-			created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
-			updated_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
-			FOREIGN KEY (clan_tag) REFERENCES clan_info(tag) ON DELETE SET NULL
-		)
-	)";
+        CREATE TABLE IF NOT EXISTS players_info(
+            tag TEXT PRIMARY KEY,
+            clan_tag TEXT NOT NULL,
+            name TEXT NOT NULL,
+            role TEXT DEFAULT 'member',
+            
+            th_level INTEGER DEFAULT 1,
+            exp_level INTEGER DEFAULT 1,
+            clan_rank INTEGER DEFAULT 0,
+            
+            league_tier TEXT DEFAULT 'Unranked',
+            trophies INTEGER DEFAULT 0,
+            builder_base_trophies INTEGER DEFAULT 0,
+            
+            donations INTEGER DEFAULT 0,
+            donations_received INTEGER DEFAULT 0,
+            
+            created_at INTEGER DEFAULT (strftime('%s', 'now')),
+            updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+            
+            FOREIGN KEY (clan_tag) REFERENCES clan_info(tag) ON DELETE CASCADE
+        )
+    )";
 
 	return db->execute(sql);
 }
