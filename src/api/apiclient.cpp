@@ -297,6 +297,7 @@ std::vector<ClanwarAttack> APIClient::getClanwarAttacks() const {
 	
 	std::vector<ClanwarAttack> attacks;
 	std::map<std::string, MemberInfo> playersLookup;
+	std::map<std::string, int> attacksCount;
 
 	for (const std::string side : {"clan", "opponent"}) {
 		if (parsed.contains(side) && parsed[side].contains("members")) {
@@ -326,6 +327,12 @@ std::vector<ClanwarAttack> APIClient::getClanwarAttacks() const {
 					unsigned short dPos = (dIt != playersLookup.end()) ? (unsigned short)dIt->second.mapPos : 0;
 					unsigned short dTH = (dIt != playersLookup.end()) ? (unsigned short)dIt->second.thLevel : 0;
 
+					std::string mirror;
+					if (!attacksCount.count(aTag) && aPos == dPos) mirror = "Mirror";
+					else mirror = "Not mirror";
+
+					if (attacksCount.count(aTag)) mirror = "Second attack";
+
 					attacks.push_back({
 						aTag,
 						member["name"],
@@ -337,9 +344,11 @@ std::vector<ClanwarAttack> APIClient::getClanwarAttacks() const {
 						(unsigned short)jsonAttack["destructionPercentage"].get<int>(),
 						(unsigned short)jsonAttack["duration"].get<int>(),
 						(unsigned short)jsonAttack["order"].get<int>(),
-						(aPos == dPos) ? "Mirror" : "Not mirror",
+						mirror,
 						!isOurClan
 					});
+
+					attacksCount[aTag]++;
 				}
 
 				if (state == "warEnded" && isOurClan && member["attacks"].size() < 2) {

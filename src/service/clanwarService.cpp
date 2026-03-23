@@ -7,6 +7,7 @@
 #include <map>
 #include <utility>
 #include <iomanip>
+#include <ios>
 
 ClanwarService::ClanwarService(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {};
 
@@ -40,7 +41,7 @@ void ClanwarService::printCWSlackers(const std::vector<ClanwarAttack>& attacks) 
     bool hasAnySlackers = false;
 
     for (const auto& attack : attacks) {
-        if ((attack.rules == "Missed" || attack.rules == "Missed 1/2")) {
+        if ((attack.rules == "Missed" || attack.rules == "Missed (1/2)" || attack.rules == "Not mirror")) {
             slackers[attack.attackerTag] = { attack.attackerName, attack.rules };
             hasAnySlackers = true;
         }
@@ -63,10 +64,13 @@ void ClanwarService::printCWSlackers(const std::vector<ClanwarAttack>& attacks) 
             const std::string& rule = info.second;
 
             if (rule == "Missed") {
-                std::cout << "❌ " << std::left << std::setw(17) << name << " | [0/2] ПОЛНЫЙ ПРОПУСК" << std::endl;
+                std::cout << "" << std::left << std::setw(17) << name << " | [0/2] ПОЛНЫЙ ПРОПУСК" << std::endl;
+            }
+            else if (rule == "Missed (1/2)") {
+                std::cout << "" << std::left << std::setw(17) << name << " | [1/2] Пропущена 1 атака" << std::endl;
             }
             else {
-                std::cout << "⚠️  " << std::left << std::setw(17) << name << " | [1/2] Пропущена 1 атака" << std::endl;
+                std::cout << "" << std::left << std::setw(17) << name << " | Атаковано не зеркало" << std::endl;
             }
         }
     }

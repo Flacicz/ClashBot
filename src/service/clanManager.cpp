@@ -13,9 +13,10 @@
 #include <string>
 #include <ctime>
 #include <iomanip>
+#include <corecrt.h>
 
 
-ClanManager::ClanManager(Database* db, APIClient* apiClient) {
+ClanManager::ClanManager(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {
 	this->clanInfoService = new ClanInfoService(db, apiClient);
 	this->cwService = new ClanwarService(db, apiClient);
 	this->raidService = new RaidService(db, apiClient);
@@ -40,19 +41,21 @@ void ClanManager::syncAll() {
 			std::cerr << e.what() << std::endl;
 		}
 
-		//try {
-		//	cwService->updateCWData();
-		//}
-		//catch (const std::exception& e) {
-		//	std::cerr << e.what() << std::endl;
-		//}
+		try {
+			cwService->updateCWData();
+			cwService->printCWSlackers(db->getCwRepo().getClanwarAttacks(db->getCwRepo().getLastId(apiClient->getClanTag())));
+		}
+		catch (const std::exception& e) {
+			std::cerr << e.what() << std::endl;
+		}
 
-		//try {
-		//	raidService->updateRaidData();
-		//}
-		//catch (const std::exception& e) {
-		//	std::cerr << e.what() << std::endl;
-		//}
+		try {
+			raidService->updateRaidData();
+			raidService->printRaidSlackers(db->getRaidRepo().checkSlackers(db->getRaidRepo().getLastRaidId(apiClient->getClanTag())));
+		}
+		catch (const std::exception& e) {
+			std::cerr << e.what() << std::endl;
+		}
 
 		//try {
 		//	cwlService->updateCWLData();

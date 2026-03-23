@@ -19,7 +19,9 @@ int main() {
 
 	ClanManager clanManager(&db, &apiClient);
 
-	db.getTableManager().initPlayersInfoTable();
+	db.getTableManager().initClanwarAttacks();
+	db.getTableManager().initClanwarSeason();
+	db.getTableManager().initClanwarSummary();
 
 	clanManager.syncAll();
 

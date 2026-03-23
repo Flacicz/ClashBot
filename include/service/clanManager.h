@@ -7,8 +7,13 @@
 #include "../database/database.h"
 #include "../api/apiclient.h"
 
+#include <string>
+
 class ClanManager {
 private:
+	Database* db;
+	APIClient* apiClient;
+
 	ClanInfoService* clanInfoService;
 	ClanwarService* cwService;
 	RaidService* raidService;

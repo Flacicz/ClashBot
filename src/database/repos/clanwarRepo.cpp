@@ -140,10 +140,11 @@ bool ClanwarRepo::insertSingleClanwarAttacksInfo(std::string warId, std::vector<
 }
 
 std::string ClanwarRepo::getLastId(const std::string& clanTag) {
-	std::string getId = "SELECT prep_start_time FROM clanwar_summary WHERE clan_tag = ? ORDER BY date DESC LIMIT 1";
+	std::string getId = "SELECT id FROM clanwar_summary WHERE clan_tag = ? ORDER BY prep_start_time DESC LIMIT 1";
 	sqlite3_stmt* stmt;
 
 	if (sqlite3_prepare_v2(db->getDBInstance(), getId.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+		std::cerr << "Не удалось подготовить запрос: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
 		return "";
 	}
 
@@ -186,7 +187,7 @@ std::vector<ClanwarAttack> ClanwarRepo::getClanwarAttacks(const std::string& war
 
 	std::string sql = R"(
 		SELECT attacker_tag, attacker_name, attacker_th, map_position, defender_tag, defender_th, stars,
-			   destruction, duration, order_num
+			   destruction, duration, order_num, rules
 		FROM clanwar_details WHERE war_id = ? AND is_opponent_attack = 0
 	)";
 
@@ -204,7 +205,7 @@ std::vector<ClanwarAttack> ClanwarRepo::getClanwarAttacks(const std::string& war
 
 		attack.attackerTag = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
 		attack.attackerName = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-		attack.attackerName = (sqlite3_column_int(stmt, 2));
+		attack.attackerTh = (sqlite3_column_int(stmt, 2));
 		attack.mapPosition = (sqlite3_column_int(stmt, 3));
 		attack.defenderTag = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
 		attack.defenderTh = (sqlite3_column_int(stmt, 5));
@@ -212,6 +213,7 @@ std::vector<ClanwarAttack> ClanwarRepo::getClanwarAttacks(const std::string& war
 		attack.destruction = (sqlite3_column_int(stmt, 7));
 		attack.duration = (sqlite3_column_int(stmt, 8));
 		attack.orderNum = (sqlite3_column_int(stmt, 9));
+		attack.rules = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 10));
 		attack.isOpponentAttack = false;
 
 
