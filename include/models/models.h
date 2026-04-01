@@ -2,6 +2,8 @@
 
 #include <string>
 #include <vector>
+#include <nlohmann/json_fwd.hpp>
+#include <string_view>
 
 struct ClanInfo {
 	std::string tag;
@@ -31,6 +33,8 @@ struct ClanInfo {
 
     std::string locationName;
     std::string chatLanguage;
+
+    static ClanInfo fromJson(const nlohmann::json& j);
 };
 
 struct Player {
@@ -49,16 +53,45 @@ struct Player {
     int donationsReceived;
 
     int clanRank;
+
+    static Player fromJson(const nlohmann::json& j, std::string_view clanTag);
+};
+
+struct PlayerRaidStats {
+    std::string playerTag;
+    std::string name;
+    unsigned short attacksCount;
+    unsigned short totalLoot;
+
+    static PlayerRaidStats fromJson(const nlohmann::json& j);
+};
+
+struct CapitalRaid {
+    std::string clanTag;
+    std::string date;
+    std::string state;
+    unsigned int totalLoot;
+    unsigned short raidsCompleted;
+    unsigned short totalAttacks;
+    unsigned short enemyDistrictsDestroyed;
+    unsigned short offensiveReward;
+    unsigned short defensiveReward;
+
+    std::vector<PlayerRaidStats> members;
+
+    static CapitalRaid fromJson(const nlohmann::json& j, std::string_view clanTag);
 };
 
 struct ClanwarSeason {
     std::string seasonId;
     std::string clanTag;
+
+    static ClanwarSeason fromJson(const nlohmann::json& j, std::string_view clanTag);
 };
 
 struct ClanWar {
     std::string seasonId;
-    std::string prep_start_time;
+    std::string prepStartTime;
     std::string clanTag;
     std::string opponentTag;
     std::string opponentName;
@@ -66,6 +99,8 @@ struct ClanWar {
     unsigned short clanStars;
     unsigned short opponentStars;
     std::string result;  // "win", "lose", "tie"
+
+    static ClanWar fromJson(const nlohmann::json& j, std::string_view clanTag);
 };
 
 struct ClanwarAttack {
@@ -81,27 +116,8 @@ struct ClanwarAttack {
     unsigned short orderNum;
     std::string rules;
     bool isOpponentAttack;
-};
 
-struct PlayerRaidStats {
-    std::string playerTag;
-    std::string name;
-    unsigned short attacksCount;
-    unsigned short totalLoot;
-};
-
-struct CapitalRaid {
-    std::string clanTag;
-    std::string date;
-    std::string state;
-    unsigned int totalLoot;
-    unsigned short raidsCompleted;
-    unsigned short totalAttacks;
-    unsigned short enemyDistrictsDestroyed;
-    unsigned short offensiveReward;
-    unsigned short defensiveReward;
-
-    std::vector<PlayerRaidStats> members;
+    static std::vector<ClanwarAttack> parseAttacksList(const nlohmann::json& j, std::string_view clanTag);
 };
 
 struct LeagueClanwarSeason {

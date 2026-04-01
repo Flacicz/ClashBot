@@ -5,40 +5,39 @@
 #include <string>
 #include <vector>
 
-#include <cpr/response.h>
+#include <string_view>
+#include <nlohmann/json_fwd.hpp>
+#include <optional>
 
 class APIClient {
 private:
-	std::string apiToken = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjVjMmUxMjk4LWU5MGItNDEwZS1iOGRiLWY1ZTFjMGM5ZWE5ZiIsImlhdCI6MTc3MDExNTY3NCwic3ViIjoiZGV2ZWxvcGVyLzhkOTZmOGFmLTJkMjItNzViMC02M2NkLWNhYzZjYzk3OWRmNiIsInNjb3BlcyI6WyJjbGFzaCJdLCJsaW1pdHMiOlt7InRpZXIiOiJkZXZlbG9wZXIvc2lsdmVyIiwidHlwZSI6InRocm90dGxpbmcifSx7ImNpZHJzIjpbIjQ1LjEzOC43NC4yMTMiXSwidHlwZSI6ImNsaWVudCJ9XX0.ZKeukk6UZdHLCIC-dSp3L8MH0QyYHP35lmSNMJ6qHsgVrmkSYFu35473pfwsVtvycJINT8YiXs91C1AwFz3Xag";
-	
-	std::string baseUrl = "https://api.clashofclans.com/v1";
-	std::string tunnelUrl = "https://localhost:8080/v1";
+	std::string apiToken;
+	std::string baseUrl;
+	std::string tunnelUrl;
 	bool isTunnel;
 
-	std::string clanTag;
+	static std::string normalizeTag(std::string_view tag);
+	nlohmann::json fetchJson(const std::string& endpoint) const;
 public:
-	APIClient(const std::string& clanTag, bool tunnel);
+	APIClient(const std::string& token, bool tunnel, const std::string& baseUrl, const std::string& tunnelUrl);
 	~APIClient();
 
 	const bool getIsTunnel() const { return isTunnel; };
 	const std::string getApiToken() const { return apiToken; };
-	const std::string getClanTag() const { return clanTag; };
 
-	cpr::Response getResponse(const std::string& urlPart) const;
+	ClanInfo getClanInfo(std::string_view clanTag) const;
+	std::vector<Player> getPlayersInfo(std::string_view clanTag) const;
 
-	ClanInfo getClanInfo() const;
-	std::vector<Player> getPlayersInfo() const;
+	std::optional<CapitalRaid> getRaidInfo(std::string_view clanTag) const;
+	std::vector<PlayerRaidStats> getPlayersRaidInfo(std::string_view clanTag) const;
 
-	CapitalRaid getRaidInfo() const;
-	std::vector<PlayerRaidStats> getPlayersRaidInfo() const;
-
-	ClanwarSeason getClanwarSeason() const;
-	ClanWar getClanwarInfo() const;
-	std::vector<ClanwarAttack> getClanwarAttacks() const;
+	std::optional<ClanwarSeason> getClanwarSeason(std::string_view clanTag) const;
+	std::optional<ClanWar> getClanwarInfo(std::string_view clanTag) const;
+	std::vector<ClanwarAttack> getClanwarAttacks(std::string_view clanTag) const;
 
 
-	LeagueClanwarSeason getLeagueClanwarSeasonInfo() const;
-	std::vector<LeagueClanwarRound> getLeagueClanwarRoundsInfo() const;
-	std::vector<LeagueClanwarAttack> getLeagueClanwarAttacksInfo(const std::vector<LeagueClanwarRound>& rounds) const;
-	std::vector<LeagueClanwarMember> getLeagueClanwarMembers() const;
+	LeagueClanwarSeason getLeagueClanwarSeasonInfo(std::string_view clanTag) const;
+	std::vector<LeagueClanwarRound> getLeagueClanwarRoundsInfo(std::string_view clanTag) const;
+	std::vector<LeagueClanwarAttack> getLeagueClanwarAttacksInfo(std::string_view clanTag, const std::vector<LeagueClanwarRound>& rounds) const;
+	std::vector<LeagueClanwarMember> getLeagueClanwarMembers(std::string_view clanTag) const;
 };
