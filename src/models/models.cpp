@@ -5,6 +5,8 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <string_view>
+#include <exception>
 
 ClanInfo ClanInfo::fromJson(const nlohmann::json& j) {
 	ClanInfo clanInfo;
@@ -48,7 +50,7 @@ Player Player::fromJson(const nlohmann::json& j, std::string_view clanTag) {
 	Player player;
 
 	player.tag = j.value("tag", "");
-	player.clanTag = std::string(clanTag);
+	player.clanTag = clanTag;
 	player.name = j.value("name", "Unknown");
 	player.role = j.value("role", "member");
 	player.townHallLevel = j.value("townHallLevel", 1);
@@ -80,7 +82,7 @@ PlayerRaidStats PlayerRaidStats::fromJson(const nlohmann::json& j) {
 CapitalRaid CapitalRaid::fromJson(const nlohmann::json& j, std::string_view clanTag) {
 	CapitalRaid raid;
 
-	raid.clanTag = std::string(clanTag);
+	raid.clanTag = clanTag;
 
 	std::string fullTime = j.value("endTime", "00000000");
 	raid.date = fullTime.length() >= 8 ? fullTime.substr(0, 8) : fullTime;
@@ -108,7 +110,7 @@ CapitalRaid CapitalRaid::fromJson(const nlohmann::json& j, std::string_view clan
 ClanwarSeason ClanwarSeason::fromJson(const nlohmann::json& j, std::string_view clanTag) {
 	ClanwarSeason clanwarSeason;
 
-	clanwarSeason.clanTag = std::string(clanTag);
+	clanwarSeason.clanTag = clanTag;
 
 	clanwarSeason.seasonId = j.value("preparationStartTime", "000000").substr(0, 6);
 
@@ -124,7 +126,7 @@ ClanWar ClanWar::fromJson(const nlohmann::json& j, std::string_view clanTag) {
 	clanwar.seasonId = prepTime.length() >= 6 ? prepTime.substr(0, 6) : prepTime;
 	clanwar.prepStartTime = prepTime;
 
-	clanwar.clanTag = std::string(clanTag);
+	clanwar.clanTag = clanTag;
 
 	clanwar.opponentTag = j.value("/opponent/tag"_json_pointer, "Unknown");
 	clanwar.opponentName = j.value("/opponent/name"_json_pointer, "Unknown");
@@ -161,8 +163,6 @@ std::vector<ClanwarAttack> ClanwarAttack::parseAttacksList(const nlohmann::json&
 	std::string state = j.value("state", "notInWar");
 	if (state == "notInWar") return attacks;
 
-	std::string ourClanTag(clanTag);
-
 	struct MemberInfo {
 		unsigned short mapPos;
 		unsigned short thLevel;
@@ -186,7 +186,7 @@ std::vector<ClanwarAttack> ClanwarAttack::parseAttacksList(const nlohmann::json&
 		if (!sideData.contains("members") || !sideData["members"].is_array()) return;
 
 		std::string currentClanTag = sideData.value("tag", "");
-		bool isOurClan = (currentClanTag == ourClanTag);
+		bool isOurClan = (currentClanTag == clanTag);
 
 		for (const auto& member : sideData["members"]) {
 			std::string aTag = member.value("tag", "");
@@ -254,4 +254,130 @@ std::vector<ClanwarAttack> ClanwarAttack::parseAttacksList(const nlohmann::json&
 	}
 
 	return attacks;
+}
+
+ClanwarwarsLeagueSeason ClanwarwarsLeagueSeason::fromJson(const nlohmann::json & j, std::string_view clanTag, std::string_view leagueId) {
+	ClanwarwarsLeagueSeason clanwarLeagueSeason;
+
+	clanwarLeagueSeason.clanTag = clanTag;
+	clanwarLeagueSeason.leagueId = leagueId;
+
+	clanwarLeagueSeason.seasonId = j.value("season" , "0000-00");
+	clanwarLeagueSeason.state = j.value("state" , "notInWar");
+
+	return clanwarLeagueSeason;
+}
+
+std::vector<ClanwarsLeagueAttacks> ClanwarsLeagueAttacks::parseAttackList(const nlohmann::json& warParsed, std::string_view roundWarTag) {
+	std::vector<ClanwarsLeagueAttacks> attacksList;
+	std::string warState = warParsed.value("state", "notInWar");
+	if (warState == "notInWar") return attacksList;
+	
+	struct MemberInfo {
+		int mapPos;
+		int thLevel;
+	};
+
+	std::unordered_map<std::string, MemberInfo> playersLookup;
+
+	for (const char* side : { "clan", "opponent" }) {
+		if (warParsed.contains(side) && warParsed[side].contains("members") && warParsed[side]["members"].is_array()) {
+			for (const auto& m : warParsed[side]["members"]) {
+				playersLookup[m.value("tag", "")] = {
+					(unsigned short)m.value("mapPosition", 0),
+					(unsigned short)m.value("townhallLevel", 0)
+				};
+			}
+		}
+	}
+
+	auto processMembers = [&](const nlohmann::json& sideData) {
+		if (!sideData.contains("members") || !sideData["members"].is_array()) return;
+
+		std::string currentClanTag = sideData.value("tag", "");
+
+		for (const auto& member : sideData["members"]) {
+			std::string aTag = member.value("tag", "");
+
+			auto it = playersLookup.find(aTag);
+			if (it == playersLookup.end()) continue;
+
+			unsigned short aPos = it->second.mapPos;
+			unsigned short aTH = it->second.thLevel;
+
+			if (member.contains("attacks") && member["attacks"].is_array() && !member["attacks"].empty()) {
+
+				for (const auto& jsonAttack : member["attacks"]) {
+					std::string dTag = jsonAttack.value("defenderTag", "");
+					auto dIt = playersLookup.find(dTag);
+
+					unsigned short dPos = (dIt != playersLookup.end()) ? dIt->second.mapPos : 0;
+					unsigned short dTH = (dIt != playersLookup.end()) ? dIt->second.thLevel : 0;
+
+					attacksList.push_back({
+						std::string(roundWarTag),
+						currentClanTag,
+						aTag,
+						aPos,
+						dTag,
+						dPos,
+						(aPos == dPos && aPos != 0) ? "Mirror" : "Not mirror",
+						(unsigned short)jsonAttack.value("stars", 0),
+						(unsigned short)jsonAttack.value("destructionPercentage", 0),
+						(unsigned short)jsonAttack.value("duration", 0),
+						aTH,
+						dTH
+						});
+				}
+
+			}
+			else if (warState == "warEnded") {
+				attacksList.push_back({
+					std::string(roundWarTag),
+					currentClanTag,
+					aTag,
+					aPos,
+					"NONE",
+					0,
+					"Missed",
+					0, 0, 0,
+					aTH, 0
+					});
+			}
+		}
+		};
+
+	if (warState == "inWar" || warState == "warEnded") {
+		if (warParsed.contains("clan")) processMembers(warParsed["clan"]);
+		if (warParsed.contains("opponent")) processMembers(warParsed["opponent"]);
+	}
+
+	return attacksList;
+}
+
+std::vector<ClanwarsLeagueMembers> ClanwarsLeagueMembers::parseClanwarsLeagueMembers(const nlohmann::json& j) {
+	if (!j.contains("clans") || !j["clans"].is_array()) return {};
+
+	std::string seasonId = j.value("season", "0000-00");
+	std::vector<ClanwarsLeagueMembers> membersList;
+
+	auto const& clans = j["clans"];
+
+	for (const auto& clan : clans) {
+		if (!clan.contains("members")) continue;
+
+		std::string currentClanTag = clan.value("tag", "Unknown");
+
+		auto const& members = j["members"];
+
+		for (const auto& member : members) {
+			membersList.push_back({
+				member.value("tag", ""),
+				seasonId,
+				member.value("name", ""),
+				currentClanTag
+			});
+		}
+	}
+	return membersList;
 }

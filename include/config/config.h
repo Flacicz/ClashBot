@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 struct AppConfig {
 	std::string supercellToken;
@@ -10,5 +11,5 @@ struct AppConfig {
 
 	std::string databasePath;
 
-	std::string defaultClanTag;
+	std::vector<std::string> defaultClanTags;
 };

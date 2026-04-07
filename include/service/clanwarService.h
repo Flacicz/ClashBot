@@ -2,9 +2,10 @@
 
 #include "../database/database.h"
 #include "../api/apiclient.h"
-#include "../models/models.h"
 
+#include <string_view>
 #include <vector>
+#include "../models/models.h"
 
 class ClanwarService {
 private:
@@ -13,6 +14,6 @@ private:
 public:
 	ClanwarService(Database* db, APIClient* apiClient);
 
-	void updateCWData();
-	void printCWSlackers(const std::vector<ClanwarAttack>& attacks);
+	void updateCWData(std::string_view tag);
+	void printCWSlackers(std::string_view tag, const std::vector<ClanwarAttack>& attacks);
 };

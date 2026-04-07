@@ -17,13 +17,13 @@ private:
 	bool isTunnel;
 
 	static std::string normalizeTag(std::string_view tag);
-	nlohmann::json fetchJson(const std::string& endpoint) const;
+	nlohmann::json fetchJson(std::string_view endpoint) const;
 public:
 	APIClient(const std::string& token, bool tunnel, const std::string& baseUrl, const std::string& tunnelUrl);
-	~APIClient();
+	~APIClient() = default;
 
-	const bool getIsTunnel() const { return isTunnel; };
-	const std::string getApiToken() const { return apiToken; };
+	bool getIsTunnel() const { return isTunnel; };
+	const std::string& getApiToken() const { return apiToken; };
 
 	ClanInfo getClanInfo(std::string_view clanTag) const;
 	std::vector<Player> getPlayersInfo(std::string_view clanTag) const;
@@ -36,8 +36,8 @@ public:
 	std::vector<ClanwarAttack> getClanwarAttacks(std::string_view clanTag) const;
 
 
-	LeagueClanwarSeason getLeagueClanwarSeasonInfo(std::string_view clanTag) const;
-	std::vector<LeagueClanwarRound> getLeagueClanwarRoundsInfo(std::string_view clanTag) const;
-	std::vector<LeagueClanwarAttack> getLeagueClanwarAttacksInfo(std::string_view clanTag, const std::vector<LeagueClanwarRound>& rounds) const;
-	std::vector<LeagueClanwarMember> getLeagueClanwarMembers(std::string_view clanTag) const;
+	std::optional<ClanwarwarsLeagueSeason> getLeagueClanwarSeasonInfo(std::string_view clanTag) const;
+	std::vector<ClanwarsLeagueRound> getLeagueClanwarRoundsInfo(std::string_view clanTag) const;
+	std::vector<ClanwarsLeagueAttacks> getLeagueClanwarAttacksInfo(std::string_view clanTag, const std::vector<ClanwarsLeagueRound>& rounds) const;
+	std::vector<ClanwarsLeagueMembers> getLeagueClanwarMembers(std::string_view clanTag) const;
 };

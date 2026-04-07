@@ -2,6 +2,7 @@
 
 #include "../database/database.h"
 #include "../api/apiclient.h"
+#include <string_view>
 
 class ClanwarLeagueService {
 private:
@@ -10,5 +11,5 @@ private:
 public:
 	ClanwarLeagueService(Database* db, APIClient* apiClient);
 
-	void updateCWLData();
+	void updateCWLData(std::string_view tag);
 };

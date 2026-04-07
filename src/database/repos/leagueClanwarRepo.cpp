@@ -10,7 +10,7 @@
 
 LeagueClanwarRepo::LeagueClanwarRepo(Database* db) : db(db) {};
 
-bool LeagueClanwarRepo::insertOrUpdateSingleCWLSeasonInfo(const LeagueClanwarSeason& info) {
+bool LeagueClanwarRepo::insertOrUpdateSingleCWLSeasonInfo(const ClanwarwarsLeagueSeason& info) {
 	sqlite3_stmt* stmt;
 
 	std::string sql = R"(
@@ -39,7 +39,7 @@ bool LeagueClanwarRepo::insertOrUpdateSingleCWLSeasonInfo(const LeagueClanwarSea
 	return result;
 }
 
-bool LeagueClanwarRepo::insertOrUpdateSingleCWLRoundsInfo(const std::vector<LeagueClanwarRound>& rounds) {
+bool LeagueClanwarRepo::insertOrUpdateSingleCWLRoundsInfo(const std::vector<ClanwarsLeagueRound>& rounds) {
 	sqlite3_stmt* stmt;
 
 	std::string sql = R"(
@@ -65,7 +65,7 @@ bool LeagueClanwarRepo::insertOrUpdateSingleCWLRoundsInfo(const std::vector<Leag
 		sqlite3_bind_text(stmt, 1, round.warTag.c_str(), -1, SQLITE_TRANSIENT);
 		sqlite3_bind_text(stmt, 2, round.seasonId.c_str(), -1, SQLITE_TRANSIENT);
 		sqlite3_bind_int(stmt, 3, round.round);
-		sqlite3_bind_text(stmt, 4, round.opponent_tag.c_str(), -1, SQLITE_TRANSIENT);
+		sqlite3_bind_text(stmt, 4, round.opponentTag.c_str(), -1, SQLITE_TRANSIENT);
 
 		if (!db->executePrepeared(stmt)) {
 			db->execute("ROLLBACK;");
@@ -81,7 +81,7 @@ bool LeagueClanwarRepo::insertOrUpdateSingleCWLRoundsInfo(const std::vector<Leag
 	return true;
 }
 
-bool LeagueClanwarRepo::insertOrUpdateSingleCWLAttacksInfo(const std::vector<LeagueClanwarAttack>& attacks) {
+bool LeagueClanwarRepo::insertOrUpdateSingleCWLAttacksInfo(const std::vector<ClanwarsLeagueAttacks>& attacks) {
 	sqlite3_stmt* stmt;
 
 	std::string sql = R"(
@@ -149,7 +149,7 @@ bool LeagueClanwarRepo::insertOrUpdateSingleCWLAttacksInfo(const std::vector<Lea
 	return true;
 }
 
-bool LeagueClanwarRepo::insertOrUpdateSingleCWLMembersInfo(const std::vector<LeagueClanwarMember>& members) {
+bool LeagueClanwarRepo::insertOrUpdateSingleCWLMembersInfo(const std::vector<ClanwarsLeagueMembers>& members) {
 	sqlite3_stmt* stmt;
 
 	std::string sql = R"(

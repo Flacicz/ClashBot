@@ -8,20 +8,29 @@
 #include "../api/apiclient.h"
 
 #include <string>
+#include <vector>
+#include <memory>
+#include <atomic>
 
 class ClanManager {
 private:
 	Database* db;
 	APIClient* apiClient;
 
-	ClanInfoService* clanInfoService;
-	ClanwarService* cwService;
-	RaidService* raidService;
-	ClanwarLeagueService* cwlService;
+	std::unique_ptr<ClanInfoService> clanInfoService;
+	std::unique_ptr<ClanwarService> cwService;
+	std::unique_ptr<RaidService> raidService;
+	std::unique_ptr<ClanwarLeagueService> cwlService;
+
+	std::vector<std::string> targetClans;
+
+	std::atomic<bool> isRunning{true};
 public:
-	ClanManager(Database* db, APIClient* apiClient);
-	~ClanManager();
+	ClanManager(Database* db, APIClient* apiClient,const std::vector<std::string>& targetClans);
+	~ClanManager() = default;
 
 	void syncAll();
 	void logTime(const std::string& message);
+
+	void stop() { isRunning.store(false); };
 };

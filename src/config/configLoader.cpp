@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <nlohmann/json.hpp>
 #include <nlohmann/json_fwd.hpp>
+#include <vector>
 
 AppConfig loadConfig(const std::string& path) {
 	std::ifstream file(path);
@@ -36,7 +37,8 @@ AppConfig loadConfig(const std::string& path) {
     if (j.contains("database")) config.databasePath = j["database"].value("path", "data/database.dblite");
     else config.databasePath = "data/database.dblite";
 
-    if (j.contains("bot")) config.defaultClanTag = j["bot"].value("default_clan_tag", "#2J8PJ9VLG");
+    if (j.contains("bot") && j["bot"].contains("default_clan_tags") && j["bot"]["default_clan_tags"].is_array())
+     config.defaultClanTags = j["bot"]["default_clan_tags"].get<std::vector<std::string>>();
 
     return config;
 }

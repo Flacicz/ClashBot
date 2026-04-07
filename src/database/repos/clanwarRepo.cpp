@@ -56,7 +56,7 @@ bool ClanwarRepo::insertSingleClanwarInfo(const ClanWar& clanwar) {
 	sqlite3_reset(stmt);
 
 	sqlite3_bind_text(stmt, 1, clanwar.seasonId.c_str(), -1, SQLITE_TRANSIENT);
-	sqlite3_bind_text(stmt, 2, clanwar.prep_start_time.c_str(), -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 2, clanwar.prepStartTime.c_str(), -1, SQLITE_TRANSIENT);
 	sqlite3_bind_text(stmt, 3, clanwar.clanTag.c_str(), -1, SQLITE_TRANSIENT);
 	sqlite3_bind_text(stmt, 4, clanwar.opponentTag.c_str(), -1, SQLITE_TRANSIENT);
 	sqlite3_bind_text(stmt, 5, clanwar.opponentName.c_str(), -1, SQLITE_TRANSIENT);

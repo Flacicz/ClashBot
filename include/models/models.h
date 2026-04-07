@@ -120,21 +120,23 @@ struct ClanwarAttack {
     static std::vector<ClanwarAttack> parseAttacksList(const nlohmann::json& j, std::string_view clanTag);
 };
 
-struct LeagueClanwarSeason {
+struct ClanwarwarsLeagueSeason {
     std::string seasonId;
     std::string clanTag;
     std::string leagueId;
     std::string state;
+
+    static ClanwarwarsLeagueSeason fromJson(const nlohmann::json& j, std::string_view clanTag, std::string_view leagueId);
 };
 
-struct LeagueClanwarRound {
+struct ClanwarsLeagueRound {
     std::string warTag;
     std::string seasonId;
     unsigned short round;
-    std::string opponent_tag;
+    std::string opponentTag;
 };
 
-struct LeagueClanwarAttack {
+struct ClanwarsLeagueAttacks {
     std::string warTag;
     std::string attackerClanTag;
     std::string attackerTag;
@@ -147,11 +149,15 @@ struct LeagueClanwarAttack {
     unsigned short duration;
     unsigned short attackerTHlvl;
     unsigned short defenderTHlvl;
+
+    static std::vector<ClanwarsLeagueAttacks> parseAttackList(const nlohmann::json& warParsed, std::string_view roundWarTag);
 };
 
-struct LeagueClanwarMember {
+struct ClanwarsLeagueMembers {
     std::string playerTag;
     std::string seasonId;
     std::string name;
     std::string clanTag;
+
+    static std::vector<ClanwarsLeagueMembers> parseClanwarsLeagueMembers(const nlohmann::json& j);
 };

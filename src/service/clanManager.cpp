@@ -14,48 +14,42 @@
 #include <ctime>
 #include <iomanip>
 #include <corecrt.h>
+#include <vector>
+#include <memory>
 
 
-ClanManager::ClanManager(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {
-	this->clanInfoService = new ClanInfoService(db, apiClient);
-	this->cwService = new ClanwarService(db, apiClient);
-	this->raidService = new RaidService(db, apiClient);
-	this->cwlService = new ClanwarLeagueService(db, apiClient);
-}
-
-ClanManager::~ClanManager() {
-	delete clanInfoService;
-	delete cwService;
-	delete raidService;
-	delete cwlService;
+ClanManager::ClanManager(Database* db, APIClient* apiClient,const std::vector<std::string>& targetClans)
+	: db(db), apiClient(apiClient), targetClans(targetClans) {
+	this->clanInfoService = std::make_unique<ClanInfoService>(db, apiClient);
+	this->cwService = std::make_unique<ClanwarService>(db, apiClient);
+	this->raidService = std::make_unique<RaidService>(db, apiClient);
+	this->cwlService = std::make_unique<ClanwarLeagueService>(db, apiClient);
 }
 
 void ClanManager::syncAll() {
-	while (true) {
+	constexpr int kSleepSeconds = 30 * 60;
+
+	while (isRunning.load()) {
 		logTime("Начинаю цикл обновления данных...");
 
-		try {
-			clanInfoService->updateClanInfo();
-		}
-		catch (const std::exception& e) {
-			std::cerr << e.what() << std::endl;
+		for (const std::string& tag : targetClans) {
+			if (!isRunning.load()) break;
+
+			try { clanInfoService->updateClanInfo(tag); }
+			catch (const std::exception& e) { std::cerr << "[ClanInfo][#" << tag << "]: " << e.what() << std::endl; }
+
+			if (!isRunning.load()) break;
+
+			try { cwService->updateCWData(tag); }
+			catch (const std::exception& e) { std::cerr << "[Clanwar][#" << tag << "]: " << e.what() << std::endl; }
+
+			if (!isRunning.load()) break;
+
+			try { raidService->updateRaidData(tag); }
+			catch (const std::exception& e) { std::cerr << "[Raid][#" << tag << "]: " << e.what() << std::endl; }
 		}
 
-		try {
-			cwService->updateCWData();
-			cwService->printCWSlackers(db->getCwRepo().getClanwarAttacks(db->getCwRepo().getLastId(apiClient->getClanTag())));
-		}
-		catch (const std::exception& e) {
-			std::cerr << e.what() << std::endl;
-		}
-
-		try {
-			raidService->updateRaidData();
-			raidService->printRaidSlackers(db->getRaidRepo().checkSlackers(db->getRaidRepo().getLastRaidId(apiClient->getClanTag())));
-		}
-		catch (const std::exception& e) {
-			std::cerr << e.what() << std::endl;
-		}
+		if (!isRunning.load()) break;
 
 		//try {
 		//	cwlService->updateCWLData();
@@ -66,8 +60,14 @@ void ClanManager::syncAll() {
 
 		std::cout << "----------------------------------------------" << std::endl;
 		logTime("Ухожу в сон на 30 минут...");
-		std::this_thread::sleep_for(std::chrono::minutes(30));
+
+		
+		for (int i = 0; i < kSleepSeconds && isRunning.load(); ++i) {
+			std::this_thread::sleep_for(std::chrono::seconds(1));
+		}
 	}
+
+	logTime("Цикл синхронизации успешно завершен.");
 }
 
 void ClanManager::logTime(const std::string& message) {

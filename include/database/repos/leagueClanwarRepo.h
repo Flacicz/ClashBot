@@ -12,8 +12,8 @@ private:
 public:
 	LeagueClanwarRepo(Database* db);
 
-	bool insertOrUpdateSingleCWLSeasonInfo(const LeagueClanwarSeason& info);
-	bool insertOrUpdateSingleCWLRoundsInfo(const std::vector<LeagueClanwarRound>& rounds);
-	bool insertOrUpdateSingleCWLAttacksInfo(const std::vector<LeagueClanwarAttack>& attacks);
-	bool insertOrUpdateSingleCWLMembersInfo(const std::vector<LeagueClanwarMember>& members);
+	bool insertOrUpdateSingleCWLSeasonInfo(const ClanwarwarsLeagueSeason& info);
+	bool insertOrUpdateSingleCWLRoundsInfo(const std::vector<ClanwarsLeagueRound>& rounds);
+	bool insertOrUpdateSingleCWLAttacksInfo(const std::vector<ClanwarsLeagueAttacks>& attacks);
+	bool insertOrUpdateSingleCWLMembersInfo(const std::vector<ClanwarsLeagueMembers>& members);
 };
