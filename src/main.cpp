@@ -3,6 +3,8 @@
 #include <exception>
 #include <thread>
 #include <string>
+#include <memory>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -14,47 +16,85 @@
 #include "../include/config/configLoader.h"
 #include "../include/config/config.h"
 
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/common.h>
+#include <spdlog/logger.h>
+#include <spdlog/spdlog-inl.h>
+
 using json = nlohmann::json;
 
-int main() {
-    #ifdef _WIN32
-        SetConsoleOutputCP(65001);
-    #endif
+static void setupLogger() {
+    try {
+        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 
-	std::cout << "--- Clash of Clans Tracker v1.0 ---\n";
+        // Создаем sink для файла с ротацией (максимум 5 МБ, храним 3 последних файла)
+        auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/bot.log", 1024 * 1024 * 5, 3);
 
-	try {
-        AppConfig config = loadConfig("C:/Code/C++/ActivityTracking/src/config.json"); // Заменить абсолютный путь
+        // Объединяем их в один логгер
+        std::vector<spdlog::sink_ptr> sinks{ console_sink, file_sink };
+        auto logger = std::make_shared<spdlog::logger>("ClashBot", sinks.begin(), sinks.end());
+
+        // Настраиваем формат: [Год-Мес-День Час:Мин:Сек] [Имя логгера] [Уровень] Текст
+        logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v");
+
+        // Делаем его логгером по умолчанию
+        spdlog::set_default_logger(logger);
+        spdlog::set_level(spdlog::level::info); // Фильтруем всё, что ниже INFO
+    }
+    catch (const spdlog::spdlog_ex& ex) {
+        // Если логгер упал, пишем в поток ошибок (cerr)
+        std::cerr << "Logger initialization failed: " << ex.what() << std::endl;
+    }
+}
+
+int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    SetConsoleOutputCP(65001);
+#endif
+
+    setupLogger();
+
+    spdlog::info("[Main] Starting ClashBot v1.0...");
+
+    try {
+        std::string configPath = (argc > 1) ? argv[1] : "src/config.json";
+
+        AppConfig config = loadConfig(configPath);
+
+        spdlog::info("[Main] Configuration loaded from '{}'. Target clans: {}", configPath, config.defaultClanTags.size());
 
         APIClient apiClient(config.supercellToken, config.useTunnel, config.baseUrl, config.tunnelBaseUrl);
         Database db(config.databasePath);
         ClanManager clanManager(&db, &apiClient, config.defaultClanTags);
-        
-        std::thread syncThread([&clanManager]() {
-            clanManager.syncAll();
-        });
 
-        std::cout << "Введите 'stop' для завершения программы.\n";
+        std::thread syncThread([&clanManager]() {
+            spdlog::info("[Manager] Starting synchronization cycle in a background thread...");
+            clanManager.syncAll();
+           });
+
+        spdlog::info("[Main] Enter 'stop' to end the program.");
         std::string cmd;
-        while(std::getline(std::cin, cmd)){
+        while (std::getline(std::cin, cmd)) {
             if (cmd == "stop" || cmd == "exit" || cmd == "q") {
-                std::cout << "Останавливаю сервис...\n";
+                spdlog::info("[Main] Stopping the service...");
                 clanManager.stop();
                 break;
             }
-            std::cout << "Неизвестная команда. Используй: stop\n";
+            spdlog::warn("[Main] Unknown command. Use: stop");
         }
 
         clanManager.stop();
         if (syncThread.joinable()) {
             syncThread.join();
         }
-        
-        std::cout << "Программа завершена.\n";
+
+        spdlog::info("[Main] Shutting down gracefully...");
         return 0;
-    } 
+    }
     catch (const std::exception& e) {
-        std::cerr << "Startup/runtime error: " << e.what() << std::endl;
+        spdlog::error("[Main] Startup/runtime error: {}", e.what());
         return 1;
     }
 }

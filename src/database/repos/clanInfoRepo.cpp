@@ -1,14 +1,12 @@
 ﻿#include "../../include/database/repos/clanInfoRepo.h"
-#include "../../../include/models/models.h"
-#include "../database/database.h"
+#include "../../include/models/models.h"
+#include "../../include/database/database.h"
 
 #include <sqlite3.h>
-
-#include <iostream>
-#include <chrono>
+#include <spdlog/spdlog.h>
+#include <stdexcept>
 #include <string>
 #include <vector>
-
 
 ClanInfoRepo::ClanInfoRepo(Database* db) : db(db) {}
 
@@ -48,12 +46,13 @@ bool ClanInfoRepo::insertOrUpdateClanInfo(const ClanInfo& clanInfo) {
         war_league = excluded.war_league,
         location_name = excluded.location_name,
         chat_language = excluded.chat_language,
-        updated_at = strftime('%s', 'now');
+        updated_at = strftime('%s', 'now')
     )";
 
     if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-        std::cerr << "Не удалось подготовить запрос: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
-        return false;
+        std::string err = sqlite3_errmsg(db->getDBInstance());
+        spdlog::error("[DB: Repo] Failed to prepare ClanInfo statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
     sqlite3_bind_text(stmt, 1, clanInfo.tag.c_str(), -1, SQLITE_TRANSIENT);
@@ -84,13 +83,18 @@ bool ClanInfoRepo::insertOrUpdateClanInfo(const ClanInfo& clanInfo) {
     sqlite3_bind_text(stmt, 22, clanInfo.locationName.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 23, clanInfo.chatLanguage.c_str(), -1, SQLITE_TRANSIENT);
 
-    bool result = db->executePrepeared(stmt);
-    sqlite3_finalize(stmt);
+    if (!db->executePrepared(stmt)) {
+        sqlite3_finalize(stmt);
+        throw std::runtime_error("Failed to execute ClanInfo insert/update");
+    }
 
-    return result;
+    sqlite3_finalize(stmt);
+    return true;
 }
 
 bool ClanInfoRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players) {
+    if (players.empty()) return true;
+
     sqlite3_stmt* stmt;
 
     std::string sql = R"(
@@ -112,18 +116,18 @@ bool ClanInfoRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players)
             donations = excluded.donations,
             donations_received = excluded.donations_received,
             clan_rank = excluded.clan_rank,
-            updated_at = strftime('%s', 'now');
+            updated_at = strftime('%s', 'now')
     )";
 
     if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-        std::cerr << "Не удалось подготовить запрос: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
-        return false;
+        std::string err = sqlite3_errmsg(db->getDBInstance());
+        spdlog::error("[DB: Repo] Failed to prepare PlayersInfo statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
     }
-
-    db->execute("BEGIN TRANSACTION;");
 
     for (const auto& player : players) {
         sqlite3_reset(stmt);
+        sqlite3_clear_bindings(stmt);
 
         sqlite3_bind_text(stmt, 1, player.tag.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 2, player.clanTag.c_str(), -1, SQLITE_TRANSIENT);
@@ -138,14 +142,11 @@ bool ClanInfoRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players)
         sqlite3_bind_int(stmt, 11, player.donationsReceived);
         sqlite3_bind_int(stmt, 12, player.clanRank);
 
-        if (!db->executePrepeared(stmt)) {
-            sqlite3_exec(db->getDBInstance(), "ROLLBACK;", nullptr, nullptr, nullptr);
+        if (!db->executePrepared(stmt)) {
             sqlite3_finalize(stmt);
-            return false;
+            throw std::runtime_error("Failed to execute PlayersInfo insert for tag: " + player.tag);
         }
     }
-
-    db->execute("COMMIT;");
 
     sqlite3_finalize(stmt);
     return true;
@@ -157,17 +158,20 @@ bool ClanInfoRepo::removeExitedPlayers(const std::string& clanTag, long long upd
     std::string sql = "DELETE FROM players_info WHERE clan_tag = ? AND updated_at < ?";
 
     if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-        std::cerr << "Не удалось подготовить запрос: " << sqlite3_errmsg(db->getDBInstance()) << std::endl;
-        return false;
+        std::string err = sqlite3_errmsg(db->getDBInstance());
+        spdlog::error("[DB: Repo] Failed to prepare removeExitedPlayers statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
-    sqlite3_reset(stmt);
-
     sqlite3_bind_text(stmt, 1, clanTag.c_str(), -1, SQLITE_TRANSIENT);
+
     sqlite3_bind_int64(stmt, 2, updated_time - 5);
 
-    bool result = db->executePrepeared(stmt);
-    sqlite3_finalize(stmt);
+    if (!db->executePrepared(stmt)) {
+        sqlite3_finalize(stmt);
+        throw std::runtime_error("Failed to execute removeExitedPlayers");
+    }
 
-    return result;
+    sqlite3_finalize(stmt);
+    return true;
 }

@@ -2,28 +2,51 @@
 #include "../../include/database/database.h"
 #include "../../include/api/apiclient.h"
 
-#include <iostream>
+#include <spdlog/spdlog.h>
+#include <exception>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 
-ClanwarLeagueService::ClanwarLeagueService(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {};
+ClanwarLeagueService::ClanwarLeagueService(Database* db, APIClient* apiClient)
+    : db(db), apiClient(apiClient) {
+};
 
 void ClanwarLeagueService::updateCWLData(std::string_view tag) {
-	std::cout << "--- Начинаю обновление данных CWL ---" << std::endl;
+    const char* svc = "CWL";
+    spdlog::info("[Service: {}] Starting Clan War League data update for {}", svc, tag);
 
-	auto season = apiClient->getLeagueClanwarSeasonInfo(tag);
-	if (!season.has_value()) {
-		std::cout << "Лига сейчас не активна." << std::endl;
-		return;
-	}
-	db->getCwlRepo().insertOrUpdateSingleCWLSeasonInfo(season.value());
+    auto season = apiClient->getLeagueClanwarSeasonInfo(tag);
+    if (!season.has_value()) {
+        spdlog::info("[Service: {}] CWL is not active for {}", svc, tag);
+        return;
+    }
 
-	auto members = apiClient->getLeagueClanwarMembers(tag);
-	db->getCwlRepo().insertOrUpdateSingleCWLMembersInfo(members);
+    auto members = apiClient->getLeagueClanwarMembers(tag);
+    auto rounds = apiClient->getLeagueClanwarRoundsInfo(tag);
+    auto attacks = apiClient->getLeagueClanwarAttacksInfo(tag, rounds);
 
-	auto rounds = apiClient->getLeagueClanwarRoundsInfo(tag);
-	db->getCwlRepo().insertOrUpdateSingleCWLRoundsInfo(rounds);
+    spdlog::debug("[DB] Transaction STARTED");
+    db->execute("BEGIN TRANSACTION;");
 
-	auto attacks = apiClient->getLeagueClanwarAttacksInfo(tag, rounds);
-	if (db->getCwlRepo().insertOrUpdateSingleCWLAttacksInfo(attacks)) {
-		std::cout << "Данные успешно обновлены. Всего атак в базе: " << attacks.size() << std::endl;
-	}
+    try {
+        db->getCwlRepo().insertOrUpdateSingleCWLSeasonInfo(season.value());
+        db->getCwlRepo().insertOrUpdateSingleCWLMembersInfo(members);
+        db->getCwlRepo().insertOrUpdateSingleCWLRoundsInfo(rounds);
+
+        if (db->getCwlRepo().insertOrUpdateSingleCWLAttacksInfo(attacks)) {
+            spdlog::info("[Service: {}] Update successful for {}. Attacks processed: {}",
+                svc, tag, attacks.size());
+        }
+
+        db->execute("COMMIT;");
+        spdlog::debug("[DB] Transaction COMMITTED");
+    }
+    catch (const std::exception& e) {
+        db->execute("ROLLBACK;");
+        spdlog::error("[DB] Transaction ROLLED BACK");
+
+        spdlog::error("[Service: {}] Critical error during CWL update for {}: {}", svc, tag, e.what());
+        throw;
+    }
 }

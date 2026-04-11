@@ -16,7 +16,7 @@ public:
 
 	bool insertSingleClanwarSeasonInfo(const ClanwarSeason& season);
 	bool insertSingleClanwarInfo(const ClanWar& clanwar);
-	bool insertSingleClanwarAttacksInfo(std::string warId, std::vector<ClanwarAttack> attacks);
+	bool insertSingleClanwarAttacksInfo(const std::string& warId, const std::vector<ClanwarAttack>& attacks);
 
 	std::string getClanwarIdByDate(const std::string& clanTag, const std::string& date);
 	std::string getLastId(const std::string& clanTag);

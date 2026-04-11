@@ -14,9 +14,9 @@ find_package(SQLite3 REQUIRED)
 
 add_executable(${PROJECT_NAME} src/main.cpp)
 
-
 target_link_libraries(${PROJECT_NAME} PRIVATE 
 											  cpr::cpr
 											  nlohmann_json::nlohmann_json
 											  SQLite::SQLite3
+											  spdlog::spdlog_header_only
 )

@@ -30,7 +30,6 @@ public:
 	~ClanManager() = default;
 
 	void syncAll();
-	void logTime(const std::string& message);
 
 	void stop() { isRunning.store(false); };
 };
