@@ -8,7 +8,8 @@
 *.vcxproj.*
 data/
 config.json
-./idea
+.idea/
+.ai/
 
 # User-specific files
 *.rsuser
