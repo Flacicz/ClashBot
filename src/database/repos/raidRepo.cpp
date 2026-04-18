@@ -1,6 +1,6 @@
-﻿#include "../../include/database/repos/raidRepo.h"
-#include "../../include/database/database.h"
-#include "../../../include/models/models.h"
+﻿#include "database/repos/raidRepo.h"
+#include "database/database.h"
+#include "models/models.h"
 
 #include <spdlog/spdlog.h>
 #include <stdexcept>
@@ -133,6 +133,53 @@ bool RaidRepo::insertOrUpdateSinglePlayersRaidInfo(long long raidId, const std::
 
     sqlite3_finalize(stmt);
     return true;
+}
+
+bool RaidRepo::isNotified(long long raidId)
+{
+    std::string getRaidId = "SELECT raid_id FROM raid_notifications WHERE raid_id = ?";
+    sqlite3_stmt* stmt;
+
+    if (sqlite3_prepare_v2(db->getDBInstance(), getRaidId.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        spdlog::error("[DB: RaidRepo] Failed to prepare isNotified: {}", sqlite3_errmsg(db->getDBInstance()));
+        return false;
+    }
+
+    sqlite3_bind_int64(stmt, 1, raidId);
+
+    long long id = -1;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        id = sqlite3_column_int64(stmt, 0);
+    }
+
+    sqlite3_finalize(stmt);
+
+    return id != -1;
+}
+
+void RaidRepo::markAsNotifies(long long raidId)
+{
+    sqlite3_stmt* stmt;
+
+    std::string sql = R"(
+        INSERT INTO raid_notifications (
+            raid_id
+        ) VALUES (?)
+    )";
+
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        spdlog::error("[DB: RaidRepo] Failed to prepare notification insert: {}", sqlite3_errmsg(db->getDBInstance()));
+        return; // Early return to avoid using an uninitialized stmt
+    }
+
+    sqlite3_bind_int64(stmt, 1, raidId);
+
+    if (!db->executePrepared(stmt)) {
+        sqlite3_finalize(stmt);
+        throw std::runtime_error("Failed to execute Raid Notification insert");
+    }
+
+    sqlite3_finalize(stmt);
 }
 
 std::vector<PlayerRaidStats> RaidRepo::checkSlackers(long long raidId) {

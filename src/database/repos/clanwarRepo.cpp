@@ -1,5 +1,5 @@
-#include "../../include/database/repos/clanwarRepo.h"
-#include "../../include/database/database.h"
+#include "database/repos/clanwarRepo.h"
+#include "database/database.h"
 
 #include <spdlog/spdlog.h>
 #include <stdexcept>
@@ -224,4 +224,51 @@ std::vector<ClanwarAttack> ClanwarRepo::getClanwarAttacks(const std::string& war
 
     sqlite3_finalize(stmt);
     return attacks;
+}
+
+bool ClanwarRepo::isNotified(const std::string& warId)
+{
+    std::string sql = "SELECT war_id FROM clanwar_notifications WHERE war_id = ?";
+    sqlite3_stmt* stmt;
+
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        spdlog::error("[DB: CWRepo] Failed to prepare isNotified: {}", sqlite3_errmsg(db->getDBInstance()));
+        return false;
+    }
+
+    sqlite3_bind_text(stmt, 1, warId.c_str(), -1, SQLITE_TRANSIENT);
+
+    bool notified = false;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        notified = true;
+    }
+
+    sqlite3_finalize(stmt);
+
+    return notified;
+}
+
+void ClanwarRepo::markAsNotified(const std::string& warId)
+{
+    sqlite3_stmt* stmt;
+
+    std::string sql = R"(
+        INSERT INTO clanwar_notifications (
+            war_id
+        ) VALUES (?)
+    )";
+
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        spdlog::error("[DB: CWRepo] Failed to prepare notification insert: {}", sqlite3_errmsg(db->getDBInstance()));
+        return;
+    }
+
+    sqlite3_bind_text(stmt, 1, warId.c_str(), -1, SQLITE_TRANSIENT);
+
+    if (!db->executePrepared(stmt)) {
+        sqlite3_finalize(stmt);
+        throw std::runtime_error("Failed to execute Clanwar Notification insert");
+    }
+
+    sqlite3_finalize(stmt);
 }

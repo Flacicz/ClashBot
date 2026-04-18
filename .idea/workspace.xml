@@ -5,10 +5,12 @@
   </component>
   <component name="BackendCodeEditorMiscSettings">
     <option name="/Default/Housekeeping/FeatureSuggestion/FeatureSuggestionManager/DisabledSuggesters/=SwitchToGoToActionSuggester/@EntryIndexedValue" value="true" type="bool" />
+    <option name="/Default/Housekeeping/GlobalSettingsUpgraded/IsUpgraded/@EntryValue" value="true" type="bool" />
+    <option name="/Default/RiderDebugger/RiderRestoreDecompile/RestoreDecompileSetting/@EntryValue" value="false" type="bool" />
   </component>
-  <component name="CMakePresetLoader"><![CDATA[{
-  "useNewFormat": true
-}]]></component>
+  <component name="CMakePresetLoader">{
+  &quot;useNewFormat&quot;: true
+}</component>
   <component name="CMakeProjectFlavorService">
     <option name="flavorId" value="CMakePlainProjectFlavor" />
   </component>
@@ -16,22 +18,44 @@
     <option name="reloaded" value="true" />
   </component>
   <component name="CMakeRunConfigurationManager">
-    <generated />
+    <generated>
+      <config projectName="ActivityTracking" targetName="ActivityTracking" />
+    </generated>
   </component>
   <component name="CMakeSettings">
     <configurations>
-      <configuration PROFILE_NAME="Debug" ENABLED="true" CONFIG_NAME="Debug" />
+      <configuration PROFILE_NAME="Debug" ENABLED="true" CONFIG_NAME="Debug" GENERATION_OPTIONS="-DCMAKE_TOOLCHAIN_FILE=&quot;C:/Users/zuevm/vcpkg/scripts/buildsystems/vcpkg.cmake&quot;" />
     </configurations>
   </component>
   <component name="ChangeListManager">
     <list default="true" id="f153dd2f-670b-4690-951d-b580f96b3634" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/include/api/apiclient.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/api/apiclient.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/include/config/config.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/config/config.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/include/database/repos/clanwarRepo.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/database/repos/clanwarRepo.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/include/database/repos/leagueClanwarRepo.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/database/repos/leagueClanwarRepo.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/include/database/repos/raidRepo.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/database/repos/raidRepo.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/include/database/tableManager.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/database/tableManager.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/include/service/clanManager.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/service/clanManager.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/include/service/clanwarLeagueService.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/service/clanwarLeagueService.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/include/service/clanwarService.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/service/clanwarService.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/include/service/raidService.h" beforeDir="false" afterPath="$PROJECT_DIR$/include/service/raidService.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/api/apiclient.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/apiclient.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/config/configLoader.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/config/configLoader.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/database/database.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/database.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/database/repos/clanInfoRepo.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/repos/clanInfoRepo.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/database/repos/clanwarRepo.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/repos/clanwarRepo.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/database/repos/leagueClanwarRepo.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/repos/leagueClanwarRepo.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/database/repos/raidRepo.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/repos/raidRepo.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/database/tableManager.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/tableManager.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/models/models.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/models/models.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/service/clanInfoService.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/service/clanInfoService.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/service/clanManager.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/service/clanManager.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/service/clanwarLeagueService.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/service/clanwarLeagueService.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/service/clanwarService.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/service/clanwarService.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/service/raidService.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/service/raidService.cpp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -41,11 +65,16 @@
   <component name="ClangdSettings">
     <option name="formatViaClangd" value="false" />
   </component>
+  <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:Debug" />
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="MacroExpansionManager">
     <option name="directoryName" value="cNCwvV75" />
+  </component>
+  <component name="McpProjectServerCommands">
+    <commands />
+    <urls />
   </component>
   <component name="ProjectApplicationVersion">
     <option name="ide" value="CLion" />
@@ -62,33 +91,72 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.RadMigrateCodeStyle": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.cidr.known.project.marker": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.readMode.enableVisualFormatting": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "RunOnceActivity.west.config.association.type.startup.service": "true",
-    "cf.first.check.clang-format": "false",
-    "cidr.known.project.marker": "true",
-    "codeWithMe.voiceChat.enabledByDefault": "false",
-    "git-widget-placeholder": "main",
-    "last_opened_file_path": "C:/Code/C++/ActivityTracking",
-    "nodejs_package_manager_path": "npm",
-    "org.rust.first.attach.projects": "true",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;C/C++ File.main.cpp.executor&quot;: &quot;Run&quot;,
+    &quot;CMake Application.ActivityTracking.executor&quot;: &quot;Run&quot;,
+    &quot;CMake Debug.${PROJECT_NAME}.executor&quot;: &quot;Debug&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.RadMigrateCodeStyle&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.cidr.known.project.marker&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.readMode.enableVisualFormatting&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.west.config.association.type.startup.service&quot;: &quot;true&quot;,
+    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;cf.first.check.clang-format&quot;: &quot;false&quot;,
+    &quot;cidr.known.project.marker&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Code/C++/ActivityTracking&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;CMakeSettings&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  },
+  &quot;keyToStringList&quot;: {
+    &quot;DatabaseDriversLRU&quot;: [
+      &quot;sqlite&quot;
+    ]
   }
-}]]></component>
-  <component name="RunManager">
-    <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true">
+}</component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Code\C++\ActivityTracking" />
+    </key>
+  </component>
+  <component name="RunManager" selected="CMake Application.ActivityTracking">
+    <configuration name="${PROJECT_NAME}" type="CMakeListConfigurationType" factoryName="CMakeListConfigurationFactory" temporary="true">
+      <method v="2" />
+    </configuration>
+    <configuration name="ActivityTracking" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ActivityTracking" TARGET_NAME="ActivityTracking" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="ActivityTracking" RUN_TARGET_NAME="ActivityTracking">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
+    <configuration name="main.cpp" type="CppFileRunConfiguration" factoryName="CppFileRunConfiguration" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ActivityTracking" TARGET_NAME="main.cpp" CONFIG_NAME="main.cpp">
+      <option name="sourceFile" value="src\main.cpp" />
+      <method v="2">
+        <option name="com.jetbrains.cidr.cpp.runfile.CppFileBuildBeforeRunTaskProvider$BasicBuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <list>
+      <item itemvalue="C/C++ File.main.cpp" />
+      <item itemvalue="CMake Application.ActivityTracking" />
+      <item itemvalue="CMake Debug.${PROJECT_NAME}" />
+    </list>
+    <recent_temporary>
+      <list>
+        <item itemvalue="CMake Debug.${PROJECT_NAME}" />
+      </list>
+    </recent_temporary>
   </component>
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
@@ -99,6 +167,16 @@
       <updated>1775922227462</updated>
       <workItem from="1775922228604" duration="67000" />
       <workItem from="1775922342996" duration="97000" />
+      <workItem from="1776513992059" duration="114000" />
+      <workItem from="1776514131553" duration="40000" />
+      <workItem from="1776514234028" duration="40000" />
+      <workItem from="1776514340805" duration="10000" />
+      <workItem from="1776514411897" duration="68000" />
+      <workItem from="1776514578996" duration="1270000" />
+      <workItem from="1776516552095" duration="378000" />
+      <workItem from="1776516942334" duration="142000" />
+      <workItem from="1776517103113" duration="8900000" />
+      <workItem from="1776527750257" duration="629000" />
     </task>
     <servers />
   </component>
@@ -110,5 +188,16 @@
     <isAutomaticFoundErrors value="true" />
     <isAutomaticReloadCMake value="true" />
     <isAutomaticBootstrapAfterUpdate value="false" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <default-breakpoints>
+        <breakpoint type="CMakeExceptionBreakpoint" />
+      </default-breakpoints>
+    </breakpoint-manager>
+  </component>
+  <component name="XSLT-Support.FileAssociations.UIState">
+    <expand />
+    <select />
   </component>
 </project>

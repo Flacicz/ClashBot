@@ -17,8 +17,8 @@ private:
 	bool isTunnel;
 
 	static std::string normalizeTag(std::string_view tag);
-	nlohmann::json fetchJson(std::string_view endpoint) const;
 public:
+    nlohmann::json fetchJson(std::string_view endpoint) const;
 	APIClient(const std::string& token, bool tunnel, const std::string& baseUrl, const std::string& tunnelUrl);
 	~APIClient() = default;
 

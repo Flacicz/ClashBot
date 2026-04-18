@@ -26,6 +26,10 @@ public:
 	bool initClanwarLeagueAttacks();
 	bool initClanwarMembers();
 
+	bool initClanwarNotifications();
+	bool initRaidNotifications();
+	bool initClanwarLeagueNotifications();
+
 	bool initAllTables();
 
 	bool dropAllTables();

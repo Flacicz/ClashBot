@@ -10,31 +10,30 @@
 #include <windows.h>
 #endif
 
-#include "../include/database/database.h"
-#include "../include/api/apiclient.h"
-#include "../include/service/clanManager.h"
-#include "../include/config/configLoader.h"
-#include "../include/config/config.h"
+#include "database/database.h"
+#include "api/apiclient.h"
+#include "service/clanManager.h"
+#include "config/configLoader.h"
+#include "config/config.h"
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/common.h>
 #include <spdlog/logger.h>
-#include <spdlog/spdlog-inl.h>
 
 using json = nlohmann::json;
 
 static void setupLogger() {
     try {
-        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+        const auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 
         // Создаем sink для файла с ротацией (максимум 5 МБ, храним 3 последних файла)
-        auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/bot.log", 1024 * 1024 * 5, 3);
+        const auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/bot.log", 1024 * 1024 * 5, 3);
 
         // Объединяем их в один логгер
         std::vector<spdlog::sink_ptr> sinks{ console_sink, file_sink };
-        auto logger = std::make_shared<spdlog::logger>("ClashBot", sinks.begin(), sinks.end());
+        const auto logger = std::make_shared<spdlog::logger>("ClashBot", sinks.begin(), sinks.end());
 
         // Настраиваем формат: [Год-Мес-День Час:Мин:Сек] [Имя логгера] [Уровень] Текст
         logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v");
@@ -59,7 +58,7 @@ int main(int argc, char* argv[]) {
     spdlog::info("[Main] Starting ClashBot v1.0...");
 
     try {
-        std::string configPath = (argc > 1) ? argv[1] : "src/config.json";
+        std::string configPath = (argc > 1) ? argv[1] : "../config.json";
 
         AppConfig config = loadConfig(configPath);
 
@@ -67,7 +66,11 @@ int main(int argc, char* argv[]) {
 
         APIClient apiClient(config.supercellToken, config.useTunnel, config.baseUrl, config.tunnelBaseUrl);
         Database db(config.databasePath);
-        ClanManager clanManager(&db, &apiClient, config.defaultClanTags);
+        TelegramNotifier telegramNotifier(config.telegramToken, config.telegramChatId);
+
+        ClanManager clanManager(&db, &apiClient, &telegramNotifier, config.defaultClanTags);
+
+        db.getTableManager().initAllTables();
 
         std::thread syncThread([&clanManager]() {
             spdlog::info("[Manager] Starting synchronization cycle in a background thread...");

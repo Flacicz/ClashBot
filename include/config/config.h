@@ -12,4 +12,6 @@ struct AppConfig {
 	std::string databasePath;
 
 	std::vector<std::string> defaultClanTags;
+	std::string telegramToken;
+	std::string telegramChatId;
 };

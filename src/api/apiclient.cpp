@@ -1,5 +1,5 @@
-#include "../api/apiclient.h"
-#include "../models/models.h"
+#include "api/apiclient.h"
+#include "models/models.h"
 
 #include <cpr/response.h>
 #include <cpr/cprtypes.h>
@@ -23,7 +23,7 @@
 using json = nlohmann::json;
 
 APIClient::APIClient(const std::string& token, bool tunnel, const std::string& baseUrl, const std::string& tunnelUrl)
-    : apiToken(token), isTunnel(tunnel), baseUrl(baseUrl), tunnelUrl(tunnelUrl) {
+    : apiToken(token), baseUrl(baseUrl), tunnelUrl(tunnelUrl), isTunnel(tunnel) {
 }
 
 std::string APIClient::normalizeTag(std::string_view tag) {

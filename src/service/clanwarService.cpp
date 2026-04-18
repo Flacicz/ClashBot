@@ -1,7 +1,7 @@
-﻿#include "../../include/service/clanwarService.h"
-#include "../../include/models/models.h"
-#include "../../include/database/database.h"
-#include "../../include/api/apiclient.h"
+﻿#include "service/clanwarService.h"
+#include "models/models.h"
+#include "database/database.h"
+#include "api/apiclient.h"
 
 #include <vector>
 #include <string>
@@ -10,10 +10,11 @@
 #include <string_view>
 #include <exception>
 #include <stdexcept>
+#include <sstream>
 
 #include <spdlog/spdlog.h>
 
-ClanwarService::ClanwarService(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {};
+ClanwarService::ClanwarService(Database* db, APIClient* apiClient, TelegramNotifier* telegramNotifier) : db(db), apiClient(apiClient), telegramNotifier(telegramNotifier) {};
 
 void ClanwarService::updateCWData(std::string_view tag) {
     const char* svc = "CW";
@@ -32,23 +33,23 @@ void ClanwarService::updateCWData(std::string_view tag) {
     }
 
     auto attacks = apiClient->getClanwarAttacks(tag);
+    auto& summaryValue = summary.value();
+    std::string currentWarId = "";
 
     spdlog::debug("[DB] Transaction STARTED");
     db->execute("BEGIN TRANSACTION;");
 
     try {
-        auto& summaryValue = summary.value();
-
         db->getCwRepo().insertSingleClanwarSeasonInfo(season.value());
         db->getCwRepo().insertSingleClanwarInfo(summaryValue);
 
-        std::string id = db->getCwRepo().getClanwarIdByDate(summaryValue.clanTag, summaryValue.prepStartTime);
+        currentWarId = db->getCwRepo().getClanwarIdByDate(summaryValue.clanTag, summaryValue.prepStartTime);
 
-        if (id.empty()) {
+        if (currentWarId.empty()) {
             throw std::runtime_error("Failed to retrieve Clan War ID from database");
         }
 
-        if (db->getCwRepo().insertSingleClanwarAttacksInfo(id, attacks)) {
+        if (db->getCwRepo().insertSingleClanwarAttacksInfo(currentWarId, attacks)) {
             spdlog::info("[Service: {}] Update successful. Total attacks in DB: {}", svc, attacks.size());
         }
 
@@ -61,14 +62,43 @@ void ClanwarService::updateCWData(std::string_view tag) {
         spdlog::error("[Service: {}] Critical error saving Clan War data: {}", svc, e.what());
         throw;
     }
+
+    // Блок отправки уведомлений вынесен за пределы транзакции
+    if (summaryValue.result != "ongoing" && !currentWarId.empty()) {
+        try {
+            if (!db->getCwRepo().isNotified(currentWarId)) {
+                std::string report = buildCWReport(tag, attacks, summaryValue);
+
+                if (telegramNotifier->sendMessage(report)) {
+                    db->getCwRepo().markAsNotified(currentWarId);
+                    spdlog::info("[Service: CW] Notification sent for war {}", currentWarId);
+                }
+            }
+        }
+        catch (const std::exception& e) {
+            spdlog::error("[Service: CW] Error during notification process: {}", e.what());
+        }
+    }
 }
 
-void ClanwarService::printCWSlackers(std::string_view tag, const std::vector<ClanwarAttack>& attacks) {
+std::string ClanwarService::buildCWReport(std::string_view tag, const std::vector<ClanwarAttack>& attacks, const ClanWar& summary) {
     std::string lastId = db->getCwRepo().getLastId(std::string(tag));
     if (lastId.empty()) {
         spdlog::warn("[Service: CW] No Clan War data found in DB for clan {}", tag);
-        return;
+        return "";
     }
+
+    std::ostringstream report;
+    report << "⚔️ <b>ОТЧЕТ ПО КВ</b>\n";
+    report << "Клан: <code>" << tag << "</code>\n";
+    report << "Соперник: " << summary.opponentName << " (<code>" << summary.opponentTag << "</code>)\n";
+
+    // Результат войны
+    if (summary.result == "win") report << "🏆 <b>ПОБЕДА!</b>\n";
+    else if (summary.result == "lose") report << "💀 <b>ПОРАЖЕНИЕ</b>\n";
+    else if (summary.result == "tie") report << "🤝 <b>НИЧЬЯ</b>\n";
+
+    report << "Счет: ⭐️ " << summary.clanStars << " - " << summary.opponentStars << " ⭐️\n\n";
 
     std::unordered_map<std::string, std::pair<std::string, std::string>> slackers;
     bool hasAnySlackers = false;
@@ -82,30 +112,42 @@ void ClanwarService::printCWSlackers(std::string_view tag, const std::vector<Cla
         }
     }
 
-    spdlog::info("\n==============================================");
-    spdlog::info("   CLAN WAR REPORT FOR: {}", tag);
-    spdlog::info("   War ID: {}", lastId);
-    spdlog::info("==============================================");
-
     if (!hasAnySlackers) {
-        spdlog::info("All participants completed their attacks! No slackers found.");
+        report << "✅ <b>Все участники провели атаки без нарушений!</b>\n";
+        report << "<i>Молодцы!</i>";
+        return report.str();
     }
-    else {
-        spdlog::info("{:<20} | {}", "Player", "Status");
-        spdlog::info("----------------------------------------------");
 
-        for (const auto& [playerTag, info] : slackers) {
-            const std::string& name = info.first;
-            const std::string& rule = info.second;
+    std::ostringstream missedAll;
+    std::ostringstream missedOne;
+    std::ostringstream wrongTarget;
 
-            std::string status;
-            if (rule == "Missed") status = "[0/2] FULL MISS";
-            else if (rule == "Missed (1/2)") status = "[1/2] One attack missed";
-            else status = "Attacked non-mirror";
+    for (const auto& [playerTag, info] : slackers) {
+        const std::string& name = info.first;
+        const std::string& rule = info.second;
 
-            spdlog::info("  {:<17} | {}", name, status);
+        if (rule == "Missed") {
+            missedAll << "❌ " << name << " [0/2]\n";
+        }
+        else if (rule == "Missed (1/2)") {
+            missedOne << "➖ " << name << " [1/2]\n";
+        }
+        else {
+            wrongTarget << "⚠️ " << name << " (Бил не зеркало)\n";
         }
     }
 
-    spdlog::info("==============================================\n");
+    report << "<b>НАРУШИТЕЛИ:</b>\n";
+
+    if (!missedAll.str().empty()) {
+        report << "\n🚫 <b>Не били вообще:</b>\n" << missedAll.str();
+    }
+    if (!missedOne.str().empty()) {
+        report << "\n⚠️ <b>Сделали только 1 атаку:</b>\n" << missedOne.str();
+    }
+    if (!wrongTarget.str().empty()) {
+        report << "\n🎯 <b>Атаковали не зеркало:</b>\n" << wrongTarget.str();
+    }
+
+    return report.str();
 }

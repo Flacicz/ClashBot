@@ -1,7 +1,7 @@
-﻿#include "../../include/service/raidService.h"
-#include "../../include/models/models.h"
-#include "../../include/database/database.h"
-#include "../../include/api/apiclient.h"
+﻿#include "service/raidService.h"
+#include "models/models.h"
+#include "database/database.h"
+#include "api/apiclient.h"
 
 #include <exception>
 #include <unordered_set>
@@ -9,10 +9,12 @@
 #include <string_view>
 #include <stdexcept>
 #include <vector>
+#include <sstream>
 
 #include <spdlog/spdlog.h>
 
-RaidService::RaidService(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {};
+RaidService::RaidService(Database* db, APIClient* apiClient, TelegramNotifier* telegramNotifier)
+    : db(db), apiClient(apiClient), telegramNotifier(telegramNotifier) {};
 
 void RaidService::updateRaidData(std::string_view tag) {
     const char* svc = "Raid";
@@ -25,17 +27,18 @@ void RaidService::updateRaidData(std::string_view tag) {
         return;
     }
 
+    auto& raidValue = raid.value();
+    long long currentRaidId = -1;
+
     spdlog::debug("[DB] Transaction STARTED");
     db->execute("BEGIN TRANSACTION;");
 
     try {
-        auto& raidValue = raid.value();
-
         if (!db->getRaidRepo().insertOrUpdateSingleRaidInfo(raidValue)) {
             throw std::runtime_error("Failed to write raid_summary");
         }
 
-        long long currentRaidId = db->getRaidRepo().getRaidIdByDate(raidValue.clanTag, raidValue.date);
+        currentRaidId = db->getRaidRepo().getRaidIdByDate(raidValue.clanTag, raidValue.date);
         if (currentRaidId == -1) {
             throw std::runtime_error("Failed to retrieve Raid ID from database");
         }
@@ -48,6 +51,7 @@ void RaidService::updateRaidData(std::string_view tag) {
         spdlog::debug("[DB] Transaction COMMITTED");
 
         spdlog::info("[Service: {}] Raids for {} successfully updated. Participants: {}", svc, raidValue.date, raidValue.members.size());
+
     }
     catch (const std::exception& e) {
         db->execute("ROLLBACK;");
@@ -55,13 +59,30 @@ void RaidService::updateRaidData(std::string_view tag) {
         spdlog::error("[Service: {}] Critical error saving raids for {}: {}", svc, tag, e.what());
         throw;
     }
+
+    // --- Блок уведомлений вынесен за пределы транзакции ---
+    if (raidValue.state == "ended" && currentRaidId != -1) {
+        try {
+            if (!db->getRaidRepo().isNotified(currentRaidId)) {
+                std::string report = buildRaidReport(tag, raidValue.members);
+
+                if (telegramNotifier->sendMessage(report)) {
+                    db->getRaidRepo().markAsNotifies(currentRaidId);
+                    spdlog::info("[Service: Raid] Notification sent for raid {}", currentRaidId);
+                }
+            }
+        }
+        catch (const std::exception& e) {
+             spdlog::error("[Service: Raid] Error during notification process: {}", e.what());
+        }
+    }
 }
 
-void RaidService::printRaidSlackers(std::string_view tag, const std::vector<PlayerRaidStats>& participants) {
+std::string RaidService::buildRaidReport(std::string_view tag, const std::vector<PlayerRaidStats>& participants) {
     long long lastId = db->getRaidRepo().getLastRaidId(std::string(tag));
     if (lastId == -1) {
         spdlog::warn("[Service: Raid] No raid data found in DB for clan {}", tag);
-        return;
+        return "";
     }
 
     std::unordered_set<std::string> participant_tags;
@@ -69,50 +90,46 @@ void RaidService::printRaidSlackers(std::string_view tag, const std::vector<Play
         participant_tags.insert(p.playerTag);
     }
 
-    // Заголовок отчета оставляем в инфо, так как это полезный вывод
-    spdlog::info("==============================================");
-    spdlog::info("   RAID REPORT FOR CLAN: {}", tag);
-    spdlog::info("==============================================");
-
     std::vector<Player> currentPlayers = apiClient->getPlayersInfo(tag);
 
+    std::ostringstream report;
+    report << "🏰 <b>ОТЧЕТ ПО РЕЙДАМ</b>\n";
+    report << "Клан: <code>" << tag << "</code>\n\n";
+
     bool hasAnyProblems = false;
-    const int MAX_ATTACKS = 6;
+
+    std::ostringstream incompleteAttacks;
+    std::ostringstream noAttacks;
 
     // Группа 1: Не закончили атаки
-    bool headerPrinted = false;
     for (const auto& p : participants) {
-        if (p.attacksCount > 0 && p.attacksCount < MAX_ATTACKS) {
-            if (!headerPrinted) {
-                spdlog::info("\n [!] INCOMPLETE ATTACKS (1-5 of 6):");
-                spdlog::info(" ----------------------------------------------");
-                headerPrinted = true;
-            }
-            spdlog::info("  {:<20} | Left: {} (Done: {}/6)", p.name, (MAX_ATTACKS - p.attacksCount), p.attacksCount);
+        if (constexpr int MAX_ATTACKS = 6; p.attacksCount > 0 && p.attacksCount < MAX_ATTACKS) {
+            incompleteAttacks << "➖ " << p.name << " [" << p.attacksCount << "/6]\n";
             hasAnyProblems = true;
         }
     }
 
     // Группа 2: Прогульщики
-    headerPrinted = false;
     for (const auto& player : currentPlayers) {
         if (participant_tags.find(player.tag) == participant_tags.end()) {
-            if (!headerPrinted) {
-                spdlog::info("\n [X] NO ATTACKS RECORDED (0 of 6):");
-                spdlog::info(" ----------------------------------------------");
-                headerPrinted = true;
-            }
-            spdlog::info("  {} ({})", player.name, player.tag);
+            noAttacks << "❌ " << player.name << "\n";
             hasAnyProblems = true;
         }
     }
 
-    spdlog::info("\n==============================================");
     if (!hasAnyProblems) {
-        spdlog::info("  WELL DONE! All attacks are completed.");
+        report << "✅ <b>Все участники отбили 6/6 атак!</b>\n";
+        report << "<i>Отличная работа!</i>";
+        return report.str(); // Если все ок, возвращаем короткое сообщение
     }
-    else {
-        spdlog::info("  SUMMARY: Attacks need to be finished.");
+
+    if (!incompleteAttacks.str().empty()) {
+        report << "⚠️ <b>Не добили атаки:</b>\n" << incompleteAttacks.str() << "\n";
     }
-    spdlog::info("==============================================\n");
+
+    if (!noAttacks.str().empty()) {
+        report << "🚫 <b>Вообще не били:</b>\n" << noAttacks.str();
+    }
+
+    return report.str();
 }

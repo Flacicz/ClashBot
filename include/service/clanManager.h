@@ -6,6 +6,7 @@
 #include "../../include/service/raidService.h"
 #include "../database/database.h"
 #include "../api/apiclient.h"
+#include "notifications/telegramNotifier.h"
 
 #include <string>
 #include <vector>
@@ -21,12 +22,13 @@ private:
 	std::unique_ptr<ClanwarService> cwService;
 	std::unique_ptr<RaidService> raidService;
 	std::unique_ptr<ClanwarLeagueService> cwlService;
+	std::unique_ptr<TelegramNotifier> telegramNotifier;
 
 	std::vector<std::string> targetClans;
 
 	std::atomic<bool> isRunning{true};
 public:
-	ClanManager(Database* db, APIClient* apiClient,const std::vector<std::string>& targetClans);
+	ClanManager(Database* db, APIClient* apiClient, TelegramNotifier* telegramNotifier, const std::vector<std::string>& targetClans);
 	~ClanManager() = default;
 
 	void syncAll();

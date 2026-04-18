@@ -1,5 +1,5 @@
-#include "../../include/database/tableManager.h"
-#include "../../include/database/database.h"
+#include "database/tableManager.h"
+#include "database/database.h"
 
 #include <spdlog/spdlog.h>
 #include <string>
@@ -232,6 +232,40 @@ bool TableManager::initClanwarMembers() {
     return db->execute(sql);
 }
 
+bool TableManager::initClanwarNotifications() {
+    std::string sql = R"(
+        CREATE TABLE IF NOT EXISTS clanwar_notifications (
+            war_id TEXT,
+            notified_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
+            PRIMARY KEY (war_id)
+        );
+    )";
+    return db->execute(sql);
+}
+
+bool TableManager::initRaidNotifications() {
+    std::string sql = R"(
+        CREATE TABLE IF NOT EXISTS raid_notifications (
+            raid_id TEXT,
+            notified_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
+            PRIMARY KEY (raid_id)
+        );
+    )";
+    return db->execute(sql);
+}
+
+bool TableManager::initClanwarLeagueNotifications() {
+    std::string sql = R"(
+        CREATE TABLE IF NOT EXISTS clanwar_league_notifications (
+            war_tag TEXT NOT NULL,
+            clan_tag TEXT NOT NULL,
+            notified_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
+            PRIMARY KEY (war_tag, clan_tag)
+        );
+    )";
+    return db->execute(sql);
+}
+
 bool TableManager::initAllTables() {
     spdlog::info("[DB] Initializing database tables...");
 
@@ -239,7 +273,9 @@ bool TableManager::initAllTables() {
         initRaidSummary() && initRaidDetails() &&
         initClanwarSeason() && initClanwarSummary() && initClanwarAttacks() &&
         initClanwarLeagueSeason() && initClanwarLeagueRounds() &&
-        initClanwarLeagueAttacks() && initClanwarMembers();
+        initClanwarLeagueAttacks() && initClanwarMembers() &&
+        initClanwarNotifications() && initRaidNotifications() &&
+        initClanwarLeagueNotifications();
 
     if (success) {
         spdlog::info("[DB] All tables successfully initialized.");

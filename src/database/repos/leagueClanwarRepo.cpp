@@ -1,6 +1,6 @@
-#include "../../include/database/repos/leagueClanwarRepo.h"
-#include "../../include/database/database.h"
-#include "../../include/models/models.h"
+#include "database/repos/leagueClanwarRepo.h"
+#include "database/database.h"
+#include "models/models.h"
 
 #include <sqlite3.h>
 #include <spdlog/spdlog.h>
@@ -177,4 +177,50 @@ bool LeagueClanwarRepo::insertOrUpdateSingleCWLMembersInfo(const std::vector<Cla
 
     sqlite3_finalize(stmt);
     return true;
+}
+
+bool LeagueClanwarRepo::isNotified(const std::string& warTag, const std::string& clanTag) {
+    std::string sql = "SELECT war_tag FROM clanwar_league_notifications WHERE war_tag = ? AND clan_tag = ?";
+    sqlite3_stmt* stmt;
+
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        spdlog::error("[DB: CWLRepo] Failed to prepare isNotified: {}", sqlite3_errmsg(db->getDBInstance()));
+        return false;
+    }
+
+    sqlite3_bind_text(stmt, 1, warTag.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, clanTag.c_str(), -1, SQLITE_TRANSIENT);
+
+    bool notified = false;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        notified = true;
+    }
+
+    sqlite3_finalize(stmt);
+    return notified;
+}
+
+void LeagueClanwarRepo::markAsNotified(const std::string& warTag, const std::string& clanTag) {
+    sqlite3_stmt* stmt;
+
+    std::string sql = R"(
+        INSERT INTO clanwar_league_notifications (
+            war_tag, clan_tag
+        ) VALUES (?, ?)
+    )";
+
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        spdlog::error("[DB: CWLRepo] Failed to prepare notification insert: {}", sqlite3_errmsg(db->getDBInstance()));
+        return;
+    }
+
+    sqlite3_bind_text(stmt, 1, warTag.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, clanTag.c_str(), -1, SQLITE_TRANSIENT);
+
+    if (!db->executePrepared(stmt)) {
+        sqlite3_finalize(stmt);
+        throw std::runtime_error("Failed to execute CWL Notification insert");
+    }
+
+    sqlite3_finalize(stmt);
 }

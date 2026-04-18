@@ -1,6 +1,6 @@
-﻿#include "../../include/service/clanInfoService.h"
-#include "../../include/database/database.h"
-#include "../../include/api/apiclient.h"
+﻿#include "service/clanInfoService.h"
+#include "database/database.h"
+#include "api/apiclient.h"
 
 #include <chrono>
 #include <string_view>

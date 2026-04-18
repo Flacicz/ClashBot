@@ -1,6 +1,6 @@
-﻿#include "../../include/database/repos/clanInfoRepo.h"
-#include "../../include/models/models.h"
-#include "../../include/database/database.h"
+﻿#include "database/repos/clanInfoRepo.h"
+#include "models/models.h"
+#include "database/database.h"
 
 #include <sqlite3.h>
 #include <spdlog/spdlog.h>

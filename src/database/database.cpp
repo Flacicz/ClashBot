@@ -1,9 +1,9 @@
-﻿#include "../../include/database/database.h"
-#include "../../include/database/tableManager.h"
-#include "../../include/database/repos/clanInfoRepo.h"
-#include "../../include/database/repos/raidRepo.h"
-#include "../../include/database/repos/leagueClanwarRepo.h"
-#include "../../include/database/repos/clanwarRepo.h"
+﻿#include "database/database.h"
+#include "database/tableManager.h"
+#include "database/repos/clanInfoRepo.h"
+#include "database/repos/raidRepo.h"
+#include "database/repos/leagueClanwarRepo.h"
+#include "database/repos/clanwarRepo.h"
 
 #include <spdlog/spdlog.h>
 #include <stdexcept>

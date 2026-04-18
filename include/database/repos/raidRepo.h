@@ -19,5 +19,8 @@ public:
 	bool insertOrUpdateSingleRaidInfo(const CapitalRaid& raid);
 	bool insertOrUpdateSinglePlayersRaidInfo(long long raidId, const std::vector<PlayerRaidStats>& members);
 
+	bool isNotified(long long raidId);
+	void markAsNotifies(long long raidId);
+
 	std::vector<PlayerRaidStats> checkSlackers(long long raidId);
 };

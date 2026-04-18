@@ -1,31 +1,27 @@
-#include "../../include/service/clanManager.h"
-#include "../../include/service/clanInfoService.h"
-#include "../../include/database/database.h"
-#include "../../include/api/apiclient.h"
-#include "../../include/service/clanwarService.h"
-#include "../../include/service/raidService.h"
-#include "../../include/service/clanwarLeagueService.h"
+#include "service/clanManager.h"
+#include "service/clanInfoService.h"
+#include "database/database.h"
+#include "api/apiclient.h"
+#include "service/clanwarService.h"
+#include "service/raidService.h"
+#include "service/clanwarLeagueService.h"
 
 #include <exception>
-#include <iostream>
 #include <thread>
 #include <chrono>
 #include <string>
-#include <ctime>
-#include <iomanip>
-#include <corecrt.h>
 #include <vector>
 #include <memory>
 
 #include <spdlog/spdlog.h>
 
 
-ClanManager::ClanManager(Database* db, APIClient* apiClient,const std::vector<std::string>& targetClans)
-	: db(db), apiClient(apiClient), targetClans(targetClans) {
+ClanManager::ClanManager(Database* db, APIClient* apiClient, TelegramNotifier* telegramNotifier, const std::vector<std::string>& targetClans)
+	: db(db), apiClient(apiClient), telegramNotifier(telegramNotifier), targetClans(targetClans) {
 	this->clanInfoService = std::make_unique<ClanInfoService>(db, apiClient);
-	this->cwService = std::make_unique<ClanwarService>(db, apiClient);
-	this->raidService = std::make_unique<RaidService>(db, apiClient);
-	this->cwlService = std::make_unique<ClanwarLeagueService>(db, apiClient);
+	this->cwService = std::make_unique<ClanwarService>(db, apiClient, telegramNotifier);
+	this->raidService = std::make_unique<RaidService>(db, apiClient, telegramNotifier);
+	this->cwlService = std::make_unique<ClanwarLeagueService>(db, apiClient, telegramNotifier);
 }
 
 void ClanManager::syncAll() {

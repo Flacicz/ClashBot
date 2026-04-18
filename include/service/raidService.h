@@ -5,14 +5,16 @@
 #include <string_view>
 #include <vector>
 #include "../models/models.h"
+#include "notifications/telegramNotifier.h"
 
 class RaidService {
 private:
 	Database* db;
 	APIClient* apiClient;
+	TelegramNotifier* telegramNotifier;
 public:
-	RaidService(Database* db, APIClient* apiClient);
+	RaidService(Database* db, APIClient* apiClient, TelegramNotifier* telegramNotifier);
 
 	void updateRaidData(std::string_view tag);
-	void printRaidSlackers(std::string_view tag, const std::vector<PlayerRaidStats>& participants);
+	std::string buildRaidReport(std::string_view tag, const std::vector<PlayerRaidStats>& participants);
 };

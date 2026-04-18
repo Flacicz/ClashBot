@@ -1,5 +1,5 @@
-#include "../../include/config/configLoader.h"
-#include "../../include/config/config.h"
+#include "config/configLoader.h"
+#include "config/config.h"
 
 #include <string>
 #include <fstream>
@@ -34,11 +34,17 @@ AppConfig loadConfig(const std::string& path) {
     if (config.supercellToken.empty())
         throw std::runtime_error("Критическая ошибка: supercell_token не найден в конфигурации!");
 
-    if (j.contains("database")) config.databasePath = j["database"].value("path", "data/database.dblite");
-    else config.databasePath = "data/database.dblite";
+    if (j.contains("database")) config.databasePath = j["database"].value("path", "../data/database.dblite");
+    else config.databasePath = "../data/database.dblite";
 
-    if (j.contains("bot") && j["bot"].contains("default_clan_tags") && j["bot"]["default_clan_tags"].is_array())
-     config.defaultClanTags = j["bot"]["default_clan_tags"].get<std::vector<std::string>>();
+    if (j.contains("bot"))
+    {
+	    if (j["bot"].contains("default_clan_tags") && j["bot"]["default_clan_tags"].is_array())
+			config.defaultClanTags = j["bot"]["default_clan_tags"].get<std::vector<std::string>>();
+
+    	config.telegramToken = j["bot"].value("telegram_token", "");
+    	config.telegramChatId = j["bot"].value("telegram_chat_id", "");
+    }
 
     return config;
 }
