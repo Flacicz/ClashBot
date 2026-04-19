@@ -1,10 +1,11 @@
-﻿#include <nlohmann/json_fwd.hpp>
-#include <iostream>
+﻿#include <iostream>
 #include <exception>
 #include <thread>
 #include <string>
 #include <memory>
 #include <vector>
+#include <csignal>
+#include <atomic>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -22,14 +23,22 @@
 #include <spdlog/common.h>
 #include <spdlog/logger.h>
 
-using json = nlohmann::json;
+std::atomic<bool> g_shutdown_requested{true};
+
+void signalHandler(int signum) {
+    spdlog::info("[Main] Received system signal: {}. Initiating shutdown...", signum);
+    g_shutdown_requested.store(true);
+}
 
 static void setupLogger() {
     try {
+        constexpr size_t MAX_LOG_SIZE = 1024 * 1024 * 5;
+        constexpr size_t MAX_LOG_FILES = 3;
+
         const auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 
         // Создаем sink для файла с ротацией (максимум 5 МБ, храним 3 последних файла)
-        const auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/bot.log", 1024 * 1024 * 5, 3);
+        const auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/bot.log", MAX_LOG_SIZE, MAX_LOG_FILES);
 
         // Объединяем их в один логгер
         std::vector<spdlog::sink_ptr> sinks{ console_sink, file_sink };
@@ -55,7 +64,12 @@ int main(int argc, char* argv[]) {
 
     setupLogger();
 
+    std::signal(SIGINT, signalHandler);
+    std::signal(SIGTERM, signalHandler);
+
     spdlog::info("[Main] Starting ClashBot v1.0...");
+
+
 
     try {
         std::string configPath = (argc > 1) ? argv[1] : "../config.json";
@@ -73,20 +87,24 @@ int main(int argc, char* argv[]) {
         db.getTableManager().initAllTables();
 
         std::thread syncThread([&clanManager]() {
-            spdlog::info("[Manager] Starting synchronization cycle in a background thread...");
-            clanManager.syncAll();
-           });
-
-        spdlog::info("[Main] Enter 'stop' to end the program.");
-        std::string cmd;
-        while (std::getline(std::cin, cmd)) {
-            if (cmd == "stop" || cmd == "exit" || cmd == "q") {
-                spdlog::info("[Main] Stopping the service...");
-                clanManager.stop();
-                break;
+            try {
+                clanManager.syncAll();
+            } catch (const std::exception& e) {
+                spdlog::critical("[FATAL] Synchronization thread crashed: {}", e.what());
+                g_shutdown_requested.store(true);
+            } catch (...) {
+                spdlog::critical("[FATAL] Synchronization thread crashed with unknown exception!");
+                g_shutdown_requested.store(true);
             }
-            spdlog::warn("[Main] Unknown command. Use: stop");
+        });
+
+        spdlog::info("[Main] Bot is running. Press Ctrl+C or send SIGTERM to stop.");
+
+        while (!g_shutdown_requested.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }
+
+        spdlog::info("[Main] Stopping the service...");
 
         clanManager.stop();
         if (syncThread.joinable()) {

@@ -12,6 +12,8 @@
 #include <vector>
 #include <memory>
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 
 class ClanManager {
 private:
@@ -26,6 +28,8 @@ private:
 
 	std::vector<std::string> targetClans;
 
+	std::mutex mtx;
+	std::condition_variable cv;
 	std::atomic<bool> isRunning{true};
 public:
 	ClanManager(Database* db, APIClient* apiClient, TelegramNotifier* telegramNotifier, const std::vector<std::string>& targetClans);
@@ -33,5 +37,10 @@ public:
 
 	void syncAll();
 
-	void stop() { isRunning.store(false); };
+	void stop()
+	{
+		isRunning.store(false);
+		cv.notify_all();
+	};
+
 };

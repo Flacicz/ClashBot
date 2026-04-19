@@ -7,11 +7,12 @@
 #include "service/clanwarLeagueService.h"
 
 #include <exception>
-#include <thread>
 #include <chrono>
 #include <string>
 #include <vector>
 #include <memory>
+#include <condition_variable>
+#include <mutex>
 
 #include <spdlog/spdlog.h>
 
@@ -24,41 +25,39 @@ ClanManager::ClanManager(Database* db, APIClient* apiClient, TelegramNotifier* t
 	this->cwlService = std::make_unique<ClanwarLeagueService>(db, apiClient, telegramNotifier);
 }
 
-void ClanManager::syncAll() {
-    constexpr int kSleepSeconds = 30 * 60;
-
+void ClanManager::syncAll()
+{
     while (isRunning.load()) {
         spdlog::info("[Manager] Starting synchronization cycle...");
 
         for (const std::string& tag : targetClans) {
-            if (!isRunning.load()) break;
+            if (!isRunning) break;
 
             try { clanInfoService->updateClanInfo(tag); }
             catch (const std::exception& e) { spdlog::error("[Manager] Service 'ClanInfo' failed for clan {}: {}", tag, e.what()); }
 
-            if (!isRunning.load()) break;
+            if (!isRunning) break;
 
             try { cwService->updateCWData(tag); }
             catch (const std::exception& e) { spdlog::error("[Manager] Service 'CW' failed for clan {}: {}", tag, e.what()); }
 
-            if (!isRunning.load()) break;
+            if (!isRunning) break;
 
             try { raidService->updateRaidData(tag); }
             catch (const std::exception& e) { spdlog::error("[Manager] Service 'Raid' failed for clan {}: {}", tag, e.what()); }
 
-            if (!isRunning.load()) break;
+            if (!isRunning) break;
 
             try { cwlService->updateCWLData(tag); }
             catch (const std::exception& e) { spdlog::error("[Manager] Service 'CWL' failed for clan {}: {}", tag, e.what()); }
         }
 
-        if (!isRunning.load()) break;
+        if (!isRunning) break;
 
         spdlog::info("[Manager] Cycle finished. Sleeping for 30 minutes...");
 
-        for (int i = 0; i < kSleepSeconds && isRunning.load(); ++i) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
+        std::unique_lock<std::mutex> lock(mtx);
+        cv.wait_for(lock, std::chrono::minutes(30), [this]() {return !isRunning.load(); });
     }
 
     spdlog::info("[Manager] Synchronization cycle stopped gracefully.");
