@@ -1,5 +1,6 @@
 ﻿#include "database/repos/raidRepo.h"
 #include "database/database.h"
+#include "database/sqliteHelpers.h"
 #include "models/models.h"
 
 #include <spdlog/spdlog.h>
@@ -9,10 +10,11 @@
 
 RaidRepo::RaidRepo(Database* db) : db(db) {}
 
-bool RaidRepo::insertOrUpdateSingleRaidInfo(const CapitalRaid& raid) {
-    sqlite3_stmt* stmt;
+bool RaidRepo::insertOrUpdateSingleRaidInfo(const CapitalRaid& raid) const
+{
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    std::string sql = R"(
+    const std::string sql = R"(
         INSERT INTO raid_summary(clan_tag, date, state, total_loot, raids_completed, total_attacks, enemy_districts_destroyed,
                               offensive_reward, defensive_reward)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -25,80 +27,85 @@ bool RaidRepo::insertOrUpdateSingleRaidInfo(const CapitalRaid& raid) {
             defensive_reward = excluded.defensive_reward
     )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         std::string err = sqlite3_errmsg(db->getDBInstance());
         spdlog::error("[DB: RaidRepo] Failed to prepare Raid Summary statement: {}", err);
         throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
-    sqlite3_reset(stmt);
+    SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    sqlite3_bind_text(stmt, 1, raid.clanTag.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, raid.date.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, raid.state.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, raid.totalLoot);
-    sqlite3_bind_int(stmt, 5, raid.raidsCompleted);
-    sqlite3_bind_int(stmt, 6, raid.totalAttacks);
-    sqlite3_bind_int(stmt, 7, raid.enemyDistrictsDestroyed);
-    sqlite3_bind_int(stmt, 8, raid.offensiveReward);
-    sqlite3_bind_int(stmt, 9, raid.defensiveReward);
+    sqlite3_reset(stmt.get());
 
-    if (!db->executePrepared(stmt)) {
-        sqlite3_finalize(stmt);
+    sqlite3_bind_text(stmt.get(), 1, raid.clanTag.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, raid.date.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 3, raid.state.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt.get(), 4, raid.totalLoot);
+    sqlite3_bind_int(stmt.get(), 5, raid.raidsCompleted);
+    sqlite3_bind_int(stmt.get(), 6, raid.totalAttacks);
+    sqlite3_bind_int(stmt.get(), 7, raid.enemyDistrictsDestroyed);
+    sqlite3_bind_int(stmt.get(), 8, raid.offensiveReward);
+    sqlite3_bind_int(stmt.get(), 9, raid.defensiveReward);
+
+    if (!db->executePrepared(stmt.get())) {
         throw std::runtime_error("Failed to execute Raid Summary insert/update");
     }
 
-    sqlite3_finalize(stmt);
     return true;
 }
 
-long long RaidRepo::getRaidIdByDate(const std::string& clanTag, const std::string& date) {
-    std::string getRowId = "SELECT id FROM raid_summary WHERE clan_tag = ? AND date = ?";
-    sqlite3_stmt* stmt;
+long long RaidRepo::getRaidIdByDate(const std::string& clanTag, const std::string& date) const
+{
+    const std::string getRowId = "SELECT id FROM raid_summary WHERE clan_tag = ? AND date = ?";
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), getRowId.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), getRowId.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         spdlog::error("[DB: RaidRepo] Failed to prepare getRaidIdByDate: {}", sqlite3_errmsg(db->getDBInstance()));
         return -1;
     }
 
-    sqlite3_bind_text(stmt, 1, clanTag.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, date.c_str(), -1, SQLITE_TRANSIENT);
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_text(stmt.get(), 1, clanTag.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, date.c_str(), -1, SQLITE_TRANSIENT);
 
     long long id = -1;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        id = sqlite3_column_int64(stmt, 0);
+    if (sqlite3_step(stmt.get()) == SQLITE_ROW) {
+        id = sqlite3_column_int64(stmt.get(), 0);
     }
 
-    sqlite3_finalize(stmt);
     return id;
 }
 
-long long RaidRepo::getLastRaidId(const std::string& clanTag) {
-    std::string getId = "SELECT id FROM raid_summary WHERE clan_tag = ? ORDER BY date DESC LIMIT 1";
-    sqlite3_stmt* stmt;
+long long RaidRepo::getLastRaidId(const std::string& clanTag) const
+{
+    const std::string getId = "SELECT id FROM raid_summary WHERE clan_tag = ? ORDER BY date DESC LIMIT 1";
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), getId.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), getId.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         spdlog::error("[DB: RaidRepo] Failed to prepare getLastRaidId: {}", sqlite3_errmsg(db->getDBInstance()));
         return -1;
     }
 
-    sqlite3_bind_text(stmt, 1, clanTag.c_str(), -1, SQLITE_TRANSIENT);
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_text(stmt.get(), 1, clanTag.c_str(), -1, SQLITE_TRANSIENT);
 
     long long id = -1;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        id = sqlite3_column_int64(stmt, 0);
+    if (sqlite3_step(stmt.get()) == SQLITE_ROW) {
+        id = sqlite3_column_int64(stmt.get(), 0);
     }
 
-    sqlite3_finalize(stmt);
     return id;
 }
 
-bool RaidRepo::insertOrUpdateSinglePlayersRaidInfo(long long raidId, const std::vector<PlayerRaidStats>& members) {
-    if (members.empty()) return true;
+bool RaidRepo::insertOrUpdateSinglePlayersRaidInfo(const long long raidId, const std::vector<PlayerRaidStats>& members) const
+{
+    if (members.empty()) return false;
 
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    std::string sql = R"(
+    const std::string sql = R"(
         INSERT INTO raid_details (
             raid_id, player_tag, name, attacks_count, total_loot
         )
@@ -109,83 +116,83 @@ bool RaidRepo::insertOrUpdateSinglePlayersRaidInfo(long long raidId, const std::
             total_loot = excluded.total_loot
     )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         std::string err = sqlite3_errmsg(db->getDBInstance());
         spdlog::error("[DB: RaidRepo] Failed to prepare Raid Details statement: {}", err);
         throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
     for (const auto& m : members) {
-        sqlite3_reset(stmt);
-        sqlite3_clear_bindings(stmt);
+        sqlite3_reset(stmt.get());
+        sqlite3_clear_bindings(stmt.get());
 
-        sqlite3_bind_int64(stmt, 1, raidId);
-        sqlite3_bind_text(stmt, 2, m.playerTag.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 3, m.name.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt, 4, m.attacksCount);
-        sqlite3_bind_int(stmt, 5, m.totalLoot);
+        sqlite3_bind_int64(stmt.get(), 1, raidId);
+        sqlite3_bind_text(stmt.get(), 2, m.playerTag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 3, m.name.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt.get(), 4, m.attacksCount);
+        sqlite3_bind_int(stmt.get(), 5, m.totalLoot);
 
-        if (!db->executePrepared(stmt)) {
-            sqlite3_finalize(stmt);
+        if (!db->executePrepared(stmt.get())) {
             throw std::runtime_error("Failed to execute Raid Details insert for player: " + m.playerTag);
         }
     }
 
-    sqlite3_finalize(stmt);
     return true;
 }
 
-bool RaidRepo::isNotified(long long raidId)
+bool RaidRepo::isNotified(const long long raidId) const
 {
-    std::string getRaidId = "SELECT raid_id FROM raid_notifications WHERE raid_id = ?";
-    sqlite3_stmt* stmt;
+    const std::string getRaidId = "SELECT raid_id FROM raid_notifications WHERE raid_id = ?";
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), getRaidId.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), getRaidId.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         spdlog::error("[DB: RaidRepo] Failed to prepare isNotified: {}", sqlite3_errmsg(db->getDBInstance()));
         return false;
     }
 
-    sqlite3_bind_int64(stmt, 1, raidId);
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_int64(stmt.get(), 1, raidId);
 
     long long id = -1;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        id = sqlite3_column_int64(stmt, 0);
+    if (sqlite3_step(stmt.get()) == SQLITE_ROW) {
+        id = sqlite3_column_int64(stmt.get(), 0);
     }
-
-    sqlite3_finalize(stmt);
 
     return id != -1;
 }
 
-void RaidRepo::markAsNotifies(long long raidId)
+void RaidRepo::markAsNotifies(const long long raidId) const
 {
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    std::string sql = R"(
+    const std::string sql = R"(
         INSERT INTO raid_notifications (
             raid_id
         ) VALUES (?)
     )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         spdlog::error("[DB: RaidRepo] Failed to prepare notification insert: {}", sqlite3_errmsg(db->getDBInstance()));
-        return; // Early return to avoid using an uninitialized stmt
+        return;
     }
 
-    sqlite3_bind_int64(stmt, 1, raidId);
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    if (!db->executePrepared(stmt)) {
-        sqlite3_finalize(stmt);
+    sqlite3_bind_int64(stmt.get(), 1, raidId);
+
+    if (!db->executePrepared(stmt.get())) {
         throw std::runtime_error("Failed to execute Raid Notification insert");
     }
-
-    sqlite3_finalize(stmt);
 }
 
-std::vector<PlayerRaidStats> RaidRepo::checkSlackers(long long raidId) {
-    sqlite3_stmt* stmt;
+std::vector<PlayerRaidStats> RaidRepo::checkSlackers(const long long raidId) const
+{
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    std::string sql = R"(
+    const std::string sql = R"(
         SELECT player_tag, name, attacks_count, total_loot FROM raid_details
         WHERE raid_id = ?
         ORDER BY attacks_count ASC
@@ -193,27 +200,28 @@ std::vector<PlayerRaidStats> RaidRepo::checkSlackers(long long raidId) {
 
     std::vector<PlayerRaidStats> slackers;
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         spdlog::error("[DB: RaidRepo] Failed to prepare checkSlackers: {}", sqlite3_errmsg(db->getDBInstance()));
         return slackers;
     }
 
-    sqlite3_bind_int64(stmt, 1, raidId);
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    sqlite3_bind_int64(stmt.get(), 1, raidId);
+
+    while (sqlite3_step(stmt.get()) == SQLITE_ROW) {
         PlayerRaidStats p;
 
-        const char* tagText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-        const char* nameText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        const char* tagText = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 0));
+        const char* nameText = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 1));
 
         p.playerTag = tagText ? tagText : "UNKNOWN";
         p.name = nameText ? nameText : "UNKNOWN";
-        p.attacksCount = sqlite3_column_int(stmt, 2);
-        p.totalLoot = sqlite3_column_int(stmt, 3);
+        p.attacksCount = sqlite3_column_int(stmt.get(), 2);
+        p.totalLoot = sqlite3_column_int(stmt.get(), 3);
 
         slackers.push_back(p);
     }
 
-    sqlite3_finalize(stmt);
     return slackers;
 }

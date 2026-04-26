@@ -1,5 +1,6 @@
 #include "database/repos/leagueClanwarRepo.h"
 #include "database/database.h"
+#include "database/sqliteHelpers.h"
 #include "models/models.h"
 
 #include <sqlite3.h>
@@ -10,10 +11,11 @@
 
 LeagueClanwarRepo::LeagueClanwarRepo(Database* db) : db(db) {};
 
-bool LeagueClanwarRepo::insertOrUpdateSingleCWLSeasonInfo(const ClanwarwarsLeagueSeason& info) {
-    sqlite3_stmt* stmt;
+bool LeagueClanwarRepo::insertOrUpdateSingleCWLSeasonInfo(const ClanwarwarsLeagueSeason& info) const
+{
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    std::string sql = R"(
+    const std::string sql = R"(
         INSERT INTO clanwar_league_seasons(season_id, clan_tag, league, state)
         VALUES (?, ?, ?, ?)
         ON CONFLICT(season_id) DO UPDATE SET
@@ -21,34 +23,35 @@ bool LeagueClanwarRepo::insertOrUpdateSingleCWLSeasonInfo(const ClanwarwarsLeagu
             state = excluded.state
     )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         std::string err = sqlite3_errmsg(db->getDBInstance());
         spdlog::error("[DB: CWLRepo] Failed to prepare Season statement: {}", err);
         throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
-    sqlite3_reset(stmt);
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    sqlite3_bind_text(stmt, 1, info.seasonId.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, info.clanTag.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, info.leagueId.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, info.state.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_reset(stmt.get());
 
-    if (!db->executePrepared(stmt)) {
-        sqlite3_finalize(stmt);
+    sqlite3_bind_text(stmt.get(), 1, info.seasonId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, info.clanTag.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 3, info.leagueId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 4, info.state.c_str(), -1, SQLITE_TRANSIENT);
+
+    if (!db->executePrepared(stmt.get())) {
         throw std::runtime_error("Failed to execute CWL Season insert/update");
     }
 
-    sqlite3_finalize(stmt);
     return true;
 }
 
-bool LeagueClanwarRepo::insertOrUpdateSingleCWLRoundsInfo(const std::vector<ClanwarsLeagueRound>& rounds) {
-    if (rounds.empty()) return true;
+bool LeagueClanwarRepo::insertOrUpdateSingleCWLRoundsInfo(const std::vector<ClanwarsLeagueRound>& rounds) const
+{
+    if (rounds.empty()) return false;
 
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    std::string sql = R"(
+    const std::string sql = R"(
         INSERT INTO clanwar_league_rounds(war_tag, season_id, round, opponent_tag)
         VALUES (?, ?, ?, ?)
         ON CONFLICT(war_tag) DO UPDATE SET
@@ -57,37 +60,38 @@ bool LeagueClanwarRepo::insertOrUpdateSingleCWLRoundsInfo(const std::vector<Clan
             opponent_tag = excluded.opponent_tag
     )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         std::string err = sqlite3_errmsg(db->getDBInstance());
         spdlog::error("[DB: CWLRepo] Failed to prepare Rounds statement: {}", err);
         throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
     for (const auto& round : rounds) {
-        sqlite3_reset(stmt);
-        sqlite3_clear_bindings(stmt);
+        sqlite3_reset(stmt.get());
+        sqlite3_clear_bindings(stmt.get());
 
-        sqlite3_bind_text(stmt, 1, round.warTag.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 2, round.seasonId.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt, 3, round.round);
-        sqlite3_bind_text(stmt, 4, round.opponentTag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 1, round.warTag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 2, round.seasonId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt.get(), 3, round.round);
+        sqlite3_bind_text(stmt.get(), 4, round.opponentTag.c_str(), -1, SQLITE_TRANSIENT);
 
-        if (!db->executePrepared(stmt)) {
-            sqlite3_finalize(stmt);
+        if (!db->executePrepared(stmt.get())) {
             throw std::runtime_error("Failed to execute CWL Round insert for tag: " + round.warTag);
         }
     }
 
-    sqlite3_finalize(stmt);
     return true;
 }
 
-bool LeagueClanwarRepo::insertOrUpdateSingleCWLAttacksInfo(const std::vector<ClanwarsLeagueAttacks>& attacks) {
-    if (attacks.empty()) return true;
+bool LeagueClanwarRepo::insertOrUpdateSingleCWLAttacksInfo(const std::vector<ClanwarsLeagueAttacks>& attacks) const
+{
+    if (attacks.empty()) return false;
 
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    std::string sql = R"(
+    const std::string sql = R"(
         INSERT INTO clanwar_league_attacks(
             war_tag, attacker_clan_tag, attacker_tag, attacker_map_position,
             defender_tag, defender_map_position, rules, stars, destruction,
@@ -105,46 +109,47 @@ bool LeagueClanwarRepo::insertOrUpdateSingleCWLAttacksInfo(const std::vector<Cla
             defender_th = excluded.defender_th
     )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         std::string err = sqlite3_errmsg(db->getDBInstance());
         spdlog::error("[DB: CWLRepo] Failed to prepare Attacks statement: {}", err);
         throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
     for (const auto& attack : attacks) {
-        sqlite3_reset(stmt);
-        sqlite3_clear_bindings(stmt);
+        sqlite3_reset(stmt.get());
+        sqlite3_clear_bindings(stmt.get());
 
-        sqlite3_bind_text(stmt, 1, attack.warTag.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 2, attack.attackerClanTag.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 3, attack.attackerTag.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt, 4, attack.attackerMapPosition);
+        sqlite3_bind_text(stmt.get(), 1, attack.warTag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 2, attack.attackerClanTag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 3, attack.attackerTag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt.get(), 4, attack.attackerMapPosition);
 
-        sqlite3_bind_text(stmt, 5, attack.defenderTag.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt, 6, attack.defenderMapPosition);
-        sqlite3_bind_text(stmt, 7, attack.rules.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt, 8, attack.stars);
-        sqlite3_bind_int(stmt, 9, attack.destruction);
-        sqlite3_bind_int(stmt, 10, attack.duration);
-        sqlite3_bind_int(stmt, 11, attack.attackerTHlvl);
-        sqlite3_bind_int(stmt, 12, attack.defenderTHlvl);
+        sqlite3_bind_text(stmt.get(), 5, attack.defenderTag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt.get(), 6, attack.defenderMapPosition);
+        sqlite3_bind_text(stmt.get(), 7, attack.rules.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt.get(), 8, attack.stars);
+        sqlite3_bind_int(stmt.get(), 9, attack.destruction);
+        sqlite3_bind_int(stmt.get(), 10, attack.duration);
+        sqlite3_bind_int(stmt.get(), 11, attack.attackerTHlvl);
+        sqlite3_bind_int(stmt.get(), 12, attack.defenderTHlvl);
 
-        if (!db->executePrepared(stmt)) {
-            sqlite3_finalize(stmt);
+        if (!db->executePrepared(stmt.get())) {
             throw std::runtime_error("Failed to execute CWL Attack insert for tag: " + attack.attackerTag);
         }
     }
 
-    sqlite3_finalize(stmt);
     return true;
 }
 
-bool LeagueClanwarRepo::insertOrUpdateSingleCWLMembersInfo(const std::vector<ClanwarsLeagueMembers>& members) {
-    if (members.empty()) return true;
+bool LeagueClanwarRepo::insertOrUpdateSingleCWLMembersInfo(const std::vector<ClanwarsLeagueMembers>& members) const
+{
+    if (members.empty()) return false;
 
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    std::string sql = R"(
+    const std::string sql = R"(
         INSERT INTO clanwar_league_members(
             player_tag, season_id, name, clan_tag
         )
@@ -154,73 +159,75 @@ bool LeagueClanwarRepo::insertOrUpdateSingleCWLMembersInfo(const std::vector<Cla
             clan_tag = excluded.clan_tag
     )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         std::string err = sqlite3_errmsg(db->getDBInstance());
         spdlog::error("[DB: CWLRepo] Failed to prepare Members statement: {}", err);
         throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
     for (const auto& member : members) {
-        sqlite3_reset(stmt);
-        sqlite3_clear_bindings(stmt);
+        sqlite3_reset(stmt.get());
+        sqlite3_clear_bindings(stmt.get());
 
-        sqlite3_bind_text(stmt, 1, member.playerTag.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 2, member.seasonId.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 3, member.name.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 4, member.clanTag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 1, member.playerTag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 2, member.seasonId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 3, member.name.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 4, member.clanTag.c_str(), -1, SQLITE_TRANSIENT);
 
-        if (!db->executePrepared(stmt)) {
-            sqlite3_finalize(stmt);
+        if (!db->executePrepared(stmt.get())) {
             throw std::runtime_error("Failed to execute CWL Member insert for tag: " + member.playerTag);
         }
     }
 
-    sqlite3_finalize(stmt);
     return true;
 }
 
-bool LeagueClanwarRepo::isNotified(const std::string& warTag, const std::string& clanTag) {
-    std::string sql = "SELECT war_tag FROM clanwar_league_notifications WHERE war_tag = ? AND clan_tag = ?";
-    sqlite3_stmt* stmt;
+bool LeagueClanwarRepo::isNotified(const std::string& warTag, const std::string& clanTag) const
+{
+    const std::string sql = "SELECT war_tag FROM clanwar_league_notifications WHERE war_tag = ? AND clan_tag = ?";
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         spdlog::error("[DB: CWLRepo] Failed to prepare isNotified: {}", sqlite3_errmsg(db->getDBInstance()));
         return false;
     }
 
-    sqlite3_bind_text(stmt, 1, warTag.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, clanTag.c_str(), -1, SQLITE_TRANSIENT);
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_text(stmt.get(), 1, warTag.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, clanTag.c_str(), -1, SQLITE_TRANSIENT);
 
     bool notified = false;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
+    if (sqlite3_step(stmt.get()) == SQLITE_ROW) {
         notified = true;
     }
 
-    sqlite3_finalize(stmt);
     return notified;
 }
 
-void LeagueClanwarRepo::markAsNotified(const std::string& warTag, const std::string& clanTag) {
-    sqlite3_stmt* stmt;
+void LeagueClanwarRepo::markAsNotified(const std::string& warTag, const std::string& clanTag) const
+{
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    std::string sql = R"(
+    const std::string sql = R"(
         INSERT INTO clanwar_league_notifications (
             war_tag, clan_tag
         ) VALUES (?, ?)
     )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         spdlog::error("[DB: CWLRepo] Failed to prepare notification insert: {}", sqlite3_errmsg(db->getDBInstance()));
         return;
     }
 
-    sqlite3_bind_text(stmt, 1, warTag.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, clanTag.c_str(), -1, SQLITE_TRANSIENT);
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    if (!db->executePrepared(stmt)) {
-        sqlite3_finalize(stmt);
+    sqlite3_bind_text(stmt.get(), 1, warTag.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, clanTag.c_str(), -1, SQLITE_TRANSIENT);
+
+    if (!db->executePrepared(stmt.get())) {
         throw std::runtime_error("Failed to execute CWL Notification insert");
     }
-
-    sqlite3_finalize(stmt);
 }

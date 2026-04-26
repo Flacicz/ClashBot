@@ -13,14 +13,14 @@ private:
 public:
 	RaidRepo(Database* db);
 
-	long long getRaidIdByDate(const std::string& clanTag, const std::string& date);
-	long long getLastRaidId(const std::string& clanTag);
+	long long getRaidIdByDate(const std::string& clanTag, const std::string& date) const;
+	long long getLastRaidId(const std::string& clanTag) const;
 
-	bool insertOrUpdateSingleRaidInfo(const CapitalRaid& raid);
-	bool insertOrUpdateSinglePlayersRaidInfo(long long raidId, const std::vector<PlayerRaidStats>& members);
+	bool insertOrUpdateSingleRaidInfo(const CapitalRaid& raid) const;
+	bool insertOrUpdateSinglePlayersRaidInfo(long long raidId, const std::vector<PlayerRaidStats>& members) const;
 
-	bool isNotified(long long raidId);
-	void markAsNotifies(long long raidId);
+	bool isNotified(long long raidId) const;
+	void markAsNotifies(long long raidId) const;
 
-	std::vector<PlayerRaidStats> checkSlackers(long long raidId);
+	std::vector<PlayerRaidStats> checkSlackers(long long raidId) const;
 };

@@ -14,14 +14,14 @@ private:
 public:
 	ClanwarRepo(Database* db);
 
-	bool insertSingleClanwarSeasonInfo(const ClanwarSeason& season);
-	bool insertSingleClanwarInfo(const ClanWar& clanwar);
-	bool insertSingleClanwarAttacksInfo(const std::string& warId, const std::vector<ClanwarAttack>& attacks);
+	bool insertSingleClanwarSeasonInfo(const ClanwarSeason& season) const;
+	bool insertSingleClanwarInfo(const ClanWar& clanwar) const;
+	bool insertSingleClanwarAttacksInfo(const std::string& warId, const std::vector<ClanwarAttack>& attacks) const;
 
-	std::string getClanwarIdByDate(const std::string& clanTag, const std::string& date);
-	std::string getLastId(const std::string& clanTag);
-	std::vector<ClanwarAttack> getClanwarAttacks(const std::string& warId);
+	std::string getClanwarIdByDate(const std::string& clanTag, const std::string& date) const;
+	std::string getLastId(const std::string& clanTag) const;
+	std::vector<ClanwarAttack> getClanwarAttacks(const std::string& warId) const;
 
-	bool isNotified(const std::string& warId);
-	void markAsNotified(const std::string& warId);
+	bool isNotified(const std::string& warId) const;
+	void markAsNotified(const std::string& warId) const;
 };

@@ -51,6 +51,6 @@ public:
 
 	bool execute(const std::string& sql);
 	bool executePrepared(sqlite3_stmt* stmt) const;
-	QueryResult query(const std::string& sql);
+	QueryResult query(const std::string& sql) const;
 	QueryResult queryWithParam(const std::string& sql, const std::string& param) const;
 };

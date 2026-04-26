@@ -4,6 +4,7 @@
 #include "database/repos/raidRepo.h"
 #include "database/repos/leagueClanwarRepo.h"
 #include "database/repos/clanwarRepo.h"
+#include "database/sqliteHelpers.h"
 
 #include <spdlog/spdlog.h>
 #include <stdexcept>
@@ -73,62 +74,65 @@ bool Database::executePrepared(sqlite3_stmt* stmt) const {
 	return true;
 }
 
-Database::QueryResult Database::query(const std::string& sql) {
+Database::QueryResult Database::query(const std::string& sql) const
+{
     QueryResult result;
-    sqlite3_stmt* statement;
+    sqlite3_stmt* raw_stmt;
 
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &statement, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         spdlog::error("[DB] Failed to prepare query: {} | SQL: {}", sqlite3_errmsg(db), sql);
         return result;
     }
 
-    int cols = sqlite3_column_count(statement);
+    const SQliteStmt statement(raw_stmt, &sqlite3_finalize);
+
+    const int cols = sqlite3_column_count(statement.get());
     for (int i = 0; i < cols; i++) {
-        result.columns.push_back(sqlite3_column_name(statement, i));
+        result.columns.emplace_back(sqlite3_column_name(statement.get(), i));
     }
 
-    while (sqlite3_step(statement) == SQLITE_ROW) {
+    while (sqlite3_step(statement.get()) == SQLITE_ROW) {
         std::vector<std::string> row;
         row.reserve(cols);
 
         for (int i = 0; i < cols; i++) {
-            const char* text = (const char*)sqlite3_column_text(statement, i);
-            row.push_back(text ? text : "");
+            const char* text = reinterpret_cast<const char*>(sqlite3_column_text(statement.get(), i));
+            row.emplace_back(text ? text : "");
         }
         result.rows.push_back(row);
     }
 
-    sqlite3_finalize(statement);
     return result;
 }
 
 Database::QueryResult Database::queryWithParam(const std::string& sql, const std::string& param) const {
     QueryResult result;
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* raw_stmt;
 
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         spdlog::error("[DB] Failed to prepare parameterized query: {}", sqlite3_errmsg(db));
         return result;
     }
 
-    sqlite3_bind_text(stmt, 1, param.c_str(), -1, SQLITE_TRANSIENT);
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    int cols = sqlite3_column_count(stmt);
+    sqlite3_bind_text(stmt.get(), 1, param.c_str(), -1, SQLITE_TRANSIENT);
+
+    const int cols = sqlite3_column_count(stmt.get());
     for (int i = 0; i < cols; i++) {
-        result.columns.push_back(sqlite3_column_name(stmt, i));
+        result.columns.emplace_back(sqlite3_column_name(stmt.get(), i));
     }
 
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    while (sqlite3_step(stmt.get()) == SQLITE_ROW) {
         std::vector<std::string> row;
         row.reserve(cols);
 
         for (int i = 0; i < cols; i++) {
-            const char* text = (const char*)sqlite3_column_text(stmt, i);
-            row.push_back(text ? text : "");
+            const char* text = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), i));
+            row.emplace_back(text ? text : "");
         }
         result.rows.push_back(row);
     }
 
-    sqlite3_finalize(stmt);
     return result;
 }

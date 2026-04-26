@@ -1,6 +1,7 @@
 ﻿#include "database/repos/clanInfoRepo.h"
 #include "models/models.h"
 #include "database/database.h"
+#include "database/sqliteHelpers.h"
 
 #include <sqlite3.h>
 #include <spdlog/spdlog.h>
@@ -10,10 +11,11 @@
 
 ClanInfoRepo::ClanInfoRepo(Database* db) : db(db) {}
 
-bool ClanInfoRepo::insertOrUpdateClanInfo(const ClanInfo& clanInfo) {
-    sqlite3_stmt* stmt;
+bool ClanInfoRepo::insertOrUpdateClanInfo(const ClanInfo& clanInfo) const
+{
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    std::string sql = R"(
+    const std::string sql = R"(
     INSERT INTO clan_info (
         tag, name, type, description, members, 
         clan_level, clan_points, clan_builder_points, clan_capital_points, 
@@ -49,55 +51,56 @@ bool ClanInfoRepo::insertOrUpdateClanInfo(const ClanInfo& clanInfo) {
         updated_at = strftime('%s', 'now')
     )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         std::string err = sqlite3_errmsg(db->getDBInstance());
         spdlog::error("[DB: Repo] Failed to prepare ClanInfo statement: {}", err);
         throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
-    sqlite3_bind_text(stmt, 1, clanInfo.tag.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, clanInfo.name.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, clanInfo.type.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, clanInfo.description.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 5, clanInfo.members);
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    sqlite3_bind_int(stmt, 6, clanInfo.clanLevel);
-    sqlite3_bind_int(stmt, 7, clanInfo.clanPoints);
-    sqlite3_bind_int(stmt, 8, clanInfo.clanBuilderPoints);
-    sqlite3_bind_int(stmt, 9, clanInfo.clanCapitalPoints);
-    sqlite3_bind_int(stmt, 10, clanInfo.capitalHallLevel);
-    sqlite3_bind_text(stmt, 11, clanInfo.capitalLeague.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 1, clanInfo.tag.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, clanInfo.name.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 3, clanInfo.type.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 4, clanInfo.description.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt.get(), 5, clanInfo.members);
 
-    sqlite3_bind_int(stmt, 12, clanInfo.requiredTrophies);
-    sqlite3_bind_int(stmt, 13, clanInfo.requiredBuilderBaseTrophies);
-    sqlite3_bind_int(stmt, 14, clanInfo.requiredTownhallLevel);
+    sqlite3_bind_int(stmt.get(), 6, clanInfo.clanLevel);
+    sqlite3_bind_int(stmt.get(), 7, clanInfo.clanPoints);
+    sqlite3_bind_int(stmt.get(), 8, clanInfo.clanBuilderPoints);
+    sqlite3_bind_int(stmt.get(), 9, clanInfo.clanCapitalPoints);
+    sqlite3_bind_int(stmt.get(), 10, clanInfo.capitalHallLevel);
+    sqlite3_bind_text(stmt.get(), 11, clanInfo.capitalLeague.c_str(), -1, SQLITE_TRANSIENT);
 
-    sqlite3_bind_text(stmt, 15, clanInfo.warFrequency.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 16, clanInfo.isWarLogPublic ? 1 : 0);
-    sqlite3_bind_int(stmt, 17, clanInfo.warWinStreak);
-    sqlite3_bind_int(stmt, 18, clanInfo.warWins);
-    sqlite3_bind_int(stmt, 19, clanInfo.warTies);
-    sqlite3_bind_int(stmt, 20, clanInfo.warLosses);
-    sqlite3_bind_text(stmt, 21, clanInfo.warLeague.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt.get(), 12, clanInfo.requiredTrophies);
+    sqlite3_bind_int(stmt.get(), 13, clanInfo.requiredBuilderBaseTrophies);
+    sqlite3_bind_int(stmt.get(), 14, clanInfo.requiredTownhallLevel);
 
-    sqlite3_bind_text(stmt, 22, clanInfo.locationName.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 23, clanInfo.chatLanguage.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 15, clanInfo.warFrequency.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt.get(), 16, clanInfo.isWarLogPublic ? 1 : 0);
+    sqlite3_bind_int(stmt.get(), 17, clanInfo.warWinStreak);
+    sqlite3_bind_int(stmt.get(), 18, clanInfo.warWins);
+    sqlite3_bind_int(stmt.get(), 19, clanInfo.warTies);
+    sqlite3_bind_int(stmt.get(), 20, clanInfo.warLosses);
+    sqlite3_bind_text(stmt.get(), 21, clanInfo.warLeague.c_str(), -1, SQLITE_TRANSIENT);
 
-    if (!db->executePrepared(stmt)) {
-        sqlite3_finalize(stmt);
+    sqlite3_bind_text(stmt.get(), 22, clanInfo.locationName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 23, clanInfo.chatLanguage.c_str(), -1, SQLITE_TRANSIENT);
+
+    if (!db->executePrepared(stmt.get())) {
         throw std::runtime_error("Failed to execute ClanInfo insert/update");
     }
 
-    sqlite3_finalize(stmt);
     return true;
 }
 
-bool ClanInfoRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players) {
-    if (players.empty()) return true;
+bool ClanInfoRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players) const
+{
+    if (players.empty()) return false;
 
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    std::string sql = R"(
+    const std::string sql = R"(
         INSERT INTO players_info (
             tag, clan_tag, name, role, th_level, exp_level, 
             league_tier, trophies, builder_base_trophies, 
@@ -119,59 +122,60 @@ bool ClanInfoRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players)
             updated_at = strftime('%s', 'now')
     )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         std::string err = sqlite3_errmsg(db->getDBInstance());
         spdlog::error("[DB: Repo] Failed to prepare PlayersInfo statement: {}", err);
         throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
     for (const auto& player : players) {
-        sqlite3_reset(stmt);
-        sqlite3_clear_bindings(stmt);
+        sqlite3_reset(stmt.get());
+        sqlite3_clear_bindings(stmt.get());
 
-        sqlite3_bind_text(stmt, 1, player.tag.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 2, player.clanTag.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 3, player.name.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 4, player.role.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt, 5, player.townHallLevel);
-        sqlite3_bind_int(stmt, 6, player.expLevel);
-        sqlite3_bind_text(stmt, 7, player.leagueTier.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt, 8, player.trophies);
-        sqlite3_bind_int(stmt, 9, player.builderBaseTrophies);
-        sqlite3_bind_int(stmt, 10, player.donations);
-        sqlite3_bind_int(stmt, 11, player.donationsReceived);
-        sqlite3_bind_int(stmt, 12, player.clanRank);
+        sqlite3_bind_text(stmt.get(), 1, player.tag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 2, player.clanTag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 3, player.name.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 4, player.role.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt.get(), 5, player.townHallLevel);
+        sqlite3_bind_int(stmt.get(), 6, player.expLevel);
+        sqlite3_bind_text(stmt.get(), 7, player.leagueTier.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt.get(), 8, player.trophies);
+        sqlite3_bind_int(stmt.get(), 9, player.builderBaseTrophies);
+        sqlite3_bind_int(stmt.get(), 10, player.donations);
+        sqlite3_bind_int(stmt.get(), 11, player.donationsReceived);
+        sqlite3_bind_int(stmt.get(), 12, player.clanRank);
 
-        if (!db->executePrepared(stmt)) {
-            sqlite3_finalize(stmt);
+        if (!db->executePrepared(stmt.get())) {
             throw std::runtime_error("Failed to execute PlayersInfo insert for tag: " + player.tag);
         }
     }
 
-    sqlite3_finalize(stmt);
     return true;
 }
 
-bool ClanInfoRepo::removeExitedPlayers(const std::string& clanTag, long long updated_time) {
-    sqlite3_stmt* stmt;
+bool ClanInfoRepo::removeExitedPlayers(const std::string& clanTag, const long long updated_time) const
+{
+    sqlite3_stmt* raw_stmt = nullptr;
 
-    std::string sql = "DELETE FROM players_info WHERE clan_tag = ? AND updated_at < ?";
+    const std::string sql = "DELETE FROM players_info WHERE clan_tag = ? AND updated_at < ?";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
         std::string err = sqlite3_errmsg(db->getDBInstance());
         spdlog::error("[DB: Repo] Failed to prepare removeExitedPlayers statement: {}", err);
         throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
-    sqlite3_bind_text(stmt, 1, clanTag.c_str(), -1, SQLITE_TRANSIENT);
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    sqlite3_bind_int64(stmt, 2, updated_time - 5);
+    sqlite3_bind_text(stmt.get(), 1, clanTag.c_str(), -1, SQLITE_TRANSIENT);
 
-    if (!db->executePrepared(stmt)) {
-        sqlite3_finalize(stmt);
+    sqlite3_bind_int64(stmt.get(), 2, updated_time - 5);
+
+    if (!db->executePrepared(stmt.get())) {
         throw std::runtime_error("Failed to execute removeExitedPlayers");
     }
 
-    sqlite3_finalize(stmt);
     return true;
 }
