@@ -3,7 +3,6 @@
 #include "api/apiclient.h"
 
 #include <nlohmann/json.hpp>
-#include <nlohmann/json_fwd.hpp>
 #include <spdlog/spdlog.h>
 #include <exception>
 #include <string>
@@ -12,10 +11,16 @@
 
 ClanwarLeagueService::ClanwarLeagueService(Database* db, APIClient* apiClient, TelegramNotifier* telegramNotifier)
     : db(db), apiClient(apiClient), telegramNotifier(telegramNotifier) {
-};
+}
 
-void ClanwarLeagueService::updateCWLData(std::string_view tag) {
-    const char* svc = "CWL";
+std::string ClanwarLeagueService::getServiceName()
+{
+    return "ClanwarLeagueService";
+}
+
+void ClanwarLeagueService::updateData(std::string_view tag)
+{
+    auto svc = "CWL";
     spdlog::info("[Service: {}] Starting Clan War League data update for {}", svc, tag);
 
     auto season = apiClient->getLeagueClanwarSeasonInfo(tag);
@@ -26,7 +31,7 @@ void ClanwarLeagueService::updateCWLData(std::string_view tag) {
 
     auto members = apiClient->getLeagueClanwarMembers(tag);
     auto rounds = apiClient->getLeagueClanwarRoundsInfo(tag);
-    auto attacks = apiClient->getLeagueClanwarAttacksInfo(tag, rounds);
+    auto attacks = apiClient->getLeagueClanwarAttacksInfo(rounds);
 
     spdlog::debug("[DB] Transaction STARTED");
     db->execute("BEGIN TRANSACTION;");
@@ -57,7 +62,6 @@ void ClanwarLeagueService::updateCWLData(std::string_view tag) {
         try {
             if (round.warTag.empty() || round.warTag == "#0") continue;
 
-            // Проверяем, не отправляли ли мы уже уведомление
             if (db->getCwlRepo().isNotified(round.warTag, std::string(tag))) {
                 continue;
             }
@@ -65,9 +69,9 @@ void ClanwarLeagueService::updateCWLData(std::string_view tag) {
             // Делаем запрос к API, чтобы узнать точный статус войны (закончилась ли она)
             nlohmann::json warParsed;
             try {
-                std::string warTagStr = std::string(round.warTag);
-                std::string queryTag = (warTagStr.front() == '#') ? ("%23" + warTagStr.substr(1)) : ("%23" + warTagStr);
-                // Мы сделали fetchJson публичным методом в apiclient.h
+                auto warTagStr = std::string(round.warTag);
+                std::string queryTag = warTagStr.front() == '#' ? "%23" + warTagStr.substr(1) : "%23" + warTagStr;
+
                 warParsed = apiClient->fetchJson("/clanwarleagues/wars/" + queryTag);
             }
             catch (const std::exception& e) {
@@ -75,12 +79,8 @@ void ClanwarLeagueService::updateCWLData(std::string_view tag) {
                 continue;
             }
 
-            std::string warState = warParsed.value("state", "notInWar");
-
-            if (warState == "warEnded") {
-                std::string report = buildCWLReport(tag, round, attacks);
-
-                if (telegramNotifier->sendMessage(report)) {
+            if (std::string warState = warParsed.value("state", "notInWar"); warState == "warEnded") {
+                if (std::string report = buildCWLReport(tag, round, attacks); telegramNotifier->sendMessage(report)) {
                     db->getCwlRepo().markAsNotified(round.warTag, std::string(tag));
                     spdlog::info("[Service: CWL] Notification sent for CWL round {}", round.warTag);
                 }

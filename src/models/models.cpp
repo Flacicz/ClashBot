@@ -368,7 +368,7 @@ std::vector<ClanwarsLeagueMembers> ClanwarsLeagueMembers::parseClanwarsLeagueMem
 
 		std::string currentClanTag = clan.value("tag", "Unknown");
 
-		auto const& members = j["members"];
+		auto const& members = clan["members"];
 
 		for (const auto& member : members) {
 			membersList.push_back({

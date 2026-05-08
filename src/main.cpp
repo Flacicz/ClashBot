@@ -2,8 +2,6 @@
 #include <exception>
 #include <thread>
 #include <string>
-#include <memory>
-#include <vector>
 #include <csignal>
 #include <atomic>
 
@@ -16,6 +14,7 @@
 #include "service/clanManager.h"
 #include "config/configLoader.h"
 #include "config/config.h"
+#include "service/ISyncService.h"
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -23,7 +22,7 @@
 #include <spdlog/common.h>
 #include <spdlog/logger.h>
 
-std::atomic<bool> g_shutdown_requested{true};
+std::atomic g_shutdown_requested{false};
 
 void signalHandler(int signum) {
     spdlog::info("[Main] Received system signal: {}. Initiating shutdown...", signum);
@@ -69,8 +68,6 @@ int main(int argc, char* argv[]) {
 
     spdlog::info("[Main] Starting ClashBot v1.0...");
 
-
-
     try {
         std::string configPath = (argc > 1) ? argv[1] : "../config.json";
 
@@ -82,7 +79,14 @@ int main(int argc, char* argv[]) {
         Database db(config.databasePath);
         TelegramNotifier telegramNotifier(config.telegramToken, config.telegramChatId);
 
-        ClanManager clanManager(&db, &apiClient, &telegramNotifier, config.defaultClanTags);
+        std::vector<std::unique_ptr<ISyncService>> services;
+
+        services.push_back(std::make_unique<ClanInfoService>(&db, &apiClient));
+        services.push_back(std::make_unique<ClanwarService>(&db, &apiClient, &telegramNotifier));
+        services.push_back(std::make_unique<RaidService>(&db, &apiClient, &telegramNotifier));
+        services.push_back(std::make_unique<ClanwarLeagueService>(&db, &apiClient, &telegramNotifier));
+
+        ClanManager clanManager(&db, &apiClient, std::move(services), &telegramNotifier, config.defaultClanTags);
 
         db.getTableManager().initAllTables();
 

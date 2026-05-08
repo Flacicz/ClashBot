@@ -20,10 +20,7 @@ private:
 	Database* db;
 	APIClient* apiClient;
 
-	std::unique_ptr<ClanInfoService> clanInfoService;
-	std::unique_ptr<ClanwarService> cwService;
-	std::unique_ptr<RaidService> raidService;
-	std::unique_ptr<ClanwarLeagueService> cwlService;
+	std::vector<std::unique_ptr<ISyncService>> services;
 	std::unique_ptr<TelegramNotifier> telegramNotifier;
 
 	std::vector<std::string> targetClans;
@@ -32,7 +29,14 @@ private:
 	std::condition_variable cv;
 	std::atomic<bool> isRunning{true};
 public:
-	ClanManager(Database* db, APIClient* apiClient, TelegramNotifier* telegramNotifier, const std::vector<std::string>& targetClans);
+	ClanManager(
+		Database* db,
+		APIClient* apiClient,
+		std::vector<std::unique_ptr<ISyncService>> services,
+		TelegramNotifier* telegramNotifier,
+		const std::vector<std::string>& targetClans
+	);
+
 	~ClanManager() = default;
 
 	void syncAll();

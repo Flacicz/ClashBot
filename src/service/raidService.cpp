@@ -14,10 +14,15 @@
 #include <spdlog/spdlog.h>
 
 RaidService::RaidService(Database* db, APIClient* apiClient, TelegramNotifier* telegramNotifier)
-    : db(db), apiClient(apiClient), telegramNotifier(telegramNotifier) {};
+    : db(db), apiClient(apiClient), telegramNotifier(telegramNotifier) {}
 
-void RaidService::updateRaidData(std::string_view tag) {
-    const char* svc = "Raid";
+std::string RaidService::getServiceName()
+{
+    return "RaidService";
+}
+
+void RaidService::updateData(std::string_view tag) {
+    auto svc = "Raid";
     spdlog::info("[Service: {}] Starting Capital Raids data update for {}", svc, tag);
 
     auto raid = apiClient->getRaidInfo(tag);
@@ -64,9 +69,7 @@ void RaidService::updateRaidData(std::string_view tag) {
     if (raidValue.state == "ended" && currentRaidId != -1) {
         try {
             if (!db->getRaidRepo().isNotified(currentRaidId)) {
-                std::string report = buildRaidReport(tag, raidValue.members);
-
-                if (telegramNotifier->sendMessage(report)) {
+                if (const std::string report = buildRaidReport(tag, raidValue.members); telegramNotifier->sendMessage(report)) {
                     db->getRaidRepo().markAsNotifies(currentRaidId);
                     spdlog::info("[Service: Raid] Notification sent for raid {}", currentRaidId);
                 }
@@ -78,9 +81,9 @@ void RaidService::updateRaidData(std::string_view tag) {
     }
 }
 
-std::string RaidService::buildRaidReport(std::string_view tag, const std::vector<PlayerRaidStats>& participants) {
-    long long lastId = db->getRaidRepo().getLastRaidId(std::string(tag));
-    if (lastId == -1) {
+std::string RaidService::buildRaidReport(std::string_view tag, const std::vector<PlayerRaidStats>& participants) const
+{
+    if (long long lastId = db->getRaidRepo().getLastRaidId(std::string(tag)); lastId == -1) {
         spdlog::warn("[Service: Raid] No raid data found in DB for clan {}", tag);
         return "";
     }
@@ -111,7 +114,7 @@ std::string RaidService::buildRaidReport(std::string_view tag, const std::vector
 
     // Группа 2: Прогульщики
     for (const auto& player : currentPlayers) {
-        if (participant_tags.find(player.tag) == participant_tags.end()) {
+        if (!participant_tags.contains(player.tag)) {
             noAttacks << "❌ " << player.name << "\n";
             hasAnyProblems = true;
         }

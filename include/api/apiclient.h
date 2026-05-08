@@ -38,6 +38,6 @@ public:
 
 	std::optional<ClanwarwarsLeagueSeason> getLeagueClanwarSeasonInfo(std::string_view clanTag) const;
 	std::vector<ClanwarsLeagueRound> getLeagueClanwarRoundsInfo(std::string_view clanTag) const;
-	std::vector<ClanwarsLeagueAttacks> getLeagueClanwarAttacksInfo(std::string_view clanTag, const std::vector<ClanwarsLeagueRound>& rounds) const;
+	std::vector<ClanwarsLeagueAttacks> getLeagueClanwarAttacksInfo(const std::vector<ClanwarsLeagueRound>& rounds) const;
 	std::vector<ClanwarsLeagueMembers> getLeagueClanwarMembers(std::string_view clanTag) const;
 };

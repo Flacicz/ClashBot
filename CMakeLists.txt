@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 set(PROJECT_NAME ActivityTracking)
 project(${PROJECT_NAME})
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 find_package(CURL CONFIG REQUIRED)
 find_package(cpr REQUIRED)
@@ -28,6 +28,7 @@ add_executable(${PROJECT_NAME}
 		src/service/clanwarService.cpp
 		src/service/clanwarLeagueService.cpp
 		src/notifications/telegramNotifier.cpp
+        include/service/ISyncService.h
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

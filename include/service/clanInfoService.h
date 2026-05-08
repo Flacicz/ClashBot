@@ -4,12 +4,15 @@
 #include "../api/apiclient.h"
 #include <string_view>
 
-class ClanInfoService {
+#include "ISyncService.h"
+
+class ClanInfoService : public ISyncService {
 private:
 	Database* db;
 	APIClient* apiClient;
 public:
 	ClanInfoService(Database* db, APIClient* apiClient);
 
-	void updateClanInfo(std::string_view tag);
+	void updateData(std::string_view tag) override;
+	std::string getServiceName() override;
 };

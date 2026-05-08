@@ -16,23 +16,28 @@
 
 ClanwarService::ClanwarService(Database* db, APIClient* apiClient, TelegramNotifier* telegramNotifier) : db(db), apiClient(apiClient), telegramNotifier(telegramNotifier) {};
 
-void ClanwarService::updateCWData(std::string_view tag) {
-    const char* svc = "CW";
+std::string ClanwarService::getServiceName()
+{
+    return "ClanWar";
+}
+
+void ClanwarService::updateData(std::string_view tag) {
+    auto svc = "CW";
     spdlog::info("[Service: {}] Starting Clan War data update for {}", svc, tag);
 
-    auto season = apiClient->getClanwarSeason(tag);
+    const auto season = apiClient->getClanwarSeason(tag);
     if (!season.has_value()) {
         spdlog::info("[Service: {}] War is not active for {}", svc, tag);
         return;
     }
 
-    auto summary = apiClient->getClanwarInfo(tag);
+    const auto summary = apiClient->getClanwarInfo(tag);
     if (!summary.has_value()) {
         spdlog::info("[Service: {}] War summary unavailable for {}", svc, tag);
         return;
     }
 
-    auto attacks = apiClient->getClanwarAttacks(tag);
+    const auto attacks = apiClient->getClanwarAttacks(tag);
     auto& summaryValue = summary.value();
     std::string currentWarId = "";
 
@@ -67,9 +72,7 @@ void ClanwarService::updateCWData(std::string_view tag) {
     if (summaryValue.result != "ongoing" && !currentWarId.empty()) {
         try {
             if (!db->getCwRepo().isNotified(currentWarId)) {
-                std::string report = buildCWReport(tag, attacks, summaryValue);
-
-                if (telegramNotifier->sendMessage(report)) {
+                if (const std::string report = buildCWReport(tag, attacks, summaryValue); telegramNotifier->sendMessage(report)) {
                     db->getCwRepo().markAsNotified(currentWarId);
                     spdlog::info("[Service: CW] Notification sent for war {}", currentWarId);
                 }
@@ -81,9 +84,9 @@ void ClanwarService::updateCWData(std::string_view tag) {
     }
 }
 
-std::string ClanwarService::buildCWReport(std::string_view tag, const std::vector<ClanwarAttack>& attacks, const ClanWar& summary) {
-    std::string lastId = db->getCwRepo().getLastId(std::string(tag));
-    if (lastId.empty()) {
+std::string ClanwarService::buildCWReport(std::string_view tag, const std::vector<ClanwarAttack>& attacks, const ClanWar& summary) const
+{
+    if (std::string lastId = db->getCwRepo().getLastId(std::string(tag)); lastId.empty()) {
         spdlog::warn("[Service: CW] No Clan War data found in DB for clan {}", tag);
         return "";
     }

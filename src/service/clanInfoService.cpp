@@ -11,10 +11,15 @@
 #include <spdlog/spdlog.h>
 
 
-ClanInfoService::ClanInfoService(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {};
+ClanInfoService::ClanInfoService(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {}
 
-void ClanInfoService::updateClanInfo(std::string_view tag) {
-    const char* svc = "ClanInfo";
+std::string ClanInfoService::getServiceName()
+{
+    return "ClanInfoService";
+}
+
+void ClanInfoService::updateData(std::string_view tag) {
+    auto svc = "ClanInfo";
     spdlog::info("[Service: {}] Starting update for clan {}", svc, tag);
 
     auto clan = apiClient->getClanInfo(tag);
@@ -22,10 +27,10 @@ void ClanInfoService::updateClanInfo(std::string_view tag) {
         throw std::runtime_error("Received empty API response for clan " + std::string(tag));
     }
 
-    auto members = apiClient->getPlayersInfo(tag);
+    const auto members = apiClient->getPlayersInfo(tag);
 
-    auto now = std::chrono::system_clock::now();
-    long long startTime = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+    const auto now = std::chrono::system_clock::now();
+    const long long startTime = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
 
     spdlog::debug("[DB] Transaction STARTED");
     db->execute("BEGIN TRANSACTION;");
