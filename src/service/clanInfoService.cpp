@@ -11,14 +11,15 @@
 #include <spdlog/spdlog.h>
 
 
-ClanInfoService::ClanInfoService(Database* db, APIClient* apiClient) : db(db), apiClient(apiClient) {}
+ClanInfoService::ClanInfoService(std::unique_ptr<Database> db, std::unique_ptr<APIClient> apiClient)
+    : db(std::move(db)), apiClient(std::move(apiClient)) {}
 
-std::string ClanInfoService::getServiceName()
+std::string ClanInfoService::getServiceName() const
 {
     return "ClanInfoService";
 }
 
-void ClanInfoService::updateData(std::string_view tag) {
+SyncResult ClanInfoService::updateData(std::string_view tag) {
     auto svc = "ClanInfo";
     spdlog::info("[Service: {}] Starting update for clan {}", svc, tag);
 

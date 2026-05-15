@@ -11,16 +11,16 @@
 #include "ISyncService.h"
 #include "../models/models.h"
 
-class ClanwarService : public ISyncService {
+class ClanwarService : public ISyncService
+{
 private:
-	Database* db;
-	APIClient* apiClient;
-	TelegramNotifier* telegramNotifier;
+    std::unique_ptr<Database> db;
+    std::unique_ptr<APIClient> apiClient;
+
 public:
-	ClanwarService(Database* db, APIClient* apiClient, TelegramNotifier* telegramNotifier);
+    ClanwarService(std::unique_ptr<Database> db,
+                   std::unique_ptr<APIClient> apiClient);
 
-	void updateData(std::string_view tag) override;
-	std::string getServiceName() override;
-
-	std::string buildCWReport(std::string_view tag, const std::vector<ClanwarAttack>& attacks, const ClanWar& summary) const;
+    SyncResult updateData(std::string_view tag) override;
+    std::string getServiceName() const override;
 };

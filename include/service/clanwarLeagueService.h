@@ -2,7 +2,6 @@
 
 #include "../database/database.h"
 #include "../api/apiclient.h"
-#include "notifications/telegramNotifier.h"
 
 #include <string_view>
 #include <vector>
@@ -11,16 +10,19 @@
 #include "ISyncService.h"
 #include "../models/models.h"
 
-class ClanwarLeagueService : public ISyncService {
+class ClanwarLeagueService : public ISyncService
+{
 private:
-	Database* db;
-	APIClient* apiClient;
-	TelegramNotifier* telegramNotifier;
+    std::unique_ptr<Database> db;
+    std::unique_ptr<APIClient> apiClient;
+
 public:
-	ClanwarLeagueService(Database* db, APIClient* apiClient, TelegramNotifier* telegramNotifier);
+    ClanwarLeagueService(std::unique_ptr<Database> db,
+                         std::unique_ptr<APIClient> apiClient);
 
-	void updateData(std::string_view tag) override;
-	std::string getServiceName() override;
+    SyncResult updateData(std::string_view tag) override;
+    std::string getServiceName() const override;
 
-	static std::string buildCWLReport(std::string_view tag, const ClanwarsLeagueRound& round, const std::vector<ClanwarsLeagueAttacks>& attacks);
+    static std::string buildCWLReport(std::string_view tag, const ClanwarsLeagueRound& round,
+                                      const std::vector<ClanwarsLeagueAttacks>& attacks);
 };

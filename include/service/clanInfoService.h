@@ -8,11 +8,11 @@
 
 class ClanInfoService : public ISyncService {
 private:
-	Database* db;
-	APIClient* apiClient;
+	std::unique_ptr<Database> db;
+	std::unique_ptr<APIClient> apiClient;
 public:
-	ClanInfoService(Database* db, APIClient* apiClient);
+	ClanInfoService(std::unique_ptr<Database> db, std::unique_ptr<APIClient> apiClient);
 
-	void updateData(std::string_view tag) override;
-	std::string getServiceName() override;
+	SyncResult updateData(std::string_view tag) override;
+	std::string getServiceName() const override;
 };

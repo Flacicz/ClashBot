@@ -4,17 +4,17 @@
 
 #include <cpr/response.h>
 #include <cpr/cprtypes.h>
-#include <cpr/ssl_options.h>
 #include <cpr/timeout.h>
 #include <cpr/api.h>
 
 #include <nlohmann/json.hpp>
 #include <nlohmann/json_fwd.hpp>
+#include <utility>
 
 #include <spdlog/spdlog.h>
 
-TelegramNotifier::TelegramNotifier(const std::string& token, const std::string& chatId)
-	: botToken(token), chatId(chatId) {}
+TelegramNotifier::TelegramNotifier(std::string  token, std::string  chatId)
+	: botToken(std::move(token)), chatId(std::move(chatId)) {}
 
 bool TelegramNotifier::sendMessage(const std::string& message)
 {

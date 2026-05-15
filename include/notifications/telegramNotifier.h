@@ -7,7 +7,7 @@ private:
     std::string botToken;
     std::string chatId;
 public:
-    TelegramNotifier(const std::string& token, const std::string& chat_id);
+    TelegramNotifier(std::string  token, std::string  chatId);
 
     bool sendMessage(const std::string& message);
 };

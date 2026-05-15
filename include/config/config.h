@@ -10,6 +10,7 @@ struct AppConfig {
 	bool useTunnel;
 
 	std::string databasePath;
+	std::string migrationPath;
 
 	std::vector<std::string> defaultClanTags;
 	std::string telegramToken;

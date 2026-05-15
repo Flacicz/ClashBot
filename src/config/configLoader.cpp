@@ -34,8 +34,16 @@ AppConfig loadConfig(const std::string& path) {
     if (config.supercellToken.empty())
         throw std::runtime_error("Критическая ошибка: supercell_token не найден в конфигурации!");
 
-    if (j.contains("database")) config.databasePath = j["database"].value("path", "../data/database.dblite");
-    else config.databasePath = "../data/database.dblite";
+    if (j.contains("database"))
+    {
+	    config.databasePath = j["database"].value("path", "../data/database.sqlite");
+    	config.migrationPath = j["database"].value("migrations_path", "../src/database/migrations");
+    }
+    else
+    {
+	    config.databasePath = "../data/database.sqlite";
+    	config.migrationPath = "../src/database/migrations";
+    }
 
     if (j.contains("bot"))
     {

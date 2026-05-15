@@ -2,11 +2,13 @@
 #define ACTIVITYTRACKING_ISERVICE_H
 #include <string_view>
 
+#include "common/SyncResult.h"
+
 
 class ISyncService {
 public:
-    virtual void updateData(std::string_view tag) = 0;
-    virtual std::string getServiceName() = 0;
+    virtual SyncResult updateData(std::string_view tag) = 0;
+    virtual std::string getServiceName() const = 0;
 
     virtual ~ISyncService() = default;
 };

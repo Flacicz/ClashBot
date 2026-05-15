@@ -41,7 +41,7 @@ public:
 	Database(const std::string& path);
 	~Database();
 
-	sqlite3* getDBInstance() const { return db; };
+	sqlite3* getDBInstance() const { return db; }
 
 	TableManager& getTableManager();
 	ClanInfoRepo& getClanInfoRepo();
@@ -49,8 +49,11 @@ public:
 	LeagueClanwarRepo& getCwlRepo();
 	ClanwarRepo& getCwRepo();
 
-	bool execute(const std::string& sql);
+	bool execute(const std::string& sql) const;
 	bool executePrepared(sqlite3_stmt* stmt) const;
 	QueryResult query(const std::string& sql) const;
 	QueryResult queryWithParam(const std::string& sql, const std::string& param) const;
+
+	bool isNotified(const std::string& entityType, long long entityId) const;
+	void markAsNotified(const std::string& entityType, long long entityId) const;
 };

@@ -5,10 +5,13 @@
 #include <string>
 #include <vector>
 
-TableManager::TableManager(Database* db) : db(db) {}
+TableManager::TableManager(Database* db) : db(db)
+{
+}
 
-bool TableManager::initClanTable() {
-    std::string sql = R"(
+bool TableManager::initClanTable() const
+{
+    const std::string sql = R"(
         CREATE TABLE IF NOT EXISTS clan_info(
             tag TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -45,8 +48,9 @@ bool TableManager::initClanTable() {
     return db->execute(sql);
 }
 
-bool TableManager::initPlayersInfoTable() {
-    std::string sql = R"(
+bool TableManager::initPlayersInfoTable() const
+{
+    const std::string sql = R"(
         CREATE TABLE IF NOT EXISTS players_info(
             tag TEXT PRIMARY KEY,
             clan_tag TEXT NOT NULL,
@@ -73,8 +77,9 @@ bool TableManager::initPlayersInfoTable() {
     return db->execute(sql);
 }
 
-bool TableManager::initRaidSummary() {
-    std::string sql = R"(
+bool TableManager::initRaidSummary() const
+{
+    const std::string sql = R"(
         CREATE TABLE IF NOT EXISTS raid_summary(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             clan_tag TEXT NOT NULL,
@@ -86,7 +91,7 @@ bool TableManager::initRaidSummary() {
             enemy_districts_destroyed INTEGER DEFAULT 0,
             offensive_reward INTEGER DEFAULT 0,
             defensive_reward INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
+            created_at INTEGER DEFAULT (strftime('%s', 'now')),
             FOREIGN KEY (clan_tag) REFERENCES clan_info(tag) ON DELETE CASCADE,
             UNIQUE(clan_tag, date)
         );
@@ -94,8 +99,9 @@ bool TableManager::initRaidSummary() {
     return db->execute(sql);
 }
 
-bool TableManager::initRaidDetails() {
-    std::string sql = R"(
+bool TableManager::initRaidDetails() const
+{
+    const std::string sql = R"(
         CREATE TABLE IF NOT EXISTS raid_details(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             raid_id INTEGER NOT NULL,
@@ -111,19 +117,22 @@ bool TableManager::initRaidDetails() {
     return db->execute(sql);
 }
 
-bool TableManager::initClanwarSeason() {
-    std::string sql = R"(
+bool TableManager::initClanwarSeason() const
+{
+    const std::string sql = R"(
         CREATE TABLE IF NOT EXISTS clanwar_seasons(
             season_id TEXT PRIMARY KEY,
             clan_tag TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT (strftime('%s', 'now'))
         );
     )";
+
     return db->execute(sql);
 }
 
-bool TableManager::initClanwarSummary() {
-    std::string sql = R"(
+bool TableManager::initClanwarSummary() const
+{
+    const std::string sql = R"(
         CREATE TABLE IF NOT EXISTS clanwar_summary(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             season_id TEXT NOT NULL,
@@ -142,8 +151,9 @@ bool TableManager::initClanwarSummary() {
     return db->execute(sql);
 }
 
-bool TableManager::initClanwarAttacks() {
-    std::string sql = R"(
+bool TableManager::initClanwarAttacks() const
+{
+    const std::string sql = R"(
         CREATE TABLE IF NOT EXISTS clanwar_details(
             attack_id INTEGER PRIMARY KEY AUTOINCREMENT,
             war_id INTEGER NOT NULL,
@@ -163,11 +173,13 @@ bool TableManager::initClanwarAttacks() {
             UNIQUE(war_id, attacker_tag, order_num)
         );
     )";
+
     return db->execute(sql);
 }
 
-bool TableManager::initClanwarLeagueSeason() {
-    std::string sql = R"(
+bool TableManager::initClanwarLeagueSeason() const
+{
+    const std::string sql = R"(
         CREATE TABLE IF NOT EXISTS clanwar_league_seasons(
             season_id TEXT PRIMARY KEY,
             clan_tag TEXT NOT NULL,
@@ -179,8 +191,9 @@ bool TableManager::initClanwarLeagueSeason() {
     return db->execute(sql);
 }
 
-bool TableManager::initClanwarLeagueRounds() {
-    std::string sql = R"(
+bool TableManager::initClanwarLeagueRounds() const
+{
+    const std::string sql = R"(
         CREATE TABLE IF NOT EXISTS clanwar_league_rounds(
             war_tag TEXT PRIMARY KEY,
             season_id TEXT NOT NULL,
@@ -193,8 +206,9 @@ bool TableManager::initClanwarLeagueRounds() {
     return db->execute(sql);
 }
 
-bool TableManager::initClanwarLeagueAttacks() {
-    std::string sql = R"(
+bool TableManager::initClanwarLeagueAttacks() const
+{
+    const std::string sql = R"(
         CREATE TABLE IF NOT EXISTS clanwar_league_attacks(
             attack_id INTEGER PRIMARY KEY AUTOINCREMENT,
             war_tag TEXT NOT NULL,
@@ -218,8 +232,9 @@ bool TableManager::initClanwarLeagueAttacks() {
     return db->execute(sql);
 }
 
-bool TableManager::initClanwarMembers() {
-    std::string sql = R"(
+bool TableManager::initClanwarMembers() const
+{
+    const std::string sql = R"(
         CREATE TABLE IF NOT EXISTS clanwar_league_members(
             player_tag TEXT NOT NULL,
             season_id TEXT NOT NULL,
@@ -232,79 +247,64 @@ bool TableManager::initClanwarMembers() {
     return db->execute(sql);
 }
 
-bool TableManager::initClanwarNotifications() {
-    std::string sql = R"(
-        CREATE TABLE IF NOT EXISTS clanwar_notifications (
-            war_id TEXT,
+bool TableManager::initNotifications() const
+{
+    const std::string sql = R"(
+        CREATE TABLE IF NOT EXISTS notifications(
+            entity_type TEXT NOT NULL,
+            entity_id INTEGER NOT NULL,
             notified_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
-            PRIMARY KEY (war_id)
+            PRIMARY KEY (entity_type, entity_id)
         );
     )";
+
     return db->execute(sql);
 }
 
-bool TableManager::initRaidNotifications() {
-    std::string sql = R"(
-        CREATE TABLE IF NOT EXISTS raid_notifications (
-            raid_id TEXT,
-            notified_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
-            PRIMARY KEY (raid_id)
-        );
-    )";
-    return db->execute(sql);
-}
-
-bool TableManager::initClanwarLeagueNotifications() {
-    std::string sql = R"(
-        CREATE TABLE IF NOT EXISTS clanwar_league_notifications (
-            war_tag TEXT NOT NULL,
-            clan_tag TEXT NOT NULL,
-            notified_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
-            PRIMARY KEY (war_tag, clan_tag)
-        );
-    )";
-    return db->execute(sql);
-}
-
-bool TableManager::initAllTables() {
+bool TableManager::initAllTables() const
+{
     spdlog::info("[DB] Initializing database tables...");
 
-    bool success = initClanTable() && initPlayersInfoTable() &&
+    const bool success = initClanTable() && initPlayersInfoTable() &&
         initRaidSummary() && initRaidDetails() &&
         initClanwarSeason() && initClanwarSummary() && initClanwarAttacks() &&
         initClanwarLeagueSeason() && initClanwarLeagueRounds() &&
-        initClanwarLeagueAttacks() && initClanwarMembers() &&
-        initClanwarNotifications() && initRaidNotifications() &&
-        initClanwarLeagueNotifications();
+        initClanwarLeagueAttacks() && initClanwarMembers() && initNotifications();
 
-    if (success) {
+    if (success)
+    {
         spdlog::info("[DB] All tables successfully initialized.");
     }
-    else {
+    else
+    {
         spdlog::error("[DB] Failed to initialize one or more tables.");
     }
 
     return success;
 }
 
-std::vector<std::vector<std::string>> TableManager::getAllTableNames() {
-    std::string sql = "SELECT name FROM sqlite_master WHERE type = 'table'";
+std::vector<std::vector<std::string>> TableManager::getAllTableNames() const
+{
+    const std::string sql = "SELECT name FROM sqlite_master WHERE type = 'table'";
     return db->query(sql).rows;
 }
 
-bool TableManager::dropAllTables() {
+bool TableManager::dropAllTables() const
+{
     spdlog::warn("[DB] Dropping all tables! Disabling Foreign Keys...");
 
     db->execute("PRAGMA foreign_keys = OFF;");
 
-    std::string sql = "DROP TABLE IF EXISTS ";
-    std::vector<std::vector<std::string>> names = getAllTableNames();
+    const std::string sql = "DROP TABLE IF EXISTS ";
+    const std::vector<std::vector<std::string>> names = getAllTableNames();
 
     bool success = true;
-    for (const auto& row : names) {
+    for (const auto& row : names)
+    {
         if (row.empty() || row[0] == "sqlite_sequence") continue;
 
-        if (!db->execute(sql + row[0])) {
+        if (!db->execute(sql + row[0]))
+        {
             spdlog::error("[DB] Failed to drop table: {}", row[0]);
             success = false;
         }

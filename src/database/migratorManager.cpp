@@ -1,0 +1,87 @@
+#include "database/migratorManager.h"
+
+#include <fstream>
+#include <spdlog/spdlog.h>
+
+#include "database/sqliteHelpers.h"
+
+MigratorManager::MigratorManager(std::unique_ptr<Database> db) : db(std::move(db))
+{
+}
+
+bool MigratorManager::createMigrationTable() const
+{
+    const std::string sql = R"(
+        CREATE TABLE IF NOT EXISTS schema_migrations(
+            version TEXT NOT NULL,
+            applied_at INTEGER DEFAULT (strftime('%s', 'now'))
+        )
+    )";
+
+    return db->execute(sql);
+}
+
+bool MigratorManager::isMigrationApplied(const std::string& version) const
+{
+    const std::string sql = "SELECT version FROM schema_migrations WHERE version = ?";
+
+    return !db->queryWithParam(sql, version).rows.empty();
+}
+
+bool MigratorManager::applyMigration(const std::string& version, const std::filesystem::path& file) const
+{
+    const std::ifstream in(file);
+
+    if (!in.is_open()) return false;
+
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+
+    const std::string migrationSQL = buffer.str();
+
+    if (!db->execute(migrationSQL)) return false;
+
+    sqlite3_stmt* raw_stmt;
+
+    const std::string versionSQL = R"(
+        INSERT INTO schema_migrations(version) VALUES (?);
+    )";
+
+    if (sqlite3_prepare_v2(db->getDBInstance(), versionSQL.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        spdlog::error("[DB] Failed to prepare query: {} | SQL: {}", sqlite3_errmsg(db->getDBInstance()), versionSQL);
+        return false;
+    }
+
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_text(stmt.get(), 1, version.c_str(), -1, SQLITE_TRANSIENT);
+
+    return db->executePrepared(stmt.get());
+}
+
+bool MigratorManager::migrate(const std::string& migrationsPath) const
+{
+    if (!createMigrationTable()) return false;
+
+    std::vector<std::filesystem::path> files;
+
+    for (const auto& entry : std::filesystem::directory_iterator(migrationsPath))
+    {
+        if (entry.path().extension() == ".sql") files.push_back(entry.path());
+    }
+
+    for (const auto& file : files)
+    {
+        const std::string version =
+            file.filename().string();
+
+        if (isMigrationApplied(version))
+            continue;
+
+        if (!applyMigration(version, file))
+            return false;
+    }
+
+    return true;
+}

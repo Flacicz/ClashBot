@@ -11,14 +11,11 @@
 
 class RaidService : public ISyncService {
 private:
-	Database* db;
-	APIClient* apiClient;
-	TelegramNotifier* telegramNotifier;
+	std::unique_ptr<Database> db;
+	std::unique_ptr<APIClient> apiClient;
 public:
-	RaidService(Database* db, APIClient* apiClient, TelegramNotifier* telegramNotifier);
+	RaidService(std::unique_ptr<Database> db, std::unique_ptr<APIClient> apiClient);
 
-	void updateData(std::string_view tag) override;
-	std::string getServiceName() override;
-
-	std::string buildRaidReport(std::string_view tag, const std::vector<PlayerRaidStats>& participants) const;
+	SyncResult updateData(std::string_view tag) override;
+	std::string getServiceName() const override;
 };

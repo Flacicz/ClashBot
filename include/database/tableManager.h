@@ -11,28 +11,26 @@ private:
 public:
 	TableManager(Database* db);
 
-	bool initClanTable();
-	bool initPlayersInfoTable();
+	bool initClanTable() const;
+	bool initPlayersInfoTable() const;
 
-	bool initRaidSummary();
-	bool initRaidDetails();
+	bool initRaidSummary() const;
+	bool initRaidDetails() const;
 
-	bool initClanwarSeason();
-	bool initClanwarSummary();
-	bool initClanwarAttacks();
+	bool initClanwarSeason() const;
+	bool initClanwarSummary() const;
+	bool initClanwarAttacks() const;
 
-	bool initClanwarLeagueSeason();
-	bool initClanwarLeagueRounds();
-	bool initClanwarLeagueAttacks();
-	bool initClanwarMembers();
+	bool initClanwarLeagueSeason() const;
+	bool initClanwarLeagueRounds() const;
+	bool initClanwarLeagueAttacks() const;
+	bool initClanwarMembers() const;
 
-	bool initClanwarNotifications();
-	bool initRaidNotifications();
-	bool initClanwarLeagueNotifications();
+	bool initNotifications() const;
 
-	bool initAllTables();
+	bool initAllTables() const;
 
-	bool dropAllTables();
+	bool dropAllTables() const;
 
-	std::vector<std::vector<std::string>> getAllTableNames();
+	std::vector<std::vector<std::string>> getAllTableNames() const;
 };
