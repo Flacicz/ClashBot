@@ -16,7 +16,7 @@ struct ClanwarReportData
 {
     std::string clanTag;
     std::vector<ClanwarAttack> attacks;
-    ClanWar summary;
+    Clanwar summary;
 };
 
 struct ClanwarsLeagueReportData

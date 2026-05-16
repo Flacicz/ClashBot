@@ -7,7 +7,7 @@
 
 #include "../database/tableManager.h"
 
-#include "../database/repos/clanInfoRepo.h"
+#include "../database/repos/clansRepo.h"
 
 #include "../database/repos/raidRepo.h"
 

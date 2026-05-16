@@ -1,4 +1,4 @@
-﻿#include "database/repos/clanInfoRepo.h"
+﻿#include "database/repos/clansRepo.h"
 #include "models/models.h"
 #include "database/database.h"
 #include "database/sqliteHelpers.h"
@@ -9,14 +9,14 @@
 #include <string>
 #include <vector>
 
-ClanInfoRepo::ClanInfoRepo(Database* db) : db(db) {}
+ClansRepo::ClansRepo(Database* db) : db(db) {}
 
-bool ClanInfoRepo::insertOrUpdateClanInfo(const ClanInfo& clanInfo) const
+bool ClansRepo::insertOrUpdateClanInfo(const ClanInfo& clanInfo) const
 {
     sqlite3_stmt* raw_stmt = nullptr;
 
     const std::string sql = R"(
-    INSERT INTO clan_info (
+    INSERT INTO clans (
         tag, name, type, description, members, 
         clan_level, clan_points, clan_builder_points, clan_capital_points, 
         capital_hall_level, capital_league, required_trophies, 
@@ -94,7 +94,7 @@ bool ClanInfoRepo::insertOrUpdateClanInfo(const ClanInfo& clanInfo) const
     return true;
 }
 
-bool ClanInfoRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players) const
+bool ClansRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players) const
 {
     if (players.empty()) return false;
 
@@ -155,7 +155,7 @@ bool ClanInfoRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players)
     return true;
 }
 
-bool ClanInfoRepo::removeExitedPlayers(const std::string& clanTag, const long long updated_time) const
+bool ClansRepo::removeExitedPlayers(const std::string& clanTag, const long long updated_time) const
 {
     sqlite3_stmt* raw_stmt = nullptr;
 

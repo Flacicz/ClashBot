@@ -17,7 +17,7 @@ add_executable(${PROJECT_NAME}
 		src/config/configLoader.cpp
 		src/database/database.cpp
 		src/database/tableManager.cpp
-		src/database/repos/clanInfoRepo.cpp
+        src/database/repos/clansRepo.cpp
 		src/database/repos/clanwarRepo.cpp
 		src/database/repos/raidRepo.cpp
 		src/database/repos/leagueClanwarRepo.cpp
@@ -34,6 +34,9 @@ add_executable(${PROJECT_NAME}
 		src/reports/ClanwarReportFormatter.cpp
 		src/reports/ClanwarLeagueReportFormatter.cpp
 		src/database/MigratorManager.cpp
+		include/common/TimeParser.h
+		src/common/TimeParser.cpp
+		include/common/StringUtils.h
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

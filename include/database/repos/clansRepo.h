@@ -6,11 +6,11 @@
 
 class Database;
 
-class ClanInfoRepo {
+class ClansRepo {
 private:
 	Database* db;
 public:
-	ClanInfoRepo(Database* db);
+	ClansRepo(Database* db);
 
 	bool insertOrUpdateClanInfo(const ClanInfo& clanInfo) const;
 	bool insertOrUpdatePlayersInfo(const std::vector<Player>& players) const;

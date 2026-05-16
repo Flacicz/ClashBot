@@ -46,18 +46,18 @@ CREATE TABLE IF NOT EXISTS cwl_seasons (
 
 CREATE TABLE IF NOT EXISTS wars (
       war_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      war_uid TEXT NOT NULL UNIQUE,   -- например, '#2J8PJ9VLG_20260511T160933'
+      war_uid TEXT NOT NULL UNIQUE,
+      clan_tag TEXT NOT NULL,
       state TEXT NOT NULL,
       war_type TEXT NOT NULL CHECK(war_type IN ('regular', 'cwl', 'friendly')),
       team_size INTEGER NOT NULL,
       attacks_per_member INTEGER NOT NULL DEFAULT 2,
-      battle_modifier TEXT DEFAULT 'none',
       preparation_start_time INTEGER NOT NULL,
       start_time INTEGER,
       end_time INTEGER,
-      season_id TEXT,   -- только для CWL
+      season_id TEXT,
       created_at INTEGER DEFAULT (strftime('%s', 'now')),
-      FOREIGN KEY (season_id) REFERENCES cwl_seasons(season_id)  -- или составной ключ при необходимости
+      FOREIGN KEY (clan_tag, season_id) REFERENCES cwl_seasons(clan_tag, season_id)
 );
 
 CREATE TABLE IF NOT EXISTS war_clans (
@@ -86,6 +86,17 @@ CREATE TABLE war_members (
      FOREIGN KEY (war_id) REFERENCES wars(war_id) ON DELETE CASCADE,
      FOREIGN KEY (war_clan_id) REFERENCES war_clans(war_clan_id) ON DELETE CASCADE,
      UNIQUE(war_id, player_tag)
+);
+
+CREATE TABLE IF NOT EXISTS cwl_season_members (
+      season_id TEXT NOT NULL,
+      clan_tag TEXT NOT NULL,
+      player_tag TEXT NOT NULL,
+      player_name TEXT NOT NULL,
+      townhall_level INTEGER NOT NULL,
+      created_at INTEGER DEFAULT (strftime('%s', 'now')),
+      PRIMARY KEY (season_id, player_tag),
+      FOREIGN KEY (clan_tag, season_id) REFERENCES cwl_seasons(clan_tag, season_id) ON DELETE CASCADE
 );
 
 CREATE TABLE attacks (

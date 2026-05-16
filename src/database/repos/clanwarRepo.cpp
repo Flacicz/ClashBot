@@ -39,7 +39,7 @@ bool ClanwarRepo::insertSingleClanwarSeasonInfo(const ClanwarSeason& season) con
     return true;
 }
 
-bool ClanwarRepo::insertSingleClanwarInfo(const ClanWar& clanwar) const
+bool ClanwarRepo::insertSingleClanwarInfo(const Clanwar& clanwar) const
 {
     sqlite3_stmt* raw_stmt = nullptr;
 

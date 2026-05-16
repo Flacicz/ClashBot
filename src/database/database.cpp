@@ -1,6 +1,6 @@
 ﻿#include "database/database.h"
 #include "database/tableManager.h"
-#include "database/repos/clanInfoRepo.h"
+#include "database/repos/clansRepo.h"
 #include "database/repos/raidRepo.h"
 #include "database/repos/leagueClanwarRepo.h"
 #include "database/repos/clanwarRepo.h"
