@@ -27,8 +27,8 @@ CREATE TABLE IF NOT EXISTS clan_info(
     location_name TEXT,
     chat_language TEXT,
 
-    created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
-    updated_at TIMESTAMP DEFAULT (strftime('%s', 'now'))
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
 CREATE TABLE IF NOT EXISTS players_info(
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS raid_details(
     name TEXT NOT NULL,
     attacks_count INTEGER DEFAULT 0,
     total_loot INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
     FOREIGN KEY (raid_id) REFERENCES raid_summary(id) ON DELETE CASCADE,
     UNIQUE (raid_id, player_tag)
 );
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS raid_details(
 CREATE TABLE IF NOT EXISTS clanwar_seasons(
       season_id TEXT PRIMARY KEY,
       clan_tag TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT (strftime('%s', 'now'))
+      created_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
 CREATE TABLE IF NOT EXISTS clanwar_summary(
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS clanwar_league_seasons(
     clan_tag TEXT NOT NULL,
     league TEXT NOT NULL,
     state TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT (strftime('%s', 'now'))
+    created_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
 CREATE TABLE IF NOT EXISTS clanwar_league_rounds(
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS clanwar_league_rounds(
     season_id TEXT NOT NULL,
     round INTEGER NOT NULL,
     opponent_tag TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
     FOREIGN KEY (season_id) REFERENCES clanwar_league_seasons(season_id) ON DELETE CASCADE
 );
 
@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS clanwar_league_attacks(
     duration INTEGER NOT NULL,
     attacker_th INTEGER NOT NULL,
     defender_th INTEGER NOT NULL,
-    created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
     FOREIGN KEY (war_tag) REFERENCES clanwar_league_rounds(war_tag) ON DELETE CASCADE,
     UNIQUE(war_tag, attacker_tag)
 );
@@ -163,13 +163,13 @@ CREATE TABLE IF NOT EXISTS clanwar_league_members(
     season_id TEXT NOT NULL,
     name TEXT NOT NULL,
     clan_tag TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
     PRIMARY KEY (player_tag, season_id)
 );
 
 CREATE TABLE IF NOT EXISTS notifications(
     entity_type TEXT NOT NULL,
     entity_id INTEGER NOT NULL,
-    notified_at TIMESTAMP DEFAULT (strftime('%s', 'now')),
+    notified_at INTEGER DEFAULT (strftime('%s', 'now')),
     PRIMARY KEY (entity_type, entity_id)
 );

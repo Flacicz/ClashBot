@@ -115,7 +115,6 @@ int main(const int argc, char* argv[])
         auto telegramNotifier = std::make_unique<TelegramNotifier>(config.telegramToken, config.telegramChatId);
         auto notificationService = std::make_unique<NotificationService>(
             std::move(db), std::move(telegramNotifier), std::move(formatters));
-
         std::vector<std::unique_ptr<ISyncService>> services;
 
         services.push_back(std::make_unique<ClanInfoService>(std::move(db), std::move(apiClient)));

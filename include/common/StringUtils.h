@@ -10,12 +10,19 @@ namespace utils
         std::ranges::transform(tag, tag.begin(),
                                [](const unsigned char c) { return std::tolower(c); });
     }
+
     [[nodiscard]] inline std::string normalizedTag(std::string tag) {
         normalizeTag(tag);
         return tag;
     }
     [[nodiscard]] inline std::string normalizedTag(const std::string_view tag) {
-        return normalizedTag(std::string(tag)); // Сама делает то, что ты написал вручную
+        return normalizedTag(std::string(tag));
+    }
+
+    inline std::string transformTag(const std::string_view tag)
+    {
+        if (tag.empty()) return "";
+        return tag.front() == '#' ? "%23" + std::string(tag.substr(1)) : "%23" + std::string(tag);
     }
 }
 

@@ -1,5 +1,6 @@
 #include "api/apiclient.h"
 #include "models/models.h"
+#include "common/StringUtils.h"
 
 #include <cpr/response.h>
 #include <cpr/cprtypes.h>
@@ -21,16 +22,12 @@
 
 using json = nlohmann::json;
 
-APIClient::APIClient(const std::string& token, const bool tunnel, const std::string& baseUrl,
-                     const std::string& tunnelUrl)
-    : apiToken(token), baseUrl(baseUrl), tunnelUrl(tunnelUrl), isTunnel(tunnel)
+APIClient::APIClient(std::string token, const bool tunnel, std::string baseUrl, std::string tunnelUrl)
+    : apiToken(std::move(token)),
+      baseUrl(std::move(baseUrl)),
+      tunnelUrl(std::move(tunnelUrl)),
+      isTunnel(tunnel)
 {
-}
-
-std::string APIClient::normalizeTag(const std::string_view tag)
-{
-    if (tag.empty()) return "";
-    return tag.front() == '#' ? "%23" + std::string(tag.substr(1)) : "%23" + std::string(tag);
 }
 
 nlohmann::json APIClient::fetchJson(std::string_view endpoint) const
@@ -89,38 +86,55 @@ nlohmann::json APIClient::fetchJson(std::string_view endpoint) const
     }
 }
 
-ClanInfo APIClient::getClanInfo(const std::string_view clanTag) const
+std::optional<CompleteClanData> APIClient::getCompleteClanData(const std::string_view clanTag) const
 {
-    const json parsed = fetchJson("/clans/" + normalizeTag(clanTag));
-    return ClanInfo::fromJson(parsed);
-}
+    nlohmann::json parsed;
 
-std::vector<Player> APIClient::getPlayersInfo(const std::string_view clanTag) const
-{
-    json parsed = fetchJson("/clans/" + normalizeTag(clanTag));
-
-    if (!parsed.contains("memberList") || !parsed["memberList"].is_array())
+    try
     {
-        return {};
+        parsed = fetchJson("/clans/" + utils::transformTag(clanTag));
+    }
+    catch (const std::runtime_error& e)
+    {
+        if (const std::string errStr(e.what()); errStr.find("Not Found") != std::string::npos)
+        {
+            return std::nullopt;
+        }
+        throw;
     }
 
-    const auto& memberList = parsed["memberList"];
-    std::vector<Player> players;
-    players.reserve(memberList.size());
-
-    for (const auto& part : memberList)
+    if (!parsed.contains("tag") || !parsed.contains("memberList") || !parsed["memberList"].is_array())
     {
-        players.push_back(Player::fromJson(part, clanTag));
+        spdlog::error("[API] Received invalid clan JSON structure for tag: {}", clanTag);
+        return std::nullopt;
     }
 
-    return players;
+    CompleteClanData data;
+    data.clan = Clan::fromJson(parsed);
+    data.clanSnapshot = ClanSnapshot::fromJson(parsed);
+    data.players = Player::parsePlayersList(parsed);
+    data.playerSnapshots = PlayerSnapshot::parsePlayerSnapshotList(parsed, data.clan.tag);
+
+    return data;
 }
 
-std::optional<CapitalRaid> APIClient::getRaidInfo(const std::string_view clanTag) const
+std::optional<CompleteRaidData> APIClient::getCompleteRaidData(const std::string_view clanTag) const
 {
-    json parsed = fetchJson("/clans/" + normalizeTag(clanTag) + "/capitalraidseasons?limit=1");
+    nlohmann::json parsed;
+    try
+    {
+        parsed = fetchJson("/clans/" + utils::transformTag(clanTag) + "/capitalraidseasons?limit=1");
+    }
+    catch (const std::runtime_error& e)
+    {
+        if (const std::string errStr(e.what()); errStr.find("Not Found") != std::string::npos)
+        {
+            return std::nullopt;
+        }
+        throw;
+    }
 
-    if (!parsed.contains("items") || parsed["items"].empty())
+    if (!parsed.contains("items") || !parsed["items"].is_array() || parsed["items"].empty())
     {
         return std::nullopt;
     }
@@ -132,26 +146,24 @@ std::optional<CapitalRaid> APIClient::getRaidInfo(const std::string_view clanTag
         return std::nullopt;
     }
 
-    return CapitalRaid::fromJson(part, clanTag);
-}
-
-std::vector<PlayerRaidStats> APIClient::getPlayersRaidInfo(const std::string_view clanTag) const
-{
-    if (auto raidOpt = getRaidInfo(clanTag); raidOpt.has_value())
+    if (!part.contains("members") || !part["members"].is_array())
     {
-        return raidOpt->members;
+        return std::nullopt;
     }
 
-    return {};
+    CompleteRaidData completeRaidData;
+    completeRaidData.clanRaid = ClanRaid::fromJson(part, clanTag);
+    completeRaidData.playerRaidSnapshots = PlayerRaidSnapshot::fromJson(part["members"]);
+
+    return completeRaidData;
 }
 
-std::optional<ClanwarsLeagueSeason> APIClient::getClanwarsLeagueSeason(const std::string_view clanTag) const
+std::optional<CompleteClanwarData> APIClient::getCompleteClanwarData(std::string_view clanTag) const
 {
-    json leagueGroupParsed;
-
+    nlohmann::json parsed;
     try
     {
-        leagueGroupParsed = fetchJson("/clans/" + normalizeTag(clanTag) + "/currentwar/leaguegroup");
+        parsed = fetchJson("/clans/" + utils::transformTag(clanTag) + "/currentwar");
     }
     catch (const std::runtime_error& e)
     {
@@ -162,75 +174,35 @@ std::optional<ClanwarsLeagueSeason> APIClient::getClanwarsLeagueSeason(const std
         throw;
     }
 
-    if (const std::string state = leagueGroupParsed.value("state", "notInWar"); state == "notInWar")
-    {
-        return std::nullopt;
-    }
-
-    return ClanwarsLeagueSeason::fromJson(leagueGroupParsed, clanTag);
-}
-
-std::optional<Clanwar> APIClient::getClanwar(const std::string_view clanTag) const
-{
-    const json parsed = fetchJson("/clans/" + normalizeTag(clanTag) + "/currentwar");
-
     if (parsed.value("state", "notInWar") == "notInWar")
     {
         return std::nullopt;
     }
 
-    return Clanwar::fromJson(parsed, WarType::Regular, clanTag);
-}
-
-std::pair<std::optional<ClanwarClan>, std::optional<ClanwarClan>> APIClient::getClanwarClan(const std::string_view clanTag) const
-{
-    const json parsed = fetchJson("/clans/" + normalizeTag(clanTag) + "/currentwar");
-
-    if (parsed.value("state", "notInWar") == "notInWar")
+    if (!parsed.contains("clan") || !parsed.contains("opponent"))
     {
-        return {std::nullopt, std::nullopt};
+        return std::nullopt;
     }
 
-    std::optional<ClanwarClan> home, opponent;
-    if (parsed.contains("clan"))
-        home = ClanwarClan::fromJson(parsed["clan"], ClanType::Home);
-    if (parsed.contains("opponent"))
-        opponent = ClanwarClan::fromJson(parsed["opponent"], ClanType::Opponent);
+    CompleteClanwarData completeClanwarData;
+    completeClanwarData.clanwar = Clanwar::fromJson(parsed, WarType::Regular, clanTag);
+    completeClanwarData.clans = {
+        ClanwarClan::fromJson(parsed["clan"], ClanType::Home),
+        ClanwarClan::fromJson(parsed["opponent"], ClanType::Opponent)
+    };
+    completeClanwarData.attacks = ClanwarAttack::parseAttacksList(parsed);
+    completeClanwarData.members = ClanwarMember::parseClanwarMembers(parsed);
 
-    return {std::move(home), std::move(opponent)};
+    return completeClanwarData;
 }
 
-std::vector<ClanwarAttack> APIClient::getClanwarAttacks(const std::string_view clanTag) const
-{
-    const json parsed = fetchJson("/clans/" + normalizeTag(clanTag) + "/currentwar");
-
-    if (const std::string state = parsed.value("state", "notInWar"); state == "notInWar")
-    {
-        return {};
-    }
-
-    return ClanwarAttack::parseAttacksList(parsed);
-}
-
-std::vector<ClanwarMember> APIClient::getClanwarMembers(const std::string_view clanTag) const
-{
-    const json parsed = fetchJson("/clans/" + normalizeTag(clanTag) + "/currentwar");
-
-    if (const std::string state = parsed.value("state", "notInWar"); state == "notInWar")
-    {
-        return {};
-    }
-
-    return ClanwarMember::parseClanwarMembers(parsed);
-}
-
-std::vector<ClanwarsLeagueMember> APIClient::getClanwarsLeagueMembers(const std::string_view clanTag) const
+std::optional<CompleteClanwarsLeagueData> APIClient::getCompleteClanwarsLeagueData(const std::string_view clanTag) const
 {
     nlohmann::json parsed;
 
     try
     {
-        parsed = fetchJson("/clans/" + normalizeTag(clanTag) + "/currentwar/leaguegroup");
+        parsed = fetchJson("/clans/" + utils::transformTag(clanTag) + "/currentwar/leaguegroup");
     }
     catch (const std::runtime_error& e)
     {
@@ -240,29 +212,23 @@ std::vector<ClanwarsLeagueMember> APIClient::getClanwarsLeagueMembers(const std:
 
     if (const std::string state = parsed.value("state", "notInWar"); state == "notInWar")
     {
-        return {};
+        return std::nullopt;
     }
 
-    return ClanwarsLeagueMember::parseClanwarsLeagueMembers(parsed);
+    CompleteClanwarsLeagueData completeClanwarsLeagueData;
+    completeClanwarsLeagueData.clanwarsLeagueSeason = ClanwarsLeagueSeason::fromJson(parsed, clanTag);
+    completeClanwarsLeagueData.clanwarsLeagueMembers = ClanwarsLeagueMember::parseClanwarsLeagueMembers(parsed);
+    completeClanwarsLeagueData.warDetails = getLeagueClanwarRoundsInfo(parsed, clanTag);
+
+    return completeClanwarsLeagueData;
 }
 
-std::vector<ClanwarsLeagueWarDetails> APIClient::getLeagueClanwarRoundsInfo(const std::string_view clanTag) const
+std::vector<ClanwarsLeagueWarDetails> APIClient::getLeagueClanwarRoundsInfo(
+    const nlohmann::json& parsed, const std::string_view clanTag) const
 {
-    nlohmann::json parsed;
-    const auto targetClanTag = std::string(clanTag);
-
-    try
-    {
-        parsed = fetchJson("/clans/" + normalizeTag(clanTag) + "/currentwar/leaguegroup");
-    }
-    catch (const std::runtime_error& e)
-    {
-        if (const std::string errStr(e.what()); errStr.find("Not Found") != std::string::npos) return {};
-        throw;
-    }
-
     if (!parsed.contains("rounds") || !parsed["rounds"].is_array()) return {};
 
+    const auto targetClanTag = std::string(clanTag);
     std::vector<ClanwarsLeagueWarDetails> cwlWarDetails;
 
     for (const auto& round : parsed["rounds"])
@@ -272,13 +238,12 @@ std::vector<ClanwarsLeagueWarDetails> APIClient::getLeagueClanwarRoundsInfo(cons
         for (const auto& warTagJson : round["warTags"])
         {
             auto warTag = warTagJson.get<std::string>();
-
             if (warTag == "#0" || warTag.length() < 2) continue;
 
             nlohmann::json warParsed;
             try
             {
-                warParsed = fetchJson("/clanwarleagues/wars/" + normalizeTag(warTag));
+                warParsed = fetchJson("/clanwarleagues/wars/" + warTag);
             }
             catch (const std::exception& e)
             {
@@ -292,22 +257,17 @@ std::vector<ClanwarsLeagueWarDetails> APIClient::getLeagueClanwarRoundsInfo(cons
             if (targetClanTag == attackerTag || targetClanTag == defenderTag)
             {
                 ClanwarsLeagueWarDetails details;
-
                 details.war = Clanwar::fromJson(warParsed, WarType::CWL, targetClanTag);
 
-                if (warParsed.contains("clan")) {
+                if (warParsed.contains("clan"))
                     details.clans.first = ClanwarClan::fromJson(warParsed["clan"], ClanType::Home);
-                }
-                if (warParsed.contains("opponent")) {
+                if (warParsed.contains("opponent"))
                     details.clans.second = ClanwarClan::fromJson(warParsed["opponent"], ClanType::Opponent);
-                }
 
                 details.attacks = ClanwarAttack::parseAttacksList(warParsed);
-
                 details.members = ClanwarsLeagueMember::parseClanwarsLeagueMembers(warParsed);
 
                 cwlWarDetails.push_back(std::move(details));
-
                 break;
             }
         }

@@ -6,7 +6,8 @@
 #include <nlohmann/json_fwd.hpp>
 #include <string_view>
 
-namespace WarType {
+namespace WarType
+{
     constexpr std::string_view Regular = "regular";
     constexpr std::string_view CWL = "cwl";
     constexpr std::string_view Friendly = "friendly";
@@ -18,91 +19,115 @@ namespace ClanType
     constexpr std::string_view Opponent = "opponent";
 }
 
-struct ClanInfo {
-	std::string tag;
-	std::string name;
-    std::string type;
+struct Clan
+{
+    std::string tag;
+    std::string name;
     std::string description;
-    int members;
+    int locationId;
+    std::string locationName;
+    int chatLanguageId;
+    std::string chatLanguage;
+    bool isFamilyFriendly;
 
+    static Clan fromJson(const nlohmann::json& j);
+};
+
+struct Player
+{
+    std::string tag;
+    std::string name;
+
+    static Player parsePlayer(const nlohmann::json& j);
+    static std::vector<Player> parsePlayersList(const nlohmann::json& j);
+};
+
+struct ClanSnapshot
+{
+    std::string clanTag;
+    std::string type;
+    int membersCount;
     int clanLevel;
-    int clanPoints;
-    int clanBuilderPoints;
+    int clanBuilderBasePoints;
     int clanCapitalPoints;
     int capitalHallLevel;
-    std::string capitalLeague;
-
+    int capitalLeagueId;
     int requiredTrophies;
     int requiredBuilderBaseTrophies;
     int requiredTownhallLevel;
-
     std::string warFrequency;
     bool isWarLogPublic;
     int warWinStreak;
     int warWins;
     int warTies;
     int warLosses;
-    std::string warLeague;
+    int warLeagueId;
 
-    std::string locationName;
-    std::string chatLanguage;
-
-    static ClanInfo fromJson(const nlohmann::json& j);
+    static ClanSnapshot fromJson(const nlohmann::json& j);
 };
 
-struct Player {
-    std::string tag;
+struct PlayerSnapshot
+{
+    std::string playerTag;
     std::string clanTag;
-    std::string name;
     std::string role;
     int townHallLevel;
     int expLevel;
-
-    std::string leagueTier;
+    int clanRank;
+    int leagueId;
+    int builderBaseLeagueId;
     int trophies;
     int builderBaseTrophies;
-
     int donations;
     int donationsReceived;
 
-    int clanRank;
-
-    static Player fromJson(const nlohmann::json& j, std::string_view clanTag);
+    static PlayerSnapshot parsePlayerSnapshot(const nlohmann::json& j, std::string_view currentClanTag);
+    static std::vector<PlayerSnapshot> parsePlayerSnapshotList(const nlohmann::json& j, std::string_view clanTag);
 };
 
-struct PlayerRaidStats {
-    std::string playerTag;
-    std::string name;
-    unsigned short attacksCount;
-    unsigned short totalLoot;
-
-    static PlayerRaidStats fromJson(const nlohmann::json& j);
+struct CompleteClanData
+{
+    Clan clan;
+    std::vector<Player> players;
+    ClanSnapshot clanSnapshot;
+    std::vector<PlayerSnapshot> playerSnapshots;
 };
 
-struct CapitalRaid {
+struct ClanRaid
+{
     std::string clanTag;
-    std::string date;
+    long long startTime;
+    long long endTime;
     std::string state;
-    unsigned int totalLoot;
-    unsigned short raidsCompleted;
-    unsigned short totalAttacks;
-    unsigned short enemyDistrictsDestroyed;
-    unsigned short offensiveReward;
-    unsigned short defensiveReward;
+    int totalLoot;
+    int raidsCompleted;
+    int totalAttacks;
+    int enemyDistrictsDestroyed;
+    int offensiveReward;
+    int defensiveReward;
 
-    std::vector<PlayerRaidStats> members;
-
-    static CapitalRaid fromJson(const nlohmann::json& j, std::string_view clanTag);
+    static ClanRaid fromJson(const nlohmann::json& j, std::string_view clanTag);
 };
 
-struct ClanwarsLeagueSeason {
-    std::string clanTag;
-    std::string seasonId;
+struct PlayerRaidSnapshot
+{
+    std::string playerTag;
+    int attacksCount;
+    int bonusAttack;
+    int totalLoot;
 
-    static ClanwarsLeagueSeason fromJson(const nlohmann::json& j, std::string_view clanTag);
+    static PlayerRaidSnapshot parsePlayerRaidSnapshot(const nlohmann::json& j);
+    static std::vector<PlayerRaidSnapshot> fromJson(const nlohmann::json& j);
 };
 
-struct Clanwar {
+struct CompleteRaidData
+{
+    ClanRaid clanRaid;
+    std::vector<PlayerRaidSnapshot> playerRaidSnapshots;
+};
+
+struct Clanwar
+{
     std::string warUID;
     std::string clanTag;
     std::string state;
@@ -130,7 +155,8 @@ struct ClanwarClan
     static ClanwarClan fromJson(const nlohmann::json& j, std::string_view side);
 };
 
-struct ClanwarAttack {
+struct ClanwarAttack
+{
     std::string attackerTag;
     std::string defenderTag;
     std::string attackerClanTag;
@@ -145,7 +171,8 @@ struct ClanwarAttack {
     static std::vector<ClanwarAttack> parseAttacksList(const nlohmann::json& j);
 };
 
-struct ClanwarMember {
+struct ClanwarMember
+{
     std::string clanTag;
     std::string playerTag;
     std::string playerName;
@@ -153,6 +180,23 @@ struct ClanwarMember {
     int mapPosition;
 
     static std::vector<ClanwarMember> parseClanwarMembers(const nlohmann::json& j);
+};
+
+struct CompleteClanwarData
+{
+    Clanwar clanwar;
+    std::pair<ClanwarClan, ClanwarClan> clans;
+    std::vector<ClanwarAttack> attacks;
+    std::vector<ClanwarMember> members;
+};
+
+
+struct ClanwarsLeagueSeason
+{
+    std::string clanTag;
+    std::string seasonId;
+
+    static ClanwarsLeagueSeason fromJson(const nlohmann::json& j, std::string_view clanTag);
 };
 
 struct ClanwarsLeagueMember
@@ -166,9 +210,17 @@ struct ClanwarsLeagueMember
     static std::vector<ClanwarsLeagueMember> parseClanwarsLeagueMembers(const nlohmann::json& j);
 };
 
-struct ClanwarsLeagueWarDetails {
+struct ClanwarsLeagueWarDetails
+{
     Clanwar war;
     std::pair<ClanwarClan, ClanwarClan> clans;
     std::vector<ClanwarAttack> attacks;
     std::vector<ClanwarsLeagueMember> members;
+};
+
+struct CompleteClanwarsLeagueData
+{
+    ClanwarsLeagueSeason clanwarsLeagueSeason;
+    std::vector<ClanwarsLeagueMember> clanwarsLeagueMembers;
+    std::vector<ClanwarsLeagueWarDetails> warDetails;
 };
