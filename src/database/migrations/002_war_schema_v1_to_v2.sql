@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS war_clans (
        attacks_count INTEGER DEFAULT 0,
        stars INTEGER DEFAULT 0,
        destruction_percentage REAL DEFAULT 0,
+       created_at INTEGER DEFAULT (strftime('%s', 'now')),
        FOREIGN KEY (war_id) REFERENCES wars(war_id) ON DELETE CASCADE,
        UNIQUE(war_id, side),
        UNIQUE(war_id, clan_tag)
@@ -83,6 +84,7 @@ CREATE TABLE war_members (
      player_name TEXT NOT NULL,
      townhall_level INTEGER NOT NULL,
      map_position INTEGER NOT NULL,
+     created_at INTEGER DEFAULT (strftime('%s', 'now')),
      FOREIGN KEY (war_id) REFERENCES wars(war_id) ON DELETE CASCADE,
      FOREIGN KEY (war_clan_id) REFERENCES war_clans(war_clan_id) ON DELETE CASCADE,
      UNIQUE(war_id, player_tag)
@@ -112,6 +114,7 @@ CREATE TABLE attacks (
      destruction_percentage REAL NOT NULL,
      order_num INTEGER NOT NULL CHECK(order_num > 0),
      duration INTEGER NOT NULL,
+     created_at INTEGER DEFAULT (strftime('%s', 'now')),
      FOREIGN KEY (war_id) REFERENCES wars(war_id) ON DELETE CASCADE,
      FOREIGN KEY (attacker_war_clan_id) REFERENCES war_clans(war_clan_id),
      FOREIGN KEY (defender_war_clan_id) REFERENCES war_clans(war_clan_id),

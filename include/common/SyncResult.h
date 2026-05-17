@@ -5,27 +5,6 @@
 
 #include "models/models.h"
 
-struct RaidReportData
-{
-    std::string clanTag;
-    std::vector<PlayerRaidStats> playerRaidStats;
-    std::vector<Player> players;
-};
-
-struct ClanwarReportData
-{
-    std::string clanTag;
-    std::vector<ClanwarAttack> attacks;
-    Clanwar summary;
-};
-
-struct ClanwarsLeagueReportData
-{
-    std::string clanTag;
-    ClanwarsLeagueRound round;
-    std::vector<ClanwarsLeagueAttacks> attacks;
-};
-
 struct SyncResult
 {
     std::string serviceName;
@@ -33,19 +12,23 @@ struct SyncResult
     bool successFlag = false;
     std::string errorMsg;
 
-    std::variant<std::monostate, RaidReportData, ClanwarReportData, ClanwarsLeagueReportData> reportData;
+    std::variant<std::monostate,
+                 CompleteClanData,
+                 CompleteRaidData,
+                 CompleteClanwarData,
+                 CompleteClanwarsLeagueData
+    > reportData;
+
     int reportEntityId;
 
     static SyncResult success(std::string service, std::string tag);
     static SyncResult error(std::string service, std::string tag, std::string msg);
 
-    static SyncResult successWithRaidReport(std::string service, std::string tag, RaidReportData data,
-                                            int reportEntityId);
-    static SyncResult successWithClanwarReport(std::string service, std::string tag, ClanwarReportData data,
-                                               int reportEntityId);
-    static SyncResult successWithClanwarsLeagueReport(std::string service, std::string tag,
-                                                      ClanwarsLeagueReportData data,
-                                                      int reportEntityId);
+
+    static SyncResult successWithClanData(std::string service, std::string tag, CompleteClanData data);
+    static SyncResult successWithRaidReport(std::string service, std::string tag, CompleteRaidData data, int reportEntityId);
+    static SyncResult successWithClanwarReport(std::string service, std::string tag, CompleteClanwarData data, int reportEntityId);
+    static SyncResult successWithClanwarsLeagueReport(std::string service, std::string tag, CompleteClanwarsLeagueData data, int reportEntityId);
 
     bool hasReportData() const
     {

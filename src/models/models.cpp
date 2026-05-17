@@ -42,7 +42,7 @@ Player Player::parsePlayer(const nlohmann::json& j)
     return player;
 }
 
-std::vector<Player> Player::fromJson(const nlohmann::json& j)
+std::vector<Player> Player::parsePlayersList(const nlohmann::json& j)
 {
     std::vector<Player> players;
     players.reserve(j["membersList"].size());
@@ -66,6 +66,7 @@ ClanSnapshot ClanSnapshot::fromJson(const nlohmann::json& j)
     clanSnapshot.membersCount = j.value("members", 0);
     clanSnapshot.clanLevel = j.value("clanLevel", 1);
 
+    clanSnapshot.clanPoints = j.value("clanPoints", 0);
     clanSnapshot.clanBuilderBasePoints = j.value("clanBuilderBasePoints", 0);
     clanSnapshot.clanCapitalPoints = j.value("clanCapitalPoints", 0);
 
@@ -114,7 +115,7 @@ PlayerSnapshot PlayerSnapshot::parsePlayerSnapshot(const nlohmann::json& j, cons
     return playerSnapshot;
 }
 
-std::vector<PlayerSnapshot> PlayerSnapshot::fromJson(const nlohmann::json& j, std::string_view clanTag)
+std::vector<PlayerSnapshot> PlayerSnapshot::parsePlayerSnapshotList(const nlohmann::json& j, std::string_view clanTag)
 {
     std::vector<PlayerSnapshot> playerSnapshots;
     playerSnapshots.reserve(j["membersList"].size());
@@ -228,9 +229,6 @@ ClanwarClan ClanwarClan::fromJson(const nlohmann::json& j, const std::string_vie
 
     const auto& clanJson = j[key];
 
-    std::string rawTag =
-
-
     clanwarClan.clanTag = clanJson.value("tag", "unknown");
     utils::normalizeTag(clanwarClan.clanTag);
 
@@ -308,27 +306,26 @@ std::vector<ClanwarAttack> ClanwarAttack::parseAttacksList(const nlohmann::json&
     return attacks;
 }
 
-std::vector<ClanwarMember> ClanwarMember::parseClanwarMembers(const nlohmann::json& j)
+std::vector<ClanwarMember> ClanwarMember::parseClanwarMembers(const nlohmann::json& j, const std::string_view side)
 {
     std::vector<ClanwarMember> membersList;
 
-    for (const char* side : {"clan", "opponent"}) {
-        if (!j.contains(side) || !j[side].contains("members")) continue;
+    const std::string key = side == "home" ? "clan" : "opponent";
 
-        std::string clanTag = j[side].value("tag", "unknown");
-        utils::normalizeTag(clanTag);
+    const auto& clanJson = j[key];
 
-        for (const auto& member : j[side]["members"]) {
-            std::string tag = member.value("tag", "unknown");
-            utils::normalizeTag(tag);
+    std::string clanTag = clanJson.value("tag", "unknown");
+    utils::normalizeTag(clanTag);
 
-            std::string name = member.value("name", "Unknown");
-            int townhallLevel = member.value("townhallLevel", 0);
-            int pos = member.value("mapPosition", 0);
+    for (const auto& member : clanJson["members"]) {
+        std::string tag = member.value("tag", "unknown");
+        utils::normalizeTag(tag);
 
-            membersList.emplace_back(clanTag, tag, name, townhallLevel, pos);
-        }
+        std::string name = member.value("name", "Unknown");
+        int townhallLevel = member.value("townhallLevel", 0);
+        int pos = member.value("mapPosition", 0);
 
+        membersList.emplace_back(clanTag, tag, name, townhallLevel, pos);
     }
 
     return membersList;

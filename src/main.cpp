@@ -96,9 +96,9 @@ int main(const int argc, char* argv[])
         spdlog::info("[Main] Configuration loaded from '{}'. Target clans: {}", configPath,
                      config.defaultClanTags.size());
 
-        auto db = std::make_unique<Database>(config.databasePath);
         auto apiClient = std::make_unique<APIClient>(config.supercellToken, config.useTunnel, config.baseUrl,
                                                      config.tunnelBaseUrl);
+        auto db = std::make_unique<Database>(config.databasePath);
 
         auto migratorManager = std::make_unique<MigratorManager>(std::move(db));
         if (!migratorManager->migrate(config.migrationPath))
@@ -121,7 +121,6 @@ int main(const int argc, char* argv[])
         services.push_back(std::make_unique<ClanwarService>(std::move(db), std::move(apiClient)));
         services.push_back(std::make_unique<RaidService>(std::move(db), std::move(apiClient)));
         services.push_back(std::make_unique<ClanwarLeagueService>(std::move(db), std::move(apiClient)));
-
         ClanManager clanManager(std::move(db), std::move(apiClient), std::move(notificationService),
                                 std::move(services), config.defaultClanTags);
 

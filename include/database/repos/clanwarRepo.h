@@ -4,24 +4,21 @@
 
 #include <vector>
 #include <map>
+#include <sqlite3.h>
 #include <string>
 
-class Database;
+class ClanwarRepo
+{
+    sqlite3* db;
 
-class ClanwarRepo {
-private:
-	Database* db;
 public:
-	ClanwarRepo(Database* db);
+    explicit ClanwarRepo(sqlite3* db);
 
-	bool insertSingleClanwarSeasonInfo(const ClanwarSeason& season) const;
-	bool insertSingleClanwarInfo(const Clanwar& clanwar) const;
-	bool insertSingleClanwarAttacksInfo(const std::string& warId, const std::vector<ClanwarAttack>& attacks) const;
-
-	std::string getClanwarIdByDate(const std::string& clanTag, const std::string& date) const;
-	std::string getLastId(const std::string& clanTag) const;
-	std::vector<ClanwarAttack> getClanwarAttacks(const std::string& warId) const;
-
-	bool isNotified(const std::string& warId) const;
-	void markAsNotified(const std::string& warId) const;
+    long long insertSingleClanwarInfo(const Clanwar& clanwar) const;
+    long long insertSingleClanwarDetails(long long clanwarId, const ClanwarClan& clanwarClan) const;
+    bool insertSingleClanwarAttacks(long long clanwarId,
+                                    long long attackerClanId, long long defenderClanId,
+                                    const std::vector<ClanwarAttack>& attacks) const;
+    bool insertSingleClanwarMembers(long long clanwarId, long long clanId,
+                                    const std::vector<ClanwarMember>& members) const;
 };

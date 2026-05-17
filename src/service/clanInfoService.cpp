@@ -12,44 +12,76 @@
 
 
 ClanInfoService::ClanInfoService(std::unique_ptr<Database> db, std::unique_ptr<APIClient> apiClient)
-    : db(std::move(db)), apiClient(std::move(apiClient)) {}
+    : db(std::move(db)), apiClient(std::move(apiClient))
+{
+}
 
 std::string ClanInfoService::getServiceName() const
 {
     return "ClanInfoService";
 }
 
-SyncResult ClanInfoService::updateData(std::string_view tag) {
+SyncResult ClanInfoService::updateData(std::string_view tag)
+{
     auto svc = "ClanInfo";
     spdlog::info("[Service: {}] Starting update for clan {}", svc, tag);
 
-    auto clan = apiClient->getClanInfo(tag);
-    if (clan.tag.empty()) {
-        throw std::runtime_error("Received empty API response for clan " + std::string(tag));
+    const auto optClanData = apiClient->getCompleteClanData(tag);
+    if (!optClanData.has_value())
+    {
+        spdlog::warn("[Service: {}] Received empty API response for clan {}", svc, tag);
+        return SyncResult::error(getServiceName(), std::string(tag),
+                                 std::format("[Service: {}] Received empty API response for clan {}", svc, tag));
     }
 
-    const auto members = apiClient->getPlayersInfo(tag);
-
-    const auto now = std::chrono::system_clock::now();
-    const long long startTime = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+    const auto& [clan, players, clanSnapshot, playerSnapshots] = optClanData.value();
 
     spdlog::debug("[DB] Transaction STARTED");
-    db->execute("BEGIN TRANSACTION;");
+    if (!db->execute("BEGIN TRANSACTION;"))
+    {
+        throw std::runtime_error("Failed to BEGIN TRANSACTION");
+    }
 
-    try {
-        db->getClanInfoRepo().insertOrUpdateClanInfo(clan);
-        db->getClanInfoRepo().insertOrUpdatePlayersInfo(members);
-        db->getClanInfoRepo().removeExitedPlayers(clan.tag, startTime);
+    try
+    {
+        if (!db->clans().insertOrUpdateClanInfo(clan)) {
+            throw std::runtime_error("insertOrUpdateClanInfo returned false");
+        }
 
-        db->execute("COMMIT;");
+        if (!db->clans().insertOrUpdateClanSnapshot(clanSnapshot)) {
+            throw std::runtime_error("insertOrUpdateClanSnapshot returned false");
+        }
+
+        if (!db->clans().insertOrUpdatePlayersInfo(players)) {
+            throw std::runtime_error("insertOrUpdatePlayersInfo returned false");
+        }
+
+        if (!db->clans().insertOrUpdatePlayersSnapshots(playerSnapshots)) {
+            throw std::runtime_error("insertOrUpdatePlayersSnapshots returned false");
+        }
+
+        if (!db->execute("COMMIT;"))
+        {
+            throw std::runtime_error("Failed to COMMIT transaction");
+        }
         spdlog::debug("[DB] Transaction COMMITTED");
 
-        spdlog::info("[Service: {}] Successfully updated clan {} ({}). Synchronized {} members.", svc, tag, clan.name, members.size());
-    }
-    catch (const std::exception& e) {
-        db->execute("ROLLBACK;");
-        spdlog::error("[DB] Transaction ROLLED BACK");
+        spdlog::info("[Service: {}] Successfully updated clan {} ({}). Synchronized {} members.", svc, tag, clan.name,
+                     clanSnapshot.membersCount);
 
-        throw std::runtime_error("DB transaction error during clan update: " + std::string(e.what()));
+        return SyncResult::success(getServiceName(), std::string(tag));
+    }
+    catch (const std::exception& e)
+    {
+        if (!db->execute("ROLLBACK;"))
+        {
+            spdlog::critical("[DB] CRITICAL: Failed to ROLLBACK transaction!");
+        }
+        else
+        {
+            spdlog::error("[DB] Transaction ROLLED BACK");
+        }
+
+        return SyncResult::error(getServiceName(), std::string(tag), e.what());
     }
 }

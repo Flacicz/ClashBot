@@ -6,8 +6,7 @@
 #include <sqlite3.h>
 
 #include "../database/tableManager.h"
-
-#include "../database/repos/clansRepo.h"
+#include "repos/clansRepo.h"
 
 #include "../database/repos/raidRepo.h"
 
@@ -16,44 +15,43 @@
 #include "../database/repos/clanwarRepo.h"
 
 class TableManager;
-class ClanInfoRepo;
+class ClansRepo;
 class RaidRepo;
 class LeagueClanwarRepo;
 class ClanwarRepo;
 
-class Database {
-private:
-	sqlite3* db;
-	std::string pathToDb;
+class Database
+{
+    sqlite3* db = nullptr;
+    std::string pathToDb;
 
-	std::unique_ptr<TableManager> tableManager;
+    std::unique_ptr<TableManager> tableManager;
 
-	std::unique_ptr<ClanInfoRepo> clanInfoRepo;
-	std::unique_ptr<RaidRepo> raidRepo;
-	std::unique_ptr<LeagueClanwarRepo> cwlRepo;
-	std::unique_ptr<ClanwarRepo> cwRepo;
+    std::unique_ptr<ClansRepo> clansRepo;
+    std::unique_ptr<RaidRepo> raidRepo;
+    std::unique_ptr<ClanwarRepo> cwRepo;
+    std::unique_ptr<LeagueClanwarRepo> cwlRepo;
 public:
-	struct QueryResult {
-		std::vector<std::string> columns;
-		std::vector<std::vector<std::string>> rows;
-	};
+    struct QueryResult
+    {
+        std::vector<std::string> columns;
+        std::vector<std::vector<std::string>> rows;
+    };
 
-	Database(const std::string& path);
-	~Database();
+    explicit Database(const std::string& path);
+    ~Database();
 
-	sqlite3* getDBInstance() const { return db; }
+    [[nodiscard]] sqlite3* getDBInstance() const { return db; }
 
-	TableManager& getTableManager();
-	ClanInfoRepo& getClanInfoRepo();
-	RaidRepo& getRaidRepo();
-	LeagueClanwarRepo& getCwlRepo();
-	ClanwarRepo& getCwRepo();
+    [[nodiscard]] ClansRepo& clans() const { return *clansRepo; }
+    [[nodiscard]] RaidRepo& raids() const { return *raidRepo; }
+    [[nodiscard]] ClanwarRepo& war() const { return *cwRepo; }
+    [[nodiscard]] LeagueClanwarRepo& leagueWar() const { return *cwlRepo; }
+    [[nodiscard]] TableManager& tables() const { return *tableManager; }
 
-	bool execute(const std::string& sql) const;
-	bool executePrepared(sqlite3_stmt* stmt) const;
-	QueryResult query(const std::string& sql) const;
-	QueryResult queryWithParam(const std::string& sql, const std::string& param) const;
+    [[nodiscard]] bool execute(std::string_view sql) const;
+    [[nodiscard]] QueryResult query(std::string_view sql) const;
 
-	bool isNotified(const std::string& entityType, long long entityId) const;
-	void markAsNotified(const std::string& entityType, long long entityId) const;
+    [[nodiscard]] bool isNotified(const std::string& entityType, long long entityId) const;
+    void markAsNotified(const std::string& entityType, long long entityId) const;
 };

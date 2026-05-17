@@ -13,7 +13,7 @@
 #include <vector>
 #include <memory>
 
-Database::Database(const std::string& path) : db(nullptr), pathToDb(path)
+Database::Database(const std::string& path) : pathToDb(path)
 {
     if (sqlite3_open(path.c_str(), &db) != SQLITE_OK)
     {
@@ -24,13 +24,39 @@ Database::Database(const std::string& path) : db(nullptr), pathToDb(path)
 
     spdlog::info("[DB] Database successfully opened at {}", path);
 
-    execute("PRAGMA foreign_keys = ON;");
-    execute("PRAGMA journal_mode = WAL;");
-    execute("PRAGMA synchronous = NORMAL;");
+    if (!execute("PRAGMA foreign_keys = ON;"))
+    {
+        spdlog::critical("[DB] Critical configuration failure: Cannot enable FOREIGN KEYS constraint!");
+        throw std::runtime_error("DB Error: foreign_keys failed");
+    }
+
+    if (!execute("PRAGMA journal_mode = WAL;"))
+    {
+        spdlog::critical("[DB] Critical configuration failure: Cannot switch journal mode to WAL!");
+        throw std::runtime_error("DB Error: WAL mode failed");
+    }
+
+    if (!execute("PRAGMA synchronous = NORMAL;"))
+    {
+        spdlog::critical("[DB] Critical configuration failure: Cannot set synchronous mode to NORMAL!");
+        throw std::runtime_error("DB Error: synchronous NORMAL failed");
+    }
+
+    tableManager = std::make_unique<TableManager>(db);
+    clansRepo = std::make_unique<ClansRepo>(db);
+    raidRepo = std::make_unique<RaidRepo>(db);
+    cwRepo = std::make_unique<ClanwarRepo>(db);
+    cwlRepo = std::make_unique<LeagueClanwarRepo>(db);
 }
 
 Database::~Database()
 {
+    clansRepo.reset();
+    raidRepo.reset();
+    cwRepo.reset();
+    cwlRepo.reset();
+    tableManager.reset();
+
     if (db)
     {
         sqlite3_close(db);
@@ -38,40 +64,10 @@ Database::~Database()
     }
 }
 
-TableManager& Database::getTableManager()
-{
-    if (!tableManager) tableManager = std::make_unique<TableManager>(this);
-    return *tableManager;
-}
-
-ClanInfoRepo& Database::getClanInfoRepo()
-{
-    if (!clanInfoRepo) clanInfoRepo = std::make_unique<ClanInfoRepo>(this);
-    return *clanInfoRepo;
-}
-
-RaidRepo& Database::getRaidRepo()
-{
-    if (!raidRepo) raidRepo = std::make_unique<RaidRepo>(this);
-    return *raidRepo;
-}
-
-LeagueClanwarRepo& Database::getCwlRepo()
-{
-    if (!cwlRepo) cwlRepo = std::make_unique<LeagueClanwarRepo>(this);
-    return *cwlRepo;
-}
-
-ClanwarRepo& Database::getCwRepo()
-{
-    if (!cwRepo) cwRepo = std::make_unique<ClanwarRepo>(this);
-    return *cwRepo;
-}
-
-bool Database::execute(const std::string& sql) const
+bool Database::execute(std::string_view sql) const
 {
     char* err = nullptr;
-    if (sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &err) != SQLITE_OK)
+    if (sqlite3_exec(db, sql.data(), nullptr, nullptr, &err) != SQLITE_OK)
     {
         spdlog::error("[DB] Execute failed: {} | SQL: {}", err, sql);
         sqlite3_free(err);
@@ -80,22 +76,12 @@ bool Database::execute(const std::string& sql) const
     return true;
 }
 
-bool Database::executePrepared(sqlite3_stmt* stmt) const
-{
-    if (const int result = sqlite3_step(stmt); result != SQLITE_DONE && result != SQLITE_ROW)
-    {
-        spdlog::error("[DB] Prepared statement execution failed: {}", sqlite3_errmsg(db));
-        return false;
-    }
-    return true;
-}
-
-Database::QueryResult Database::query(const std::string& sql) const
+Database::QueryResult Database::query(std::string_view sql) const
 {
     QueryResult result;
     sqlite3_stmt* raw_stmt;
 
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    if (sqlite3_prepare_v2(db, sql.data(), static_cast<int>(sql.size()), &raw_stmt, nullptr) != SQLITE_OK)
     {
         spdlog::error("[DB] Failed to prepare query: {} | SQL: {}", sqlite3_errmsg(db), sql);
         return result;
@@ -117,43 +103,6 @@ Database::QueryResult Database::query(const std::string& sql) const
         for (int i = 0; i < cols; i++)
         {
             auto text = reinterpret_cast<const char*>(sqlite3_column_text(statement.get(), i));
-            row.emplace_back(text ? text : "");
-        }
-        result.rows.push_back(row);
-    }
-
-    return result;
-}
-
-Database::QueryResult Database::queryWithParam(const std::string& sql, const std::string& param) const
-{
-    QueryResult result;
-    sqlite3_stmt* raw_stmt;
-
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
-    {
-        spdlog::error("[DB] Failed to prepare parameterized query: {}", sqlite3_errmsg(db));
-        return result;
-    }
-
-    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
-
-    sqlite3_bind_text(stmt.get(), 1, param.c_str(), -1, SQLITE_TRANSIENT);
-
-    const int cols = sqlite3_column_count(stmt.get());
-    for (int i = 0; i < cols; i++)
-    {
-        result.columns.emplace_back(sqlite3_column_name(stmt.get(), i));
-    }
-
-    while (sqlite3_step(stmt.get()) == SQLITE_ROW)
-    {
-        std::vector<std::string> row;
-        row.reserve(cols);
-
-        for (int i = 0; i < cols; i++)
-        {
-            auto text = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), i));
             row.emplace_back(text ? text : "");
         }
         result.rows.push_back(row);

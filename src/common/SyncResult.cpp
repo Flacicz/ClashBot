@@ -25,31 +25,39 @@ SyncResult SyncResult::error(std::string service, std::string tag, std::string m
     return result;
 }
 
-SyncResult SyncResult::successWithRaidReport(std::string service, std::string tag, RaidReportData data,
+SyncResult SyncResult::successWithClanData(std::string service, std::string tag, CompleteClanData data)
+{
+    SyncResult result = success(std::move(service), std::move(tag));
+    result.reportData = std::move(data);
+
+    return result;
+}
+
+SyncResult SyncResult::successWithRaidReport(std::string service, std::string tag, CompleteRaidData data,
                                              const int reportEntityId)
 {
     SyncResult result = success(std::move(service), std::move(tag));
-    result.reportData = data;
+    result.reportData = std::move(data);
     result.reportEntityId = reportEntityId;
 
     return result;
 }
 
-SyncResult SyncResult::successWithClanwarReport(std::string service, std::string tag, ClanwarReportData data,
+SyncResult SyncResult::successWithClanwarReport(std::string service, std::string tag, CompleteClanwarData data,
                                                 const int reportEntityId)
 {
     SyncResult result = success(std::move(service), std::move(tag));
-    result.reportData = data;
+    result.reportData = std::move(data);
     result.reportEntityId = reportEntityId;
 
     return result;
 }
 
 SyncResult SyncResult::successWithClanwarsLeagueReport(std::string service, std::string tag,
-                                                       ClanwarsLeagueReportData data, const int reportEntityId)
+                                                       CompleteClanwarsLeagueData data, const int reportEntityId)
 {
     SyncResult result = success(std::move(service), std::move(tag));
-    result.reportData = data;
+    result.reportData = std::move(data);
     result.reportEntityId = reportEntityId;
 
     return result;

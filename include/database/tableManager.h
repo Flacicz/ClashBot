@@ -1,15 +1,14 @@
 #pragma once
 
+#include <sqlite3.h>
 #include <string>
 #include <vector>
 
-class Database;
-
 class TableManager {
 private:
-	Database* db;
+	sqlite3* db;
 public:
-	TableManager(Database* db);
+	explicit TableManager(sqlite3* db);
 
 	bool initClanTable() const;
 	bool initPlayersInfoTable() const;

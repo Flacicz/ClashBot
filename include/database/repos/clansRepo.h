@@ -1,18 +1,18 @@
 #pragma once
 
+#include <sqlite3.h>
+
 #include "../../models/models.h"
 
 #include <vector>
 
-class Database;
-
 class ClansRepo {
-private:
-	Database* db;
+	sqlite3* db;
 public:
-	ClansRepo(Database* db);
+	explicit ClansRepo(sqlite3* db);
 
-	bool insertOrUpdateClanInfo(const ClanInfo& clanInfo) const;
+	bool insertOrUpdateClanInfo(const Clan& clan) const;
+	bool insertOrUpdateClanSnapshot(const ClanSnapshot& clanSnapshot) const;
 	bool insertOrUpdatePlayersInfo(const std::vector<Player>& players) const;
-	bool removeExitedPlayers(const std::string& clanTag, long long updated_time) const;
+	bool insertOrUpdatePlayersSnapshots(const std::vector<PlayerSnapshot>& playerSnapshots) const;
 };

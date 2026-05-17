@@ -9,33 +9,84 @@
 #include <string>
 #include <vector>
 
-ClansRepo::ClansRepo(Database* db) : db(db) {}
+ClansRepo::ClansRepo(sqlite3* db) : db(db)
+{
+}
 
-bool ClansRepo::insertOrUpdateClanInfo(const ClanInfo& clanInfo) const
+bool ClansRepo::insertOrUpdateClanInfo(const Clan& clan) const
 {
     sqlite3_stmt* raw_stmt = nullptr;
 
     const std::string sql = R"(
     INSERT INTO clans (
-        tag, name, type, description, members, 
-        clan_level, clan_points, clan_builder_points, clan_capital_points, 
-        capital_hall_level, capital_league, required_trophies, 
-        required_builder_base_trophies, required_town_hall_level, 
-        war_frequency, is_war_log_public, war_win_streak, war_wins, 
-        war_ties, war_losses, war_league, location_name, chat_language
+        tag, name, description, location_id, location_name,
+        chat_language_id, chat_language, is_family_friendly
     ) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(tag) DO UPDATE SET
         name = excluded.name,
-        type = excluded.type,
         description = excluded.description,
-        members = excluded.members,
+        location_id = excluded.location_id,
+        location_name = excluded.location_name,
+        chat_language_id = excluded.chat_language_id,
+        chat_language = excluded.chat_language,
+        is_family_friendly = excluded.is_family_friendly
+    )";
+
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClansRepo] Failed to prepare insertOrUpdateClanInfo statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
+    }
+
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_text(stmt.get(), 1, clan.tag.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, clan.name.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 3, clan.description.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt.get(), 4, clan.locationId);
+    sqlite3_bind_text(stmt.get(), 5, clan.locationName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt.get(), 6, clan.chatLanguageId);
+    sqlite3_bind_text(stmt.get(), 7, clan.chatLanguage.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt.get(), 8, clan.isFamilyFriendly);
+
+    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+    {
+        spdlog::error("[ClanRepo] Failed to insert clan info {}: {}", clan.tag, sqlite3_errmsg(db));
+        return false;
+    }
+
+    return true;
+}
+
+bool ClansRepo::insertOrUpdateClanSnapshot(const ClanSnapshot& clanSnapshot) const
+{
+    sqlite3_stmt* raw_stmt = nullptr;
+
+    const std::string sql = R"(
+        INSERT INTO clan_snapshots (
+        clan_tag, type, members_count, clan_level, clan_points,
+        clan_builder_points, clan_capital_points, capital_hall_level,
+        capital_league_id, required_trophies, required_builder_base_trophies,
+        required_town_hall_level, war_frequency, is_war_log_public,
+        war_win_streak, war_wins, war_ties, war_losses, war_league_id
+    )
+    VALUES (
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?
+    )
+    ON CONFLICT(clan_tag) DO UPDATE SET
+        type = excluded.type,
+        members_count = excluded.members_count,
         clan_level = excluded.clan_level,
         clan_points = excluded.clan_points,
         clan_builder_points = excluded.clan_builder_points,
         clan_capital_points = excluded.clan_capital_points,
         capital_hall_level = excluded.capital_hall_level,
-        capital_league = excluded.capital_league,
+        capital_league_id = excluded.capital_league_id,
         required_trophies = excluded.required_trophies,
         required_builder_base_trophies = excluded.required_builder_base_trophies,
         required_town_hall_level = excluded.required_town_hall_level,
@@ -45,50 +96,42 @@ bool ClansRepo::insertOrUpdateClanInfo(const ClanInfo& clanInfo) const
         war_wins = excluded.war_wins,
         war_ties = excluded.war_ties,
         war_losses = excluded.war_losses,
-        war_league = excluded.war_league,
-        location_name = excluded.location_name,
-        chat_language = excluded.chat_language,
-        updated_at = strftime('%s', 'now')
+        war_league_id = excluded.war_league_id;
     )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
-        std::string err = sqlite3_errmsg(db->getDBInstance());
-        spdlog::error("[DB: Repo] Failed to prepare ClanInfo statement: {}", err);
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClansRepo] Failed to prepare insertOrUpdateClanSnapshot statement: {}", err);
         throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    sqlite3_bind_text(stmt.get(), 1, clanInfo.tag.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt.get(), 2, clanInfo.name.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt.get(), 3, clanInfo.type.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt.get(), 4, clanInfo.description.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt.get(), 5, clanInfo.members);
+    sqlite3_bind_text(stmt.get(), 1, clanSnapshot.clanTag.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, clanSnapshot.type.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt.get(), 3, clanSnapshot.membersCount);
+    sqlite3_bind_int(stmt.get(), 4, clanSnapshot.clanLevel);
+    sqlite3_bind_int(stmt.get(), 5, clanSnapshot.clanPoints);
+    sqlite3_bind_int(stmt.get(), 6, clanSnapshot.clanBuilderBasePoints);
+    sqlite3_bind_int(stmt.get(), 7, clanSnapshot.clanCapitalPoints);
+    sqlite3_bind_int(stmt.get(), 8, clanSnapshot.capitalHallLevel);
+    sqlite3_bind_int(stmt.get(), 9, clanSnapshot.capitalLeagueId);
+    sqlite3_bind_int(stmt.get(), 10, clanSnapshot.requiredTrophies);
+    sqlite3_bind_int(stmt.get(), 11, clanSnapshot.requiredBuilderBaseTrophies);
+    sqlite3_bind_int(stmt.get(), 12, clanSnapshot.requiredTownhallLevel);
+    sqlite3_bind_text(stmt.get(), 13, clanSnapshot.warFrequency.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt.get(), 14, clanSnapshot.isWarLogPublic);
+    sqlite3_bind_int(stmt.get(), 15, clanSnapshot.warWinStreak);
+    sqlite3_bind_int(stmt.get(), 16, clanSnapshot.warWins);
+    sqlite3_bind_int(stmt.get(), 17, clanSnapshot.warTies);
+    sqlite3_bind_int(stmt.get(), 18, clanSnapshot.warLosses);
+    sqlite3_bind_int(stmt.get(), 19, clanSnapshot.warLeagueId);
 
-    sqlite3_bind_int(stmt.get(), 6, clanInfo.clanLevel);
-    sqlite3_bind_int(stmt.get(), 7, clanInfo.clanPoints);
-    sqlite3_bind_int(stmt.get(), 8, clanInfo.clanBuilderPoints);
-    sqlite3_bind_int(stmt.get(), 9, clanInfo.clanCapitalPoints);
-    sqlite3_bind_int(stmt.get(), 10, clanInfo.capitalHallLevel);
-    sqlite3_bind_text(stmt.get(), 11, clanInfo.capitalLeague.c_str(), -1, SQLITE_TRANSIENT);
-
-    sqlite3_bind_int(stmt.get(), 12, clanInfo.requiredTrophies);
-    sqlite3_bind_int(stmt.get(), 13, clanInfo.requiredBuilderBaseTrophies);
-    sqlite3_bind_int(stmt.get(), 14, clanInfo.requiredTownhallLevel);
-
-    sqlite3_bind_text(stmt.get(), 15, clanInfo.warFrequency.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt.get(), 16, clanInfo.isWarLogPublic ? 1 : 0);
-    sqlite3_bind_int(stmt.get(), 17, clanInfo.warWinStreak);
-    sqlite3_bind_int(stmt.get(), 18, clanInfo.warWins);
-    sqlite3_bind_int(stmt.get(), 19, clanInfo.warTies);
-    sqlite3_bind_int(stmt.get(), 20, clanInfo.warLosses);
-    sqlite3_bind_text(stmt.get(), 21, clanInfo.warLeague.c_str(), -1, SQLITE_TRANSIENT);
-
-    sqlite3_bind_text(stmt.get(), 22, clanInfo.locationName.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt.get(), 23, clanInfo.chatLanguage.c_str(), -1, SQLITE_TRANSIENT);
-
-    if (!db->executePrepared(stmt.get())) {
-        throw std::runtime_error("Failed to execute ClanInfo insert/update");
+    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+    {
+        spdlog::error("[ClanRepo] Failed to insert clan snapshot {}: {}", clanSnapshot.clanTag, sqlite3_errmsg(db));
+        return false;
     }
 
     return true;
@@ -96,85 +139,108 @@ bool ClansRepo::insertOrUpdateClanInfo(const ClanInfo& clanInfo) const
 
 bool ClansRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players) const
 {
-    if (players.empty()) return false;
+    if (players.empty()) return true;
 
     sqlite3_stmt* raw_stmt = nullptr;
 
     const std::string sql = R"(
-        INSERT INTO players_info (
-            tag, clan_tag, name, role, th_level, exp_level, 
-            league_tier, trophies, builder_base_trophies, 
-            donations, donations_received, clan_rank, updated_at
+        INSERT INTO players (
+            tag, name
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
+        VALUES (?, ?)
         ON CONFLICT(tag) DO UPDATE SET
-            clan_tag = excluded.clan_tag,
-            name = excluded.name,
-            role = excluded.role,
-            th_level = excluded.th_level,
-            exp_level = excluded.exp_level,
-            league_tier = excluded.league_tier,
-            trophies = excluded.trophies,
-            builder_base_trophies = excluded.builder_base_trophies,
-            donations = excluded.donations,
-            donations_received = excluded.donations_received,
-            clan_rank = excluded.clan_rank,
-            updated_at = strftime('%s', 'now')
+            name = excluded.name;
     )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
-        std::string err = sqlite3_errmsg(db->getDBInstance());
-        spdlog::error("[DB: Repo] Failed to prepare PlayersInfo statement: {}", err);
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClansRepo] Failed to prepare insertOrUpdatePlayersInfo statement: {}", err);
         throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    for (const auto& player : players) {
-        sqlite3_reset(stmt.get());
-        sqlite3_clear_bindings(stmt.get());
-
+    for (const auto& player : players)
+    {
         sqlite3_bind_text(stmt.get(), 1, player.tag.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt.get(), 2, player.clanTag.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt.get(), 3, player.name.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt.get(), 4, player.role.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt.get(), 5, player.townHallLevel);
-        sqlite3_bind_int(stmt.get(), 6, player.expLevel);
-        sqlite3_bind_text(stmt.get(), 7, player.leagueTier.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt.get(), 8, player.trophies);
-        sqlite3_bind_int(stmt.get(), 9, player.builderBaseTrophies);
-        sqlite3_bind_int(stmt.get(), 10, player.donations);
-        sqlite3_bind_int(stmt.get(), 11, player.donationsReceived);
-        sqlite3_bind_int(stmt.get(), 12, player.clanRank);
+        sqlite3_bind_text(stmt.get(), 2, player.name.c_str(), -1, SQLITE_TRANSIENT);
 
-        if (!db->executePrepared(stmt.get())) {
-            throw std::runtime_error("Failed to execute PlayersInfo insert for tag: " + player.tag);
+        if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+        {
+            spdlog::error("[ClansRepo] Failed to insert player {}: {}", player.tag, sqlite3_errmsg(db));
+            return false;
         }
+
+        sqlite3_reset(stmt.get());
     }
 
     return true;
 }
 
-bool ClansRepo::removeExitedPlayers(const std::string& clanTag, const long long updated_time) const
+bool ClansRepo::insertOrUpdatePlayersSnapshots(const std::vector<PlayerSnapshot>& playerSnapshots) const
 {
+    if (playerSnapshots.empty()) return true;
+
     sqlite3_stmt* raw_stmt = nullptr;
 
-    const std::string sql = "DELETE FROM players_info WHERE clan_tag = ? AND updated_at < ?";
+    const std::string sql = R"(
+    INSERT INTO player_snapshots (
+    player_tag, clan_tag, role, th_level, exp_level,
+    clan_rank, league_id, builder_base_league_id,
+    trophies, builder_base_trophies, donations, donations_received
+    )
+    VALUES (
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?
+    )
+    ON CONFLICT(player_tag) DO UPDATE SET
+        clan_tag = excluded.clan_tag,
+        role = excluded.role,
+        th_level = excluded.th_level,
+        exp_level = excluded.exp_level,
+        clan_rank = excluded.clan_rank,
+        league_id = excluded.league_id,
+        builder_base_league_id = excluded.builder_base_league_id,
+        trophies = excluded.trophies,
+        builder_base_trophies = excluded.builder_base_trophies,
+        donations = excluded.donations,
+        donations_received = excluded.donations_received;
+    )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK) {
-        std::string err = sqlite3_errmsg(db->getDBInstance());
-        spdlog::error("[DB: Repo] Failed to prepare removeExitedPlayers statement: {}", err);
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClansRepo] Failed to prepare insertOrUpdatePlayersSnapshots statement: {}", err);
         throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    sqlite3_bind_text(stmt.get(), 1, clanTag.c_str(), -1, SQLITE_TRANSIENT);
+    for (const auto& playerSnapshot : playerSnapshots)
+    {
+        sqlite3_bind_text(stmt.get(), 1, playerSnapshot.playerTag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 2, playerSnapshot.clanTag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 3, playerSnapshot.role.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt.get(), 4, playerSnapshot.townHallLevel);
+        sqlite3_bind_int(stmt.get(), 5, playerSnapshot.expLevel);
+        sqlite3_bind_int(stmt.get(), 6, playerSnapshot.clanRank);
+        sqlite3_bind_int(stmt.get(), 7, playerSnapshot.leagueId);
+        sqlite3_bind_int(stmt.get(), 8, playerSnapshot.builderBaseLeagueId);
+        sqlite3_bind_int(stmt.get(), 9, playerSnapshot.trophies);
+        sqlite3_bind_int(stmt.get(), 10, playerSnapshot.builderBaseTrophies);
+        sqlite3_bind_int(stmt.get(), 11, playerSnapshot.donations);
+        sqlite3_bind_int(stmt.get(), 12, playerSnapshot.donationsReceived);
 
-    sqlite3_bind_int64(stmt.get(), 2, updated_time - 5);
+        if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+        {
+            spdlog::error("[ClansRepo] Failed to insert player snapshot {}: {}", playerSnapshot.playerTag,
+                          sqlite3_errmsg(db));
+            return false;
+        }
 
-    if (!db->executePrepared(stmt.get())) {
-        throw std::runtime_error("Failed to execute removeExitedPlayers");
+        sqlite3_reset(stmt.get());
     }
 
     return true;

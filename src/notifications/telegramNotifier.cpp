@@ -29,7 +29,7 @@ bool TelegramNotifier::sendMessage(const std::string& message)
 	const nlohmann::json jsonBody = {
 		{"chat_id", chatId},
 		{"text", message},
-		{"parse_mode", "HTML"} // Позволяет использовать форматирование, например <b>жирный</b> текст
+		{"parse_mode", "HTML"}
 	};
 
 	cpr::Response response = cpr::Post(

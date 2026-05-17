@@ -191,7 +191,10 @@ std::optional<CompleteClanwarData> APIClient::getCompleteClanwarData(std::string
         ClanwarClan::fromJson(parsed["opponent"], ClanType::Opponent)
     };
     completeClanwarData.attacks = ClanwarAttack::parseAttacksList(parsed);
-    completeClanwarData.members = ClanwarMember::parseClanwarMembers(parsed);
+    completeClanwarData.members = {
+        ClanwarMember::parseClanwarMembers(parsed["clan"], ClanType::Home),
+        ClanwarMember::parseClanwarMembers(parsed["opponent"], ClanType::Opponent)
+    };
 
     return completeClanwarData;
 }

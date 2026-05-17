@@ -48,6 +48,7 @@ struct ClanSnapshot
     std::string type;
     int membersCount;
     int clanLevel;
+    int clanPoints;
     int clanBuilderBasePoints;
     int clanCapitalPoints;
     int capitalHallLevel;
@@ -179,7 +180,7 @@ struct ClanwarMember
     int townhallLevel;
     int mapPosition;
 
-    static std::vector<ClanwarMember> parseClanwarMembers(const nlohmann::json& j);
+    static std::vector<ClanwarMember> parseClanwarMembers(const nlohmann::json& j, const std::string_view side);
 };
 
 struct CompleteClanwarData
@@ -187,7 +188,7 @@ struct CompleteClanwarData
     Clanwar clanwar;
     std::pair<ClanwarClan, ClanwarClan> clans;
     std::vector<ClanwarAttack> attacks;
-    std::vector<ClanwarMember> members;
+    std::pair<std::vector<ClanwarMember>, std::vector<ClanwarMember>> members;
 };
 
 

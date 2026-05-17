@@ -1,17 +1,16 @@
 #pragma once
 
+#include <sqlite3.h>
+
 #include "../../models/models.h"
 
 #include <vector>
 #include <string>
 
-class Database;
-
 class LeagueClanwarRepo {
-private:
-	Database* db;
+	sqlite3* db;
 public:
-	LeagueClanwarRepo(Database* db);
+	LeagueClanwarRepo(sqlite3* db);
 
 	bool insertOrUpdateSingleCWLSeasonInfo(const ClanwarwarsLeagueSeason& info) const;
 	bool insertOrUpdateSingleCWLRoundsInfo(const std::vector<ClanwarsLeagueRound>& rounds) const;

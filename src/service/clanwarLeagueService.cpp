@@ -24,17 +24,16 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
     auto svc = "CWL";
     spdlog::info("[Service: {}] Starting Clan War League data update for {}", svc, tag);
 
-    auto season = apiClient->getLeagueClanwarSeasonInfo(tag);
-    if (!season.has_value())
+    const auto optClanwarsLeagueData = apiClient->getCompleteClanwarsLeagueData(tag);
+
+    if (!optClanwarsLeagueData.has_value())
     {
         spdlog::info("[Service: {}] CWL is not active for {}", svc, tag);
         return SyncResult::error(getServiceName(), std::string(tag),
-            std::format("[Service: {}] CWL is not active for {}", svc, tag));
+                                 std::format("[Service: {}] CWL is not active for {}", svc, tag));
     }
 
-    auto members = apiClient->getLeagueClanwarMembers(tag);
-    auto rounds = apiClient->getLeagueClanwarRoundsInfo(tag);
-    auto attacks = apiClient->getLeagueClanwarAttacksInfo(rounds);
+    auto& clanwarData = optClanwarsLeagueData.value();
 
     spdlog::debug("[DB] Transaction STARTED");
     db->execute("BEGIN TRANSACTION;");
