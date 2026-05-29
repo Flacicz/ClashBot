@@ -68,7 +68,8 @@ long long ClanwarRepo::insertSingleClanwarDetails(const long long clanwarId, con
             clan_level = excluded.clan_level,
             attacks_count = excluded.attacks_count,
             stars = excluded.stars,
-            destruction_percentage = excluded.destruction_percentage;
+            destruction_percentage = excluded.destruction_percentage
+        RETURNING war_clan_id;
     )";
 
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
@@ -91,13 +92,13 @@ long long ClanwarRepo::insertSingleClanwarDetails(const long long clanwarId, con
 
     spdlog::debug("[DB_DEBUG] Inserting war_clans. Passed clanwarId: {}, clan_tag: {}", clanwarId, clanwarClan.clanTag);
 
-    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
     {
         spdlog::error("[Clanwar] Failed to insert clanwar details {}: {}", clanwarClan.clanTag, sqlite3_errmsg(db));
         return -1;
     }
 
-    return sqlite3_last_insert_rowid(db);
+    return sqlite3_column_int64(stmt.get(), 0);
 }
 
 bool ClanwarRepo::insertSingleClanwarAttacks(const long long clanwarId,
@@ -110,16 +111,15 @@ bool ClanwarRepo::insertSingleClanwarAttacks(const long long clanwarId,
 
     const std::string sql = R"(
         INSERT INTO attacks(
-            war_id, attacker_war_tag, defender_war_tag, attacker_tag, defender_tag,
+            war_id, attacker_war_clan_id, defender_war_clan_id, attacker_tag, defender_tag,
             attacker_position, defender_position, stars, destruction_percentage,
             order_num, duration
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(war_id, attacker_tag, defender_tag) DO UPDATE SET
+        ON CONFLICT(war_id, order_num) DO UPDATE SET
             stars = excluded.stars,
             destruction_percentage = excluded.destruction_percentage,
             duration = excluded.duration,
-            order_num = excluded.order_num,
             attacker_position = excluded.attacker_position,
             defender_position = excluded.defender_position;
     )";
