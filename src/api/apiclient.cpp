@@ -158,7 +158,7 @@ std::optional<CompleteRaidData> APIClient::getCompleteRaidData(const std::string
     return completeRaidData;
 }
 
-std::optional<CompleteClanwarData> APIClient::getCompleteClanwarData(std::string_view clanTag) const
+std::optional<CompleteClanwarData> APIClient::getCompleteClanwarData(const std::string_view clanTag) const
 {
     nlohmann::json parsed;
     try
@@ -192,8 +192,8 @@ std::optional<CompleteClanwarData> APIClient::getCompleteClanwarData(std::string
     };
     completeClanwarData.attacks = ClanwarAttack::parseAttacksList(parsed);
     completeClanwarData.members = {
-        ClanwarMember::parseClanwarMembers(parsed["clan"], ClanType::Home),
-        ClanwarMember::parseClanwarMembers(parsed["opponent"], ClanType::Opponent)
+        ClanwarMember::parseClanwarMembers(parsed["clan"]),
+        ClanwarMember::parseClanwarMembers(parsed["opponent"])
     };
 
     return completeClanwarData;
@@ -268,7 +268,6 @@ std::vector<ClanwarsLeagueWarDetails> APIClient::getLeagueClanwarRoundsInfo(
                     details.clans.second = ClanwarClan::fromJson(warParsed["opponent"], ClanType::Opponent);
 
                 details.attacks = ClanwarAttack::parseAttacksList(warParsed);
-                details.members = ClanwarsLeagueMember::parseClanwarsLeagueMembers(warParsed);
 
                 cwlWarDetails.push_back(std::move(details));
                 break;

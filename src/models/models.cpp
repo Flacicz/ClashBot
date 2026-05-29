@@ -30,7 +30,7 @@ Clan Clan::fromJson(const nlohmann::json& j)
     return clan;
 }
 
-Player Player::parsePlayer(const nlohmann::json& j)
+Player Player::parsePlayer(const nlohmann::json& j, const std::string_view clanTag)
 {
     Player player;
 
@@ -39,17 +39,21 @@ Player Player::parsePlayer(const nlohmann::json& j)
 
     player.name = j.value("name", "Unknown");
 
+    player.clanTag = utils::normalizedTag(clanTag);
+
     return player;
 }
 
 std::vector<Player> Player::parsePlayersList(const nlohmann::json& j)
 {
     std::vector<Player> players;
-    players.reserve(j["membersList"].size());
+    players.reserve(j["memberList"].size());
 
-    for (const auto& member : j["members"])
+    const std::string clanTag = j.value("tag", "unknown");
+
+    for (const auto& member : j["memberList"])
     {
-        players.push_back(parsePlayer(member));
+        players.push_back(parsePlayer(member, clanTag));
     }
 
     return players;
@@ -118,9 +122,9 @@ PlayerSnapshot PlayerSnapshot::parsePlayerSnapshot(const nlohmann::json& j, cons
 std::vector<PlayerSnapshot> PlayerSnapshot::parsePlayerSnapshotList(const nlohmann::json& j, std::string_view clanTag)
 {
     std::vector<PlayerSnapshot> playerSnapshots;
-    playerSnapshots.reserve(j["membersList"].size());
+    playerSnapshots.reserve(j["memberList"].size());
 
-    for (const auto& member : j["members"])
+    for (const auto& member : j["memberList"])
     {
         playerSnapshots.push_back(parsePlayerSnapshot(member, clanTag));
     }
@@ -168,9 +172,9 @@ PlayerRaidSnapshot PlayerRaidSnapshot::parsePlayerRaidSnapshot(const nlohmann::j
 std::vector<PlayerRaidSnapshot> PlayerRaidSnapshot::fromJson(const nlohmann::json& j)
 {
     std::vector<PlayerRaidSnapshot> playerRaidSnapshots;
-    playerRaidSnapshots.reserve(j["members"].size());
+    playerRaidSnapshots.reserve(j.size());
 
-    for (const auto& member : j["members"])
+    for (const auto& member : j)
     {
         playerRaidSnapshots.push_back(parsePlayerRaidSnapshot(member));
     }
@@ -225,18 +229,14 @@ ClanwarClan ClanwarClan::fromJson(const nlohmann::json& j, const std::string_vie
     ClanwarClan clanwarClan;
     clanwarClan.side = std::string(side);
 
-    const std::string key = side == "home" ? "clan" : "opponent";
-
-    const auto& clanJson = j[key];
-
-    clanwarClan.clanTag = clanJson.value("tag", "unknown");
+    clanwarClan.clanTag = j.value("tag", "unknown");
     utils::normalizeTag(clanwarClan.clanTag);
 
-    clanwarClan.clanName = clanJson.value("name", "Unknown");
-    clanwarClan.clanLevel = clanJson.value("clanLevel", 0);
-    clanwarClan.attacksCount = clanJson.value("attacks", 0);
-    clanwarClan.stars = clanJson.value("stars", 0);
-    clanwarClan.destructionPercentage = clanJson.value("destructionPercentage", 0.0);
+    clanwarClan.clanName = j.value("name", "Unknown");
+    clanwarClan.clanLevel = j.value("clanLevel", 0);
+    clanwarClan.attacksCount = j.value("attacks", 0);
+    clanwarClan.stars = j.value("stars", 0);
+    clanwarClan.destructionPercentage = j.value("destructionPercentage", 0.0);
 
     return clanwarClan;
 }
@@ -306,18 +306,14 @@ std::vector<ClanwarAttack> ClanwarAttack::parseAttacksList(const nlohmann::json&
     return attacks;
 }
 
-std::vector<ClanwarMember> ClanwarMember::parseClanwarMembers(const nlohmann::json& j, const std::string_view side)
+std::vector<ClanwarMember> ClanwarMember::parseClanwarMembers(const nlohmann::json& j)
 {
     std::vector<ClanwarMember> membersList;
 
-    const std::string key = side == "home" ? "clan" : "opponent";
-
-    const auto& clanJson = j[key];
-
-    std::string clanTag = clanJson.value("tag", "unknown");
+    std::string clanTag = j.value("tag", "unknown");
     utils::normalizeTag(clanTag);
 
-    for (const auto& member : clanJson["members"]) {
+    for (const auto& member : j["members"]) {
         std::string tag = member.value("tag", "unknown");
         utils::normalizeTag(tag);
 

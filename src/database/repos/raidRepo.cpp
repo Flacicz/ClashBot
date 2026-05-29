@@ -8,7 +8,9 @@
 #include <sqlite3.h>
 #include <string>
 
-RaidRepo::RaidRepo(sqlite3* db) : db(db) {}
+RaidRepo::RaidRepo(sqlite3* db) : db(db)
+{
+}
 
 long long RaidRepo::insertOrUpdateSingleRaid(const ClanRaid& clanRaid) const
 {
@@ -25,7 +27,8 @@ long long RaidRepo::insertOrUpdateSingleRaid(const ClanRaid& clanRaid) const
             total_attacks = excluded.total_attacks,
             enemy_districts_destroyed = excluded.enemy_districts_destroyed,
             offensive_reward = excluded.offensive_reward,
-            defensive_reward = excluded.defensive_reward;
+            defensive_reward = excluded.defensive_reward
+        RETURNING id;
     )";
 
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
@@ -48,16 +51,17 @@ long long RaidRepo::insertOrUpdateSingleRaid(const ClanRaid& clanRaid) const
     sqlite3_bind_int(stmt.get(), 9, clanRaid.offensiveReward);
     sqlite3_bind_int(stmt.get(), 10, clanRaid.defensiveReward);
 
-    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
     {
         spdlog::error("[RaidRepo] Failed to insert raid {}: {}", clanRaid.clanTag, sqlite3_errmsg(db));
         return -1;
     }
 
-    return sqlite3_last_insert_rowid(db);
+    return sqlite3_column_int64(stmt.get(), 0);
 }
 
-bool RaidRepo::insertOrUpdatePlayersSnapshots(const long long raidId, const std::vector<PlayerRaidSnapshot>& members) const
+bool RaidRepo::insertOrUpdateRaidPlayersSnapshots(const long long raidId,
+                                                  const std::vector<PlayerRaidSnapshot>& members) const
 {
     if (members.empty()) return false;
 
@@ -83,8 +87,8 @@ bool RaidRepo::insertOrUpdatePlayersSnapshots(const long long raidId, const std:
 
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    for (const auto& [playerTag, attacksCount, bonusAttack, totalLoot] : members) {
-
+    for (const auto& [playerTag, attacksCount, bonusAttack, totalLoot] : members)
+    {
         sqlite3_bind_int64(stmt.get(), 1, raidId);
         sqlite3_bind_text(stmt.get(), 2, playerTag.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(stmt.get(), 3, attacksCount);
@@ -93,7 +97,7 @@ bool RaidRepo::insertOrUpdatePlayersSnapshots(const long long raidId, const std:
 
         if (sqlite3_step(stmt.get()) != SQLITE_DONE)
         {
-            spdlog::error("[RaidRepo] Failed to insert raid {}: {}", raidId, sqlite3_errmsg(db));
+            spdlog::error("[RaidRepo] Failed to insert raid player snapshot {}: {}", raidId, sqlite3_errmsg(db));
             return false;
         }
 
@@ -101,4 +105,55 @@ bool RaidRepo::insertOrUpdatePlayersSnapshots(const long long raidId, const std:
     }
 
     return true;
+}
+
+long long RaidRepo::saveCompleteRaidData(const ClanRaid& clanRaid,
+                                    const std::vector<PlayerRaidSnapshot>& playerRaidSnapshots) const
+{
+    const long long lastRaidId = insertOrUpdateSingleRaid(clanRaid);
+    if (lastRaidId == -1) return -1;
+
+    if (!insertOrUpdateRaidPlayersSnapshots(lastRaidId, playerRaidSnapshots)) return -1;
+
+    return lastRaidId;
+}
+
+std::vector<RaidSlacker> RaidRepo::getRaidSlackers(const long long raidId, const std::string_view clanTag) const
+{
+    std::vector<RaidSlacker> slackers;
+    sqlite3_stmt* raw_stmt = nullptr;
+
+    const std::string sql = R"(
+        SELECT
+            p.tag,
+            p.name,
+            COALESCE(s.attacks_count, 0) as attacks_done
+        FROM players p
+        LEFT JOIN player_raid_snapshots s ON p.tag = s.player_tag AND s.raid_id = ?
+        WHERE p.clan_tag = ?
+        ORDER BY attacks_done ASC, p.name ASC;
+    )";
+
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[RaidRepo] Failed to prepare getRaidSlackers statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
+    }
+
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_int64(stmt.get(), 1, raidId);
+    sqlite3_bind_text(stmt.get(), 2, clanTag.data(), -1, SQLITE_TRANSIENT);
+
+    while (sqlite3_step(stmt.get()) == SQLITE_ROW)
+    {
+        slackers.push_back(RaidSlacker{
+            .playerTag = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 0)),
+            .playerName = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 1)),
+            .attacksCount = sqlite3_column_int(stmt.get(), 2)
+        });
+    }
+
+    return slackers;
 }

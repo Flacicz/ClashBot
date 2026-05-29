@@ -15,13 +15,13 @@
 #include <spdlog/spdlog.h>
 
 ClanManager::ClanManager(
-    std::unique_ptr<Database> db,
-    std::unique_ptr<APIClient> apiClient,
+    Database& db,
+    APIClient& apiClient,
     std::unique_ptr<NotificationService> notificationService,
     std::vector<std::unique_ptr<ISyncService>> services,
     const std::vector<std::string>& targetClans
 )
-    : db(std::move(db)), apiClient(std::move(apiClient)), notificationService(std::move(notificationService)),
+    : db(db), apiClient(apiClient), notificationService(std::move(notificationService)),
       services(std::move(services)), targetClans(targetClans)
 {
 }

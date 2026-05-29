@@ -10,12 +10,12 @@
 class NotificationService
 {
 private:
-    std::unique_ptr<Database> db;
+    Database& db;
     std::unique_ptr<TelegramNotifier> telegramNotifier;
     std::map<std::string, std::unique_ptr<IReportFormatter>> formatters;
 
 public:
-    NotificationService(std::unique_ptr<Database> db, std::unique_ptr<TelegramNotifier> telegram_notifier,
+    NotificationService(Database& db, std::unique_ptr<TelegramNotifier> telegram_notifier,
                         std::map<std::string, std::unique_ptr<IReportFormatter>> formatters);
 
     void handle(const SyncResult& result) const;

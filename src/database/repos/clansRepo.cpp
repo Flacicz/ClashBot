@@ -65,7 +65,7 @@ bool ClansRepo::insertOrUpdateClanSnapshot(const ClanSnapshot& clanSnapshot) con
     sqlite3_stmt* raw_stmt = nullptr;
 
     const std::string sql = R"(
-        INSERT INTO clan_snapshots (
+    INSERT INTO clan_snapshots (
         clan_tag, type, members_count, clan_level, clan_points,
         clan_builder_points, clan_capital_points, capital_hall_level,
         capital_league_id, required_trophies, required_builder_base_trophies,
@@ -78,7 +78,7 @@ bool ClansRepo::insertOrUpdateClanSnapshot(const ClanSnapshot& clanSnapshot) con
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?
     )
-    ON CONFLICT(clan_tag) DO UPDATE SET
+    ON CONFLICT(clan_tag, created_at) DO UPDATE SET
         type = excluded.type,
         members_count = excluded.members_count,
         clan_level = excluded.clan_level,
@@ -145,11 +145,12 @@ bool ClansRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players) co
 
     const std::string sql = R"(
         INSERT INTO players (
-            tag, name
+            tag, name, clan_tag
         )
-        VALUES (?, ?)
+        VALUES (?, ?, ?)
         ON CONFLICT(tag) DO UPDATE SET
             name = excluded.name;
+            clan_tag = excluded.clan_tag;
     )";
 
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
@@ -161,14 +162,15 @@ bool ClansRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players) co
 
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    for (const auto& player : players)
+    for (const auto& [tag, name, clanTag] : players)
     {
-        sqlite3_bind_text(stmt.get(), 1, player.tag.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt.get(), 2, player.name.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 1, tag.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 2, name.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt.get(), 3, clanTag.c_str(), -1, SQLITE_TRANSIENT);
 
         if (sqlite3_step(stmt.get()) != SQLITE_DONE)
         {
-            spdlog::error("[ClansRepo] Failed to insert player {}: {}", player.tag, sqlite3_errmsg(db));
+            spdlog::error("[ClansRepo] Failed to insert player {}: {}", tag, sqlite3_errmsg(db));
             return false;
         }
 
@@ -195,7 +197,7 @@ bool ClansRepo::insertOrUpdatePlayersSnapshots(const std::vector<PlayerSnapshot>
         ?, ?, ?, ?, ?,
         ?, ?
     )
-    ON CONFLICT(player_tag) DO UPDATE SET
+    ON CONFLICT(player_tag, created_at) DO UPDATE SET
         clan_tag = excluded.clan_tag,
         role = excluded.role,
         th_level = excluded.th_level,
@@ -242,6 +244,19 @@ bool ClansRepo::insertOrUpdatePlayersSnapshots(const std::vector<PlayerSnapshot>
 
         sqlite3_reset(stmt.get());
     }
+
+    return true;
+}
+
+bool ClansRepo::saveCompleteClanData(const Clan& clan,
+                          const ClanSnapshot& clanSnapshot,
+                          const std::vector<Player>& players,
+                          const std::vector<PlayerSnapshot>& playerSnapshots) const
+{
+    if (!insertOrUpdateClanInfo(clan)) return false;
+    if (!insertOrUpdateClanSnapshot(clanSnapshot)) return false;
+    if (!insertOrUpdatePlayersInfo(players)) return false;
+    if (!insertOrUpdatePlayersSnapshots(playerSnapshots)) return false;
 
     return true;
 }

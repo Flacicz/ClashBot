@@ -37,8 +37,9 @@ struct Player
 {
     std::string tag;
     std::string name;
+    std::string clanTag;
 
-    static Player parsePlayer(const nlohmann::json& j);
+    static Player parsePlayer(const nlohmann::json& j, std::string_view clanTag);
     static std::vector<Player> parsePlayersList(const nlohmann::json& j);
 };
 
@@ -180,7 +181,7 @@ struct ClanwarMember
     int townhallLevel;
     int mapPosition;
 
-    static std::vector<ClanwarMember> parseClanwarMembers(const nlohmann::json& j, const std::string_view side);
+    static std::vector<ClanwarMember> parseClanwarMembers(const nlohmann::json& j);
 };
 
 struct CompleteClanwarData
@@ -191,6 +192,11 @@ struct CompleteClanwarData
     std::pair<std::vector<ClanwarMember>, std::vector<ClanwarMember>> members;
 };
 
+struct InsertedWarResult {
+    long long warId;
+    long long homeClanId;
+    long long opponentClanId;
+};
 
 struct ClanwarsLeagueSeason
 {
@@ -216,7 +222,6 @@ struct ClanwarsLeagueWarDetails
     Clanwar war;
     std::pair<ClanwarClan, ClanwarClan> clans;
     std::vector<ClanwarAttack> attacks;
-    std::vector<ClanwarsLeagueMember> members;
 };
 
 struct CompleteClanwarsLeagueData
@@ -224,4 +229,43 @@ struct CompleteClanwarsLeagueData
     ClanwarsLeagueSeason clanwarsLeagueSeason;
     std::vector<ClanwarsLeagueMember> clanwarsLeagueMembers;
     std::vector<ClanwarsLeagueWarDetails> warDetails;
+};
+
+struct RaidSlacker
+{
+    std::string playerTag;
+    std::string playerName;
+    int attacksCount;
+};
+
+struct RaidReportData
+{
+    long long raidId;
+    std::string state;
+    std::vector<RaidSlacker> raidSlackers;
+};
+
+struct ClanwarSlacker
+{
+    std::string playerTag;
+    std::string playerName;
+};
+
+struct ClanwarReportData
+{
+    long long clanwarId;
+    std::string state;
+    std::pair<ClanwarClan, ClanwarClan> clanwars;
+
+    std::vector<ClanwarSlacker> missedAllAttacks;
+    std::vector<ClanwarSlacker> missedOneAttack;
+    std::vector<ClanwarSlacker> notMirror;
+};
+
+struct ClanwarsLeagueReportData
+{
+    long long seasonId;
+    std::string clanTag;
+
+    std::vector<ClanwarReportData> reports;
 };

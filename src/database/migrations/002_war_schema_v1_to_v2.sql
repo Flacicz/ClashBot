@@ -37,11 +37,12 @@ ALTER TABLE players_info_new RENAME TO players_info;
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS cwl_seasons (
+     cwl_season_id INTEGER PRIMARY KEY AUTOINCREMENT,
      clan_tag TEXT NOT NULL,
      season_id TEXT NOT NULL,
      created_at INTEGER DEFAULT (strftime('%s', 'now')),
-     PRIMARY KEY (clan_tag, season_id),
-     FOREIGN KEY (clan_tag) REFERENCES clans(clan_tag) ON DELETE CASCADE
+     FOREIGN KEY (clan_tag) REFERENCES clans(tag) ON DELETE CASCADE,
+     UNIQUE(clan_tag, season_id)
 );
 
 CREATE TABLE IF NOT EXISTS wars (
@@ -57,7 +58,8 @@ CREATE TABLE IF NOT EXISTS wars (
       end_time INTEGER,
       season_id TEXT,
       created_at INTEGER DEFAULT (strftime('%s', 'now')),
-      FOREIGN KEY (clan_tag, season_id) REFERENCES cwl_seasons(clan_tag, season_id)
+      FOREIGN KEY (clan_tag, season_id) REFERENCES cwl_seasons(clan_tag, season_id),
+      UNIQUE (war_uid)
 );
 
 CREATE TABLE IF NOT EXISTS war_clans (
@@ -91,14 +93,15 @@ CREATE TABLE war_members (
 );
 
 CREATE TABLE IF NOT EXISTS cwl_season_members (
+      cwl_season_id INTEGER NOT NULL,
       season_id TEXT NOT NULL,
       clan_tag TEXT NOT NULL,
       player_tag TEXT NOT NULL,
       player_name TEXT NOT NULL,
       townhall_level INTEGER NOT NULL,
       created_at INTEGER DEFAULT (strftime('%s', 'now')),
-      PRIMARY KEY (season_id, player_tag),
-      FOREIGN KEY (clan_tag, season_id) REFERENCES cwl_seasons(clan_tag, season_id) ON DELETE CASCADE
+      PRIMARY KEY (cwl_season_id, player_tag),
+      FOREIGN KEY (cwl_season_id) REFERENCES cwl_seasons(cwl_season_id) ON DELETE CASCADE
 );
 
 CREATE TABLE attacks (

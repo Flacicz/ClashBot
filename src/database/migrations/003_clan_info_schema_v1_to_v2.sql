@@ -18,6 +18,7 @@ ALTER TABLE clans_new RENAME TO clans;
 CREATE TABLE IF NOT EXISTS players (
        tag TEXT PRIMARY KEY,
        name TEXT NOT NULL,
+       clan_tag TEXT,
        created_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
@@ -48,7 +49,8 @@ CREATE TABLE IF NOT EXISTS clan_snapshots (
       war_league_id INTEGER,
 
       created_at INTEGER DEFAULT (strftime('%s', 'now')),
-      FOREIGN KEY (clan_tag) REFERENCES clans(tag) ON DELETE CASCADE
+      FOREIGN KEY (clan_tag) REFERENCES clans(tag) ON DELETE CASCADE,
+      UNIQUE (clan_tag, created_at)
 );
 
 CREATE TABLE IF NOT EXISTS player_snapshots (
@@ -71,5 +73,6 @@ CREATE TABLE IF NOT EXISTS player_snapshots (
 
     created_at INTEGER DEFAULT (strftime('%s', 'now')),
     FOREIGN KEY (player_tag) REFERENCES players(tag) ON DELETE CASCADE,
-    FOREIGN KEY (clan_tag) REFERENCES clans(tag) ON DELETE SET NULL
+    FOREIGN KEY (clan_tag) REFERENCES clans(tag) ON DELETE SET NULL,
+    UNIQUE (player_tag, created_at)
 );

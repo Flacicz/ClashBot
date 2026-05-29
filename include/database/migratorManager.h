@@ -1,21 +1,22 @@
 #ifndef ACTIVITYTRACKING_MIGRATORMANAGER_H
 #define ACTIVITYTRACKING_MIGRATORMANAGER_H
 #include <filesystem>
-#include <memory>
 
 #include "database.h"
 
+class Database;
+
 class MigratorManager
 {
-    std::unique_ptr<Database> db;
+    Database& db;
 
-    bool createMigrationTable() const;
-    bool isMigrationApplied(const std::string& version) const;
-    bool applyMigration(const std::string& version, const std::filesystem::path& file) const;
+    [[nodiscard]] bool createMigrationTable() const;
+    [[nodiscard]] bool isMigrationApplied(const std::string& version) const;
+    [[nodiscard]] bool applyMigration(const std::string& version, const std::filesystem::path& file) const;
 public:
-    explicit MigratorManager(std::unique_ptr<Database> db);
+    explicit MigratorManager(Database& db);
 
-    bool migrate(const std::string& migrationsPath) const;
+    [[nodiscard]] bool migrate(const std::string& migrationsPath) const;
 };
 
 #endif //ACTIVITYTRACKING_MIGRATORMANAGER_H

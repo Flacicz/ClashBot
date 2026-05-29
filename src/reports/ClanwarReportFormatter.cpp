@@ -9,37 +9,33 @@
 #include <sstream>
 #include <unordered_map>
 
+bool ClanwarReportFormatter::shouldNotify(const SyncResult& result) const
+{
+    if (!result.hasReportData()) return false;
+
+    if (const auto& report = std::get<ClanwarReportData>(result.reportData); report.state != "ended") {
+        return false;
+    }
+
+    return true;
+}
+
 std::string ClanwarReportFormatter::format(const SyncResult& result)
 {
-    auto [clanTag, attacks, summary] = std::get<ClanwarReportData>(result.reportData);
+    auto reportData = std::get<ClanwarReportData>(result.reportData);
+    auto slackersWithNoAttacks = reportData.missedAllAttacks;
+    auto slackersWithOneAttack = reportData.missedOneAttack;
+    auto notMirror = reportData.notMirror;
 
     std::ostringstream report;
     report << "⚔️ <b>ОТЧЕТ ПО КВ</b>\n";
-    report << "Клан: <code>" << clanTag << "</code>\n";
-    report << "Соперник: " << summary.opponentName << " (<code>" << summary.opponentTag <<
+    report << "Клан: <code>" << reportData.clanwars.first.clanTag << "</code>\n";
+    report << "Соперник: " << reportData.clanwars.second.clanName << " (<code>" << reportData.clanwars.second.clanTag <<
         "</code>)\n";
 
-    if (summary.result == "win") report << "🏆 <b>ПОБЕДА!</b>\n";
-    else if (summary.result == "lose") report << "💀 <b>ПОРАЖЕНИЕ</b>\n";
-    else if (summary.result == "tie") report << "🤝 <b>НИЧЬЯ</b>\n";
+    report << "Счет: ⭐️ " << reportData.clanwars.first.stars << " - " << reportData.clanwars.second.stars << " ⭐️\n\n";
 
-    report << "Счет: ⭐️ " << summary.clanStars << " - " << summary.opponentStars << " ⭐️\n\n";
-
-    std::unordered_map<std::string, std::pair<std::string, std::string>> slackers;
-    bool hasAnySlackers = false;
-
-    for (const auto& attack : attacks)
-    {
-        if (attack.isOpponentAttack) continue;
-
-        if (attack.rules == "Missed" || attack.rules == "Missed (1/2)" || attack.rules == "Not mirror")
-        {
-            slackers[attack.attackerTag] = {attack.attackerName, attack.rules};
-            hasAnySlackers = true;
-        }
-    }
-
-    if (!hasAnySlackers)
+    if (slackersWithNoAttacks.empty() && slackersWithOneAttack.empty() && notMirror.empty())
     {
         report << "✅ <b>Все участники провели атаки без нарушений!</b>\n";
         report << "<i>Молодцы!</i>";
@@ -50,22 +46,19 @@ std::string ClanwarReportFormatter::format(const SyncResult& result)
     std::ostringstream missedOne;
     std::ostringstream wrongTarget;
 
-    for (const auto& [fst, snd] : slackers | std::views::values)
+    for (const auto& [playerTag, playerName] : slackersWithNoAttacks)
     {
-        const std::string& name = fst;
+        missedAll << "❌ " << playerName << " [0/2]\n";
+    }
 
-        if (const std::string& rule = snd; rule == "Missed")
-        {
-            missedAll << "❌ " << name << " [0/2]\n";
-        }
-        else if (rule == "Missed (1/2)")
-        {
-            missedOne << "➖ " << name << " [1/2]\n";
-        }
-        else
-        {
-            wrongTarget << "⚠️ " << name << " (Бил не зеркало)\n";
-        }
+    for (const auto& [playerTag, playerName] : slackersWithOneAttack)
+    {
+        missedOne << "❌ " << playerName << " [0/2]\n";
+    }
+
+    for (const auto& [playerTag, playerName] : notMirror)
+    {
+        wrongTarget << "❌ " << playerName << " [0/2]\n";
     }
 
     report << "<b>НАРУШИТЕЛИ:</b>\n";

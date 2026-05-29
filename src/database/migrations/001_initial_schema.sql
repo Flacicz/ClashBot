@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS clanwar_league_members(
 
 CREATE TABLE IF NOT EXISTS notifications(
     entity_type TEXT NOT NULL,
-    entity_id INTEGER NOT NULL,
+    entity_id TEXT NOT NULL,
     notified_at INTEGER DEFAULT (strftime('%s', 'now')),
     PRIMARY KEY (entity_type, entity_id)
 );

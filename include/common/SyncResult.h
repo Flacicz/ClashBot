@@ -14,23 +14,27 @@ struct SyncResult
 
     std::variant<std::monostate,
                  CompleteClanData,
-                 CompleteRaidData,
-                 CompleteClanwarData,
-                 CompleteClanwarsLeagueData
+                 RaidReportData,
+                 ClanwarReportData,
+                 ClanwarsLeagueReportData
     > reportData;
 
-    int reportEntityId;
+    std::string reportEntityId;
 
     static SyncResult success(std::string service, std::string tag);
     static SyncResult error(std::string service, std::string tag, std::string msg);
 
 
     static SyncResult successWithClanData(std::string service, std::string tag, CompleteClanData data);
-    static SyncResult successWithRaidReport(std::string service, std::string tag, CompleteRaidData data, int reportEntityId);
-    static SyncResult successWithClanwarReport(std::string service, std::string tag, CompleteClanwarData data, int reportEntityId);
-    static SyncResult successWithClanwarsLeagueReport(std::string service, std::string tag, CompleteClanwarsLeagueData data, int reportEntityId);
+    static SyncResult successWithRaidReport(std::string service, std::string tag, RaidReportData data,
+                                            const std::string& reportEntityId);
+    static SyncResult successWithClanwarReport(std::string service, std::string tag, ClanwarReportData data,
+                                               const std::string& reportEntityId);
+    static SyncResult successWithClanwarsLeagueReport(std::string service, std::string tag,
+                                                      ClanwarsLeagueReportData data,
+                                                      const std::string& reportEntityId);
 
-    bool hasReportData() const
+    [[nodiscard]] bool hasReportData() const
     {
         return !std::holds_alternative<std::monostate>(reportData);
     }

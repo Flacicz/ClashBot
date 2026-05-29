@@ -9,13 +9,14 @@
 #include "../models/models.h"
 #include "notifications/telegramNotifier.h"
 
-class RaidService : public ISyncService {
-private:
-	std::unique_ptr<Database> db;
-	std::unique_ptr<APIClient> apiClient;
-public:
-	RaidService(std::unique_ptr<Database> db, std::unique_ptr<APIClient> apiClient);
+class RaidService : public ISyncService
+{
+    Database& db;
+    APIClient& apiClient;
 
-	SyncResult updateData(std::string_view tag) override;
-	std::string getServiceName() const override;
+public:
+    RaidService(Database& db, APIClient& apiClient);
+
+    SyncResult updateData(std::string_view tag) override;
+    [[nodiscard]] std::string getServiceName() const override;
 };

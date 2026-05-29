@@ -111,46 +111,56 @@ Database::QueryResult Database::query(std::string_view sql) const
     return result;
 }
 
-bool Database::isNotified(const std::string& entityType, const long long entityId) const
+bool Database::isNotified(const std::string_view entityType, const std::string_view entityId) const
 {
     const std::string sql = "SELECT COUNT(*) FROM notifications WHERE entity_type = ? AND entity_id = ?";
     sqlite3_stmt* raw_stmt = nullptr;
 
-    if (sqlite3_prepare_v2(getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
     {
-        spdlog::error("[DB] Failed to prepare isNotified: {}", sqlite3_errmsg(getDBInstance()));
-        return false;
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[DB] Failed to prepare isNotified statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    sqlite3_bind_text(stmt.get(), 1, entityType.c_str(), -1,SQLITE_TRANSIENT);
-    sqlite3_bind_int64(stmt.get(), 1, entityId);
+    sqlite3_bind_text(stmt.get(), 1, entityType.data(), -1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, entityId.data(), -1,SQLITE_TRANSIENT);
 
-    long long count = -1;
-    if (sqlite3_step(stmt.get()) == SQLITE_ROW)
+    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
     {
-        count = sqlite3_column_int64(stmt.get(), 0);
+        spdlog::error("[DB] Failed to select from notification {} - {}: {}", entityType, entityId,
+                                                                                            sqlite3_errmsg(db));
+        return false;
     }
 
-    return count != -1;
+    return sqlite3_column_int64(stmt.get(), 0) > 0;
 }
 
-void Database::markAsNotified(const std::string& entityType, const long long entityId) const
+bool Database::markAsNotified(const std::string_view entityType, const std::string_view entityId) const
 {
     const std::string sql = "INSERT OR IGNORE INTO notifications (entity_type, entity_id) VALUES (?, ?)";
     sqlite3_stmt* raw_stmt = nullptr;
 
-    if (sqlite3_prepare_v2(getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
     {
-        spdlog::error("[DB] Failed to prepare markAsNotified: {}", sqlite3_errmsg(getDBInstance()));
-        return;
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[DB] Failed to prepare markAsNotified statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    sqlite3_bind_text(stmt.get(), 1, entityType.c_str(), -1,SQLITE_TRANSIENT);
-    sqlite3_bind_int64(stmt.get(), 1, entityId);
+    sqlite3_bind_text(stmt.get(), 1, entityType.data(), -1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, entityId.data(), -1,SQLITE_TRANSIENT);
 
-    executePrepared(stmt.get());
+    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+    {
+        spdlog::error("[DB] Failed to insert notification {} - {}: {}", entityType, entityId,
+                                                                                            sqlite3_errmsg(db));
+        return false;
+    }
+
+    return true;
 }

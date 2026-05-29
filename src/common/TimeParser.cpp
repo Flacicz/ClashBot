@@ -2,7 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
-std::string extractTime(const nlohmann::json& j, const std::string_view key)
+std::string utils::extractTime(const nlohmann::json& j, const std::string_view key)
 {
     if (!j.contains(key)) return {};
 
@@ -13,7 +13,7 @@ std::string extractTime(const nlohmann::json& j, const std::string_view key)
     return time.substr(0, time.find_first_of('.'));
 }
 
-long long parseISOToUnix(const std::string_view iso)
+long long utils::parseISOToUnix(const std::string_view iso)
 {
     std::istringstream ss{std::string(iso)};
     std::chrono::sys_seconds tp;

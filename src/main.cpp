@@ -89,19 +89,19 @@ int main(const int argc, char* argv[])
 
     try
     {
-        std::string configPath = (argc > 1) ? argv[1] : "../config.json";
+        std::string configPath = argc > 1 ? argv[1] : "../config.json";
 
         AppConfig config = loadConfig(configPath);
 
         spdlog::info("[Main] Configuration loaded from '{}'. Target clans: {}", configPath,
                      config.defaultClanTags.size());
 
-        auto apiClient = std::make_unique<APIClient>(config.supercellToken, config.useTunnel, config.baseUrl,
-                                                     config.tunnelBaseUrl);
-        auto db = std::make_unique<Database>(config.databasePath);
+        const auto apiClient = std::make_shared<APIClient>(config.supercellToken, config.useTunnel, config.baseUrl,
+                                                           config.tunnelBaseUrl);
+        const auto db = std::make_shared<Database>(config.databasePath);
 
-        auto migratorManager = std::make_unique<MigratorManager>(std::move(db));
-        if (!migratorManager->migrate(config.migrationPath))
+        if (const auto migratorManager = std::make_unique<MigratorManager>(*db); !migratorManager->migrate(
+            config.migrationPath))
         {
             spdlog::critical("[DB] Failed to apply migrations. Startup aborted.");
             return EXIT_FAILURE;
@@ -114,17 +114,15 @@ int main(const int argc, char* argv[])
 
         auto telegramNotifier = std::make_unique<TelegramNotifier>(config.telegramToken, config.telegramChatId);
         auto notificationService = std::make_unique<NotificationService>(
-            std::move(db), std::move(telegramNotifier), std::move(formatters));
+            *db, std::move(telegramNotifier), std::move(formatters));
+
         std::vector<std::unique_ptr<ISyncService>> services;
-
-        services.push_back(std::make_unique<ClanInfoService>(std::move(db), std::move(apiClient)));
-        services.push_back(std::make_unique<ClanwarService>(std::move(db), std::move(apiClient)));
-        services.push_back(std::make_unique<RaidService>(std::move(db), std::move(apiClient)));
-        services.push_back(std::make_unique<ClanwarLeagueService>(std::move(db), std::move(apiClient)));
-        ClanManager clanManager(std::move(db), std::move(apiClient), std::move(notificationService),
+        services.push_back(std::make_unique<ClanInfoService>(*db, *apiClient));
+        services.push_back(std::make_unique<ClanwarService>(*db, *apiClient));
+        services.push_back(std::make_unique<RaidService>(*db, *apiClient));
+        services.push_back(std::make_unique<ClanwarLeagueService>(*db, *apiClient));
+        ClanManager clanManager(*db, *apiClient, std::move(notificationService),
                                 std::move(services), config.defaultClanTags);
-
-        db->getTableManager().initAllTables();
 
         std::thread syncThread([&clanManager]
         {

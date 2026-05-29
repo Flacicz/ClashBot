@@ -52,6 +52,6 @@ public:
     [[nodiscard]] bool execute(std::string_view sql) const;
     [[nodiscard]] QueryResult query(std::string_view sql) const;
 
-    [[nodiscard]] bool isNotified(const std::string& entityType, long long entityId) const;
-    void markAsNotified(const std::string& entityType, long long entityId) const;
+    [[nodiscard]] bool isNotified(std::string_view entityType, std::string_view entityId) const;
+    [[nodiscard]] bool markAsNotified(std::string_view entityType, std::string_view entityId) const;
 };

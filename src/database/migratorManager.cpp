@@ -1,11 +1,11 @@
 #include "database/migratorManager.h"
+#include "database/sqliteHelpers.h"
 
 #include <fstream>
 #include <spdlog/spdlog.h>
+#include <sqlite3.h>
 
-#include "database/sqliteHelpers.h"
-
-MigratorManager::MigratorManager(std::unique_ptr<Database> db) : db(std::move(db))
+MigratorManager::MigratorManager(Database& db) : db(db)
 {
 }
 
@@ -18,14 +18,32 @@ bool MigratorManager::createMigrationTable() const
         )
     )";
 
-    return db->execute(sql);
+    return db.execute(sql);
 }
 
 bool MigratorManager::isMigrationApplied(const std::string& version) const
 {
+    sqlite3_stmt* raw_stmt;
+
     const std::string sql = "SELECT version FROM schema_migrations WHERE version = ?";
 
-    return !db->queryWithParam(sql, version).rows.empty();
+    if (sqlite3_prepare_v2(db.getDBInstance(), sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db.getDBInstance());
+        spdlog::error("[MigratorManager] Failed to prepare isMigrationApplied statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
+    }
+
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_text(stmt.get(), 1, version.c_str(), -1, SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
+    {
+        return false;
+    }
+
+    return true;
 }
 
 bool MigratorManager::applyMigration(const std::string& version, const std::filesystem::path& file) const
@@ -39,7 +57,7 @@ bool MigratorManager::applyMigration(const std::string& version, const std::file
 
     const std::string migrationSQL = buffer.str();
 
-    if (!db->execute(migrationSQL)) return false;
+    if (!db.execute(migrationSQL)) return false;
 
     sqlite3_stmt* raw_stmt;
 
@@ -47,17 +65,24 @@ bool MigratorManager::applyMigration(const std::string& version, const std::file
         INSERT INTO schema_migrations(version) VALUES (?);
     )";
 
-    if (sqlite3_prepare_v2(db->getDBInstance(), versionSQL.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    if (sqlite3_prepare_v2(db.getDBInstance(), versionSQL.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
     {
-        spdlog::error("[DB] Failed to prepare query: {} | SQL: {}", sqlite3_errmsg(db->getDBInstance()), versionSQL);
-        return false;
+        std::string err = sqlite3_errmsg(db.getDBInstance());
+        spdlog::error("[MigratorManager] Failed to prepare markAsNotified statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
     }
 
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
     sqlite3_bind_text(stmt.get(), 1, version.c_str(), -1, SQLITE_TRANSIENT);
 
-    return db->executePrepared(stmt.get());
+    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+    {
+        spdlog::error("[MigratorManager] Failed to insert schema_migrations: {}", sqlite3_errmsg(db.getDBInstance()));
+        return false;
+    }
+
+    return true;
 }
 
 bool MigratorManager::migrate(const std::string& migrationsPath) const

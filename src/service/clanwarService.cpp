@@ -12,15 +12,17 @@
 
 #include <spdlog/spdlog.h>
 
-ClanwarService::ClanwarService(std::unique_ptr<Database> db,
-                               std::unique_ptr<APIClient> apiClient) :
-    db(std::move(db)), apiClient(std::move(apiClient))
+#include "database/TransactionGuard.h"
+
+ClanwarService::ClanwarService(Database& db,
+                               APIClient& apiClient) :
+    db(db), apiClient(apiClient)
 {
 }
 
 std::string ClanwarService::getServiceName() const
 {
-    return "ClanWar";
+    return "ClanwarService";
 }
 
 SyncResult ClanwarService::updateData(std::string_view tag)
@@ -28,7 +30,7 @@ SyncResult ClanwarService::updateData(std::string_view tag)
     auto svc = "CW";
     spdlog::info("[Service: {}] Starting Clan War data update for {}", svc, tag);
 
-    const auto optClanwarData = apiClient->getCompleteClanwarData(tag);
+    const auto optClanwarData = apiClient.getCompleteClanwarData(tag);
 
     if (!optClanwarData.has_value())
     {
@@ -39,62 +41,29 @@ SyncResult ClanwarService::updateData(std::string_view tag)
 
     const auto& [clanwar, clans, attacks, members] = optClanwarData.value();
 
-    spdlog::debug("[DB] Transaction STARTED");
-    if (!db->execute("BEGIN TRANSACTION;"))
-    {
-        throw std::runtime_error("Failed to BEGIN TRANSACTION");
-    }
-
     try
     {
-        const long long lastClanwarId = db->war().insertSingleClanwarInfo(clanwar);
-        if (lastClanwarId == -1)
-        {
-            throw std::runtime_error("insertSingleClanwarInfo returned false");
-        }
+        TransactionGuard tx(db);
 
-        const long long homeClanwarId = db->war().insertSingleClanwarDetails(lastClanwarId, clans.first);
-        const long long opponentClanwarId = db->war().insertSingleClanwarDetails(
-            lastClanwarId, clans.second);
-        if (homeClanwarId == -1 || opponentClanwarId == -1)
-        {
-            throw std::runtime_error("insertSingleClanwarDetails returned false");
-        }
+        auto [warId, homeId, oppId] = db.war().saveCompleteClanwarData(clanwar, clans, attacks);
+        if (warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
 
-        if (!db->war().insertSingleClanwarAttacks(lastClanwarId, homeClanwarId,
-                                                  opponentClanwarId, attacks))
-        {
-            throw std::runtime_error("insertSingleClanwarAttacks returned false");
-        }
+        tx.commit();
 
-        if (!db->war().insertSingleClanwarMembers(lastClanwarId, homeClanwarId, members.first))
-        {
-            throw std::runtime_error("insertSingleClanwarMembers returned false");
-        }
-
-        if (!db->war().insertSingleClanwarMembers(lastClanwarId, opponentClanwarId, members.second))
-        {
-            throw std::runtime_error("insertSingleClanwarMembers returned false");
-        }
-
-        if (!db->execute("COMMIT;"))
-        {
-            throw std::runtime_error("Failed to COMMIT transaction");
-        }
-        spdlog::debug("[DB] Transaction COMMITTED");
+        const auto missedAllAttacks = db.war().getSlackersWithNoAttacks(warId, homeId);
+        const auto missedOneAttack = db.war().getSlackersWithOneAttack();
+        const auto noMirror = db.war().getPlayersWithNotMirrorAttack();
 
         return SyncResult::successWithClanwarReport(getServiceName(), std::string(tag),
-                                                    {std::string(tag), attacks, summaryValue}, 1);
+                                                    {
+                                                        warId, clanwar.state, clans,
+                                                        missedAllAttacks, missedOneAttack, noMirror
+                                                    },
+                                                    std::to_string(warId));
     }
     catch (const std::exception& e)
     {
         spdlog::error("[DB] Transaction failed: {}", e.what());
-
-        if (!db->execute("ROLLBACK;"))
-        {
-            spdlog::critical("[DB] Failed to rollback transaction");
-        }
-
         return SyncResult::error(getServiceName(), std::string(tag), e.what());
     }
 }

@@ -13,14 +13,13 @@
 
 class ClanwarService : public ISyncService
 {
-private:
-    std::unique_ptr<Database> db;
-    std::unique_ptr<APIClient> apiClient;
+    Database& db;
+    APIClient& apiClient;
 
 public:
-    ClanwarService(std::unique_ptr<Database> db,
-                   std::unique_ptr<APIClient> apiClient);
+    ClanwarService(Database& db,
+                   APIClient& apiClient);
 
     SyncResult updateData(std::string_view tag) override;
-    std::string getServiceName() const override;
+    [[nodiscard]] std::string getServiceName() const override;
 };

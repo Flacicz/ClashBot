@@ -6,7 +6,9 @@
 class IReportFormatter {
 public:
     virtual ~IReportFormatter() = default;
-    virtual std::string format(const SyncResult& result) = 0;
+
+    [[nodiscard]] virtual bool shouldNotify(const SyncResult& result) const = 0;
+    [[nodiscard]] virtual std::string format(const SyncResult& result) = 0;
 };
 
 

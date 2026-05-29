@@ -8,9 +8,11 @@
 #include <string>
 #include <string_view>
 
-ClanwarLeagueService::ClanwarLeagueService(std::unique_ptr<Database> db,
-                                           std::unique_ptr<APIClient> apiClient)
-    : db(std::move(db)), apiClient(std::move(apiClient))
+#include "database/TransactionGuard.h"
+
+ClanwarLeagueService::ClanwarLeagueService(Database& db,
+                                           APIClient& apiClient)
+    : db(db), apiClient(apiClient)
 {
 }
 
@@ -24,7 +26,7 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
     auto svc = "CWL";
     spdlog::info("[Service: {}] Starting Clan War League data update for {}", svc, tag);
 
-    const auto optClanwarsLeagueData = apiClient->getCompleteClanwarsLeagueData(tag);
+    const auto optClanwarsLeagueData = apiClient.getCompleteClanwarsLeagueData(tag);
 
     if (!optClanwarsLeagueData.has_value())
     {
@@ -33,66 +35,45 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
                                  std::format("[Service: {}] CWL is not active for {}", svc, tag));
     }
 
-    auto& clanwarData = optClanwarsLeagueData.value();
-
-    spdlog::debug("[DB] Transaction STARTED");
-    db->execute("BEGIN TRANSACTION;");
+    const auto& [clanwarsLeagueSeason, clanwarsLeagueMembers, warDetails] = optClanwarsLeagueData.value();
 
     try
     {
-        db->getCwlRepo().insertOrUpdateSingleCWLSeasonInfo(season.value());
-        db->getCwlRepo().insertOrUpdateSingleCWLMembersInfo(members);
-        db->getCwlRepo().insertOrUpdateSingleCWLRoundsInfo(rounds);
+        TransactionGuard tx(db);
 
-        if (db->getCwlRepo().insertOrUpdateSingleCWLAttacksInfo(attacks))
+        const long long lastCWLId = db.leagueWar().saveCompleteCWLData(clanwarsLeagueSeason, clanwarsLeagueMembers);
+
+        std::vector<ClanwarReportData> leagueRoundsReports;
+        leagueRoundsReports.reserve(warDetails.size());
+
+        for (const auto& [war, clans, attacks] : warDetails)
         {
-            spdlog::info("[Service: {}] Update successful for {}. Attacks processed: {}",
-                         svc, tag, attacks.size());
+            auto [warId, homeId, oppId] = db.war().saveCompleteClanwarData(war, clans, attacks);
+            if (warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
+
+            const auto missedAllAttacks = db.war().getSlackersWithNoAttacks(warId, homeId);
+            const auto missedOneAttack = db.war().getSlackersWithOneAttack();
+            const auto noMirror = db.war().getPlayersWithNotMirrorAttack();
+
+            leagueRoundsReports.push_back(ClanwarReportData{
+                .clanwarId = warId,
+                .state = war.state,
+                .clanwars = clans,
+                .missedAllAttacks = missedAllAttacks,
+                .missedOneAttack = missedOneAttack,
+                .notMirror = noMirror
+            });
         }
 
-        db->execute("COMMIT;");
-        spdlog::debug("[DB] Transaction COMMITTED");
+        tx.commit();
 
-        return SyncResult::success(getServiceName(), std::string(tag));
+        return SyncResult::successWithClanwarsLeagueReport(getServiceName(), std::string(tag),
+                                                           {lastCWLId, std::string(tag), leagueRoundsReports},
+                                                           std::to_string(lastCWLId));
     }
     catch (const std::exception& e)
     {
-        db->execute("ROLLBACK;");
-        spdlog::error("[DB] Transaction ROLLED BACK");
-
-        spdlog::error("[Service: {}] Critical error during CWL update for {}: {}", svc, tag, e.what());
-        throw;
-    }
-
-    for (const auto& round : rounds)
-    {
-        try
-        {
-            if (round.warTag.empty() || round.warTag == "#0") continue;
-
-            if (db->getCwlRepo().isNotified(round.warTag, std::string(tag)))
-            {
-                continue;
-            }
-
-            // Делаем запрос к API, чтобы узнать точный статус войны (закончилась ли она)
-            nlohmann::json warParsed;
-            try
-            {
-                auto warTagStr = std::string(round.warTag);
-                std::string queryTag = warTagStr.front() == '#' ? "%23" + warTagStr.substr(1) : "%23" + warTagStr;
-
-                warParsed = apiClient->fetchJson("/clanwarleagues/wars/" + queryTag);
-            }
-            catch (const std::exception& e)
-            {
-                spdlog::warn("[Service: CWL] Failed to fetch state for round {}: {}", round.warTag, e.what());
-                continue;
-            }
-        }
-        catch (const std::exception& e)
-        {
-            spdlog::error("[Service: CWL] Error during notification check: {}", e.what());
-        }
+        spdlog::error("[DB] Transaction failed: {}", e.what());
+        return SyncResult::error(getServiceName(), std::string(tag), e.what());
     }
 }

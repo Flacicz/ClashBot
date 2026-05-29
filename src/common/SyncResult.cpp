@@ -33,8 +33,8 @@ SyncResult SyncResult::successWithClanData(std::string service, std::string tag,
     return result;
 }
 
-SyncResult SyncResult::successWithRaidReport(std::string service, std::string tag, CompleteRaidData data,
-                                             const int reportEntityId)
+SyncResult SyncResult::successWithRaidReport(std::string service, std::string tag, RaidReportData data,
+                                             const std::string& reportEntityId)
 {
     SyncResult result = success(std::move(service), std::move(tag));
     result.reportData = std::move(data);
@@ -43,8 +43,8 @@ SyncResult SyncResult::successWithRaidReport(std::string service, std::string ta
     return result;
 }
 
-SyncResult SyncResult::successWithClanwarReport(std::string service, std::string tag, CompleteClanwarData data,
-                                                const int reportEntityId)
+SyncResult SyncResult::successWithClanwarReport(std::string service, std::string tag, ClanwarReportData data,
+                                                const std::string& reportEntityId)
 {
     SyncResult result = success(std::move(service), std::move(tag));
     result.reportData = std::move(data);
@@ -54,7 +54,8 @@ SyncResult SyncResult::successWithClanwarReport(std::string service, std::string
 }
 
 SyncResult SyncResult::successWithClanwarsLeagueReport(std::string service, std::string tag,
-                                                       CompleteClanwarsLeagueData data, const int reportEntityId)
+                                                       ClanwarsLeagueReportData data,
+                                                       const std::string& reportEntityId)
 {
     SyncResult result = success(std::move(service), std::move(tag));
     result.reportData = std::move(data);
