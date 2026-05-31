@@ -1,12 +1,8 @@
 #pragma once
-
-#include "../database/database.h"
-#include "../api/apiclient.h"
-
-#include <string_view>
-#include <string>
-
 #include "ISyncService.h"
+#include "api/apiclient.h"
+#include "database/database.h"
+
 
 class ClanwarLeagueService : public ISyncService
 {

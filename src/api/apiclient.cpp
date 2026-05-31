@@ -1,24 +1,11 @@
 #include "api/apiclient.h"
-#include "models/models.h"
-#include "common/StringUtils.h"
 
-#include <cpr/response.h>
-#include <cpr/cprtypes.h>
-#include <cpr/ssl_options.h>
-#include <cpr/timeout.h>
 #include <cpr/api.h>
-
+#include <cpr/response.h>
 #include <nlohmann/json.hpp>
-
-#include <vector>
-#include <string>
-#include <chrono>
-#include <stdexcept>
-#include <string_view>
-#include <optional>
-#include <exception>
-
 #include <spdlog/spdlog.h>
+
+#include "common/StringUtils.h"
 
 using json = nlohmann::json;
 

@@ -1,7 +1,5 @@
 #include "reports/ClanwarLeagueReportFormatter.h"
 
-#include <sstream>
-
 bool ClanwarLeagueReportFormatter::shouldNotify(const SyncResult& result) const
 {
     return false;

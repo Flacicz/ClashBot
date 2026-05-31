@@ -1,9 +1,8 @@
 #include "database/migratorManager.h"
 #include "database/sqliteHelpers.h"
 
-#include <fstream>
 #include <spdlog/spdlog.h>
-#include <sqlite3.h>
+#include <fstream>
 
 MigratorManager::MigratorManager(Database& db) : db(db)
 {

@@ -1,5 +1,3 @@
-#include <utility>
-
 #include "common/SyncResult.h"
 
 SyncResult SyncResult::success(std::string service, std::string tag)

@@ -1,16 +1,10 @@
 ﻿#include "service/clanInfoService.h"
-#include "database/database.h"
-#include "api/apiclient.h"
 #include "database/TransactionGuard.h"
 
-#include <chrono>
 #include <string_view>
-#include <exception>
-#include <stdexcept>
 #include <string>
-
+#include <api/apiclient.h>
 #include <spdlog/spdlog.h>
-
 
 ClanInfoService::ClanInfoService(Database& db, APIClient& apiClient)
     : db(db), apiClient(apiClient)
@@ -32,7 +26,7 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
     {
         spdlog::warn("[Service: {}] Received empty API response for clan {}", svc, tag);
         return SyncResult::error(getServiceName(), std::string(tag),
-                                 std::format("[Service: {}] Received empty API response for clan {}", svc, tag));
+                                 fmt::format("[Service: {}] Received empty API response for clan {}", svc, tag));
     }
 
     const auto& [clan, players, clanSnapshot, playerSnapshots] = optClanData.value();

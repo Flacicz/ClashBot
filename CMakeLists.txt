@@ -1,15 +1,41 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.11)
 
 set(PROJECT_NAME ActivityTracking)
 project(${PROJECT_NAME})
 
-set(CMAKE_CXX_STANDARD 20)
+# Принудительно отключаем динамические библиотеки
+set(BUILD_SHARED_LIBS OFF)
 
-find_package(CURL CONFIG REQUIRED)
-find_package(cpr REQUIRED)
-find_package(nlohmann_json 3.12.0 REQUIRED)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# --- Автоматическое скачивание CPR ---
+include(FetchContent)
+FetchContent_Declare(
+		cpr
+		GIT_REPOSITORY https://github.com/libcpr/cpr.git
+		GIT_TAG        1.10.5
+)
+set(CPR_BUILD_TESTS OFF CACHE INTERNAL "")
+set(CPR_BUILD_TESTS_SSL OFF CACHE INTERNAL "")
+FetchContent_MakeAvailable(cpr)
+
+# --- Автоматическое скачивание spdlog (Решает проблему с libfmt.so.9) ---
+FetchContent_Declare(
+		spdlog
+		GIT_REPOSITORY https://github.com/gabime/spdlog.git
+		GIT_TAG        v1.12.0 # Стабильная версия со своим встроенным fmt
+)
+set(SPDLOG_BUILD_SHARED OFF CACHE INTERNAL "") # Гарантируем статику
+set(SPDLOG_BUILD_EXAMPLE OFF CACHE INTERNAL "")
+FetchContent_MakeAvailable(spdlog)
+# --------------------------------------------------------
+
+# Поиск только чистых системных библиотек, которые не вызывают проблем
+find_package(CURL REQUIRED)
+find_package(nlohmann_json 3.10.5 REQUIRED)
 find_package(SQLite3 REQUIRED)
-find_package(spdlog REQUIRED)
+find_package(Threads REQUIRED)
 
 add_executable(${PROJECT_NAME}
 		src/main.cpp
@@ -17,7 +43,7 @@ add_executable(${PROJECT_NAME}
 		src/config/configLoader.cpp
 		src/database/database.cpp
 		src/database/tableManager.cpp
-        src/database/repos/clansRepo.cpp
+		src/database/repos/clansRepo.cpp
 		src/database/repos/clanwarRepo.cpp
 		src/database/repos/raidRepo.cpp
 		src/database/repos/leagueClanwarRepo.cpp
@@ -33,16 +59,18 @@ add_executable(${PROJECT_NAME}
 		src/notifications/notificationService.cpp
 		src/reports/ClanwarReportFormatter.cpp
 		src/reports/ClanwarLeagueReportFormatter.cpp
-		src/database/MigratorManager.cpp
+		src/database/migratorManager.cpp
 		src/common/TimeParser.cpp
-		include/database/TransactionGuard.h
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(${PROJECT_NAME} PRIVATE ${SQLite3_INCLUDE_DIRS})
 
-target_link_libraries(${PROJECT_NAME} PRIVATE 
-											  cpr::cpr
-											  nlohmann_json::nlohmann_json
-											  SQLite::SQLite3
-											  spdlog::spdlog_header_only
+target_link_libraries(${PROJECT_NAME} PRIVATE
+		cpr::cpr
+		CURL::libcurl
+		nlohmann_json::nlohmann_json
+		${SQLite3_LIBRARIES}
+		spdlog::spdlog                  # Теперь это наш собственный статический таргет
+		Threads::Threads
 )

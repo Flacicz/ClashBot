@@ -1,9 +1,4 @@
 #include "database/tableManager.h"
-#include "database/database.h"
-
-#include <spdlog/spdlog.h>
-#include <string>
-#include <vector>
 
 TableManager::TableManager(sqlite3* db) : db(db)
 {

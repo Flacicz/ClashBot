@@ -1,10 +1,7 @@
 #pragma once
 
 #include <sqlite3.h>
-
-#include "../../models/models.h"
-
-#include <vector>
+#include "models/models.h"
 
 class LeagueClanwarRepo
 {

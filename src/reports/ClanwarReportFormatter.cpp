@@ -1,13 +1,6 @@
-//
-// Created by zuevm on 13.05.2026.
-//
-
 #include "reports/ClanwarReportFormatter.h"
-#include "common/SyncResult.h"
 
-#include <ranges>
 #include <sstream>
-#include <unordered_map>
 
 bool ClanwarReportFormatter::shouldNotify(const SyncResult& result) const
 {

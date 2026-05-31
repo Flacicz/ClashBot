@@ -5,14 +5,11 @@
 #include <memory>
 #include <sqlite3.h>
 
-#include "../database/tableManager.h"
+#include "tableManager.h"
 #include "repos/clansRepo.h"
-
-#include "../database/repos/raidRepo.h"
-
-#include "../database/repos/leagueClanwarRepo.h"
-
-#include "../database/repos/clanwarRepo.h"
+#include "repos/raidRepo.h"
+#include "repos/leagueClanwarRepo.h"
+#include "repos/clanwarRepo.h"
 
 class TableManager;
 class ClansRepo;

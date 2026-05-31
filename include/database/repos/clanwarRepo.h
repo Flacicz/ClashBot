@@ -1,11 +1,8 @@
 #pragma once
 
-#include "../../models/models.h"
+#include "models/models.h"
 
-#include <vector>
-#include <map>
 #include <sqlite3.h>
-#include <string>
 
 class ClanwarRepo
 {

@@ -5,11 +5,19 @@
 #include <csignal>
 #include <atomic>
 
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/common.h>
+#include <spdlog/logger.h>
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
 #include "database/database.h"
+#include "database/migratorManager.h"
+
 #include "api/apiclient.h"
 
 #include "config/configLoader.h"
@@ -23,23 +31,16 @@
 #include "service/clanManager.h"
 
 #include "reports/RaidReportFormatter.h"
-
-#include <spdlog/spdlog.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/sinks/rotating_file_sink.h>
-#include <spdlog/common.h>
-#include <spdlog/logger.h>
-
-#include "database/migratorManager.h"
 #include "reports/ClanwarLeagueReportFormatter.h"
 #include "reports/ClanwarReportFormatter.h"
 
+#include "notifications/telegramNotifier.h"
+#include "notifications/notificationService.h"
 
 std::atomic g_shutdown_requested{false};
 
 void signalHandler(int signum)
 {
-    spdlog::info("[Main] Received system signal: {}. Initiating shutdown...", signum);
     g_shutdown_requested.store(true);
 }
 
@@ -149,7 +150,7 @@ int main(const int argc, char* argv[])
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }
 
-        spdlog::info("[Main] Stopping the service...");
+        spdlog::info("[Main] Shutdown signal detected. Stopping the service...");
 
         clanManager.stop();
         if (syncThread.joinable())

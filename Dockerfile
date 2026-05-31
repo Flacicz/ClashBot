@@ -1,20 +1,42 @@
-FROM ubuntu:22.04 AS builder
+# ==========================================
+# ЭТАП 1: Сборка проекта
+# ==========================================
+FROM ubuntu:24.04 AS builder
 
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Убираем libspdlog-dev, оставляем только базу
 RUN apt-get update && apt-get install -y \
-    build-essential cmake git libcurl4-openssl-dev libsqlite3-dev
+    build-essential \
+    cmake \
+    git \
+    libcurl4-openssl-dev \
+    libsqlite3-dev \
+    libssl-dev \
+    nlohmann-json3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY . .
 
 RUN mkdir build && cd build && \
-    cmake .. && \
-    make
+    cmake -DCMAKE_BUILD_TYPE=Release .. && \
+    make -j$(nproc)
 
-FROM ubuntu:22.04
-RUN apt-get update && apt-get install -y libcurl4 libsqlite3-0
+# ==========================================
+# ЭТАП 2: Запуск
+# ==========================================
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y \
+    libcurl4 \
+    libsqlite3-0 \
+    libssl3 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /app/build/ClashBot .
-COPY config.json .
+COPY --from=builder /app/build/ActivityTracking .
 
-ENTRYPOINT ["./ClashBot", "config.json"]
+ENTRYPOINT ["./ActivityTracking"]
+CMD ["config.json"]

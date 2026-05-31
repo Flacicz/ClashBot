@@ -1,15 +1,8 @@
 #pragma once
-
-#include "../database/database.h"
-#include "../api/apiclient.h"
-#include "notifications/telegramNotifier.h"
-
-#include <string_view>
-#include <vector>
-#include <string>
-
 #include "ISyncService.h"
-#include "../models/models.h"
+#include "api/apiclient.h"
+#include "database/database.h"
+
 
 class ClanwarService : public ISyncService
 {

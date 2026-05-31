@@ -1,16 +1,9 @@
 #include "notifications/telegramNotifier.h"
 
-#include <string>
-
-#include <cpr/response.h>
-#include <cpr/cprtypes.h>
-#include <cpr/timeout.h>
 #include <cpr/api.h>
-
+#include <cpr/response.h>
 #include <nlohmann/json.hpp>
 #include <nlohmann/json_fwd.hpp>
-#include <utility>
-
 #include <spdlog/spdlog.h>
 
 TelegramNotifier::TelegramNotifier(std::string  token, std::string  chatId)

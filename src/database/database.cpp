@@ -1,17 +1,8 @@
 ﻿#include "database/database.h"
-#include "database/tableManager.h"
-#include "database/repos/clansRepo.h"
-#include "database/repos/raidRepo.h"
-#include "database/repos/leagueClanwarRepo.h"
-#include "database/repos/clanwarRepo.h"
-#include "database/sqliteHelpers.h"
 
 #include <spdlog/spdlog.h>
-#include <stdexcept>
-#include <sqlite3.h>
-#include <string>
-#include <vector>
-#include <memory>
+
+#include "database/sqliteHelpers.h"
 
 Database::Database(const std::string& path) : pathToDb(path)
 {

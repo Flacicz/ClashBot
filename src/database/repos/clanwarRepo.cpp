@@ -1,11 +1,9 @@
 #include "database/repos/clanwarRepo.h"
-#include "database/database.h"
-#include "database/sqliteHelpers.h"
 
-#include <spdlog/spdlog.h>
 #include <stdexcept>
-#include <vector>
-#include <string>
+#include <spdlog/spdlog.h>
+
+#include "database/sqliteHelpers.h"
 
 ClanwarRepo::ClanwarRepo(sqlite3* db) : db(db)
 {

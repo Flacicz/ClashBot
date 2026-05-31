@@ -1,18 +1,9 @@
 ﻿#include "service/raidService.h"
-#include "models/models.h"
-#include "database/database.h"
-#include "api/apiclient.h"
 #include "database/TransactionGuard.h"
 
-#include <exception>
+#include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
-#include <stdexcept>
-#include <vector>
-
-#include <spdlog/spdlog.h>
-
-
 
 RaidService::RaidService(Database& db, APIClient& apiClient)
     : db(db), apiClient(apiClient) {}
@@ -33,7 +24,7 @@ SyncResult RaidService::updateData(std::string_view tag)
     {
         spdlog::warn("[Service: {}] Raid data is currently unavailable for {}", svc, tag);
         return SyncResult::error(getServiceName(), std::string(tag),
-            std::format("[Service: {}] Raid data is currently unavailable for {}", svc, tag));
+            fmt::format("[Service: {}] Raid data is currently unavailable for {}", svc, tag));
     }
 
     const auto& [clanRaid, playerRaidSnapshots] = optRaidData.value();

@@ -1,6 +1,9 @@
 #include "common/TimeParser.h"
 
 #include <nlohmann/json.hpp>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 
 std::string utils::extractTime(const nlohmann::json& j, const std::string_view key)
 {
@@ -16,10 +19,16 @@ std::string utils::extractTime(const nlohmann::json& j, const std::string_view k
 long long utils::parseISOToUnix(const std::string_view iso)
 {
     std::istringstream ss{std::string(iso)};
-    std::chrono::sys_seconds tp;
-    ss >> std::chrono::parse("%Y%m%dT%H%M%S", tp);
+    std::tm tm = {};
+
+    // Парсим строку формата "20260530T193939" в структуру tm
+    ss >> std::get_time(&tm, "%Y%m%dT%H%M%S");
 
     if (ss.fail()) return 0;
 
-    return tp.time_since_epoch().count();
+    // Конвертируем std::tm в time_t (Unix timestamp)
+    std::time_t tt = std::mktime(&tm);
+    if (tt == -1) return 0;
+
+    return static_cast<long long>(tt);
 }

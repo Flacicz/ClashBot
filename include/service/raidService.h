@@ -1,13 +1,8 @@
 #pragma once
-
-#include "../database/database.h"
-#include "../api/apiclient.h"
-#include <string_view>
-#include <vector>
-
 #include "ISyncService.h"
-#include "../models/models.h"
-#include "notifications/telegramNotifier.h"
+#include "api/apiclient.h"
+#include "database/database.h"
+
 
 class RaidService : public ISyncService
 {

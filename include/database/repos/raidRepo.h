@@ -1,10 +1,7 @@
 #pragma once
 
-#include "../../models/models.h"
-
-#include <map>
+#include "models/models.h"
 #include <sqlite3.h>
-#include <vector>
 
 class RaidRepo
 {

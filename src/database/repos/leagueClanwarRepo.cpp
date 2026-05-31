@@ -1,13 +1,8 @@
 #include "database/repos/leagueClanwarRepo.h"
-#include "database/database.h"
-#include "database/sqliteHelpers.h"
-#include "models/models.h"
 
-#include <sqlite3.h>
 #include <spdlog/spdlog.h>
-#include <stdexcept>
-#include <string>
-#include <vector>
+
+#include "database/sqliteHelpers.h"
 
 LeagueClanwarRepo::LeagueClanwarRepo(sqlite3* db) : db(db)
 {

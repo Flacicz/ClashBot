@@ -2,7 +2,6 @@
 #define ACTIVITYTRACKING_TRANSACTIONGUARD_H
 #include <stdexcept>
 #include <spdlog/spdlog.h>
-
 #include "database.h"
 
 class TransactionGuard

@@ -10,6 +10,7 @@ data/
 config.json
 .idea/
 .ai/
+*.tar
 
 # User-specific files
 *.rsuser

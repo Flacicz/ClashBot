@@ -1,20 +1,15 @@
 #pragma once
-
-#include "notifications/notificationService.h"
-#include "service/clanwarLeagueService.h"
-#include "database/database.h"
-#include "api/apiclient.h"
-
-#include <string>
-#include <vector>
-#include <memory>
-#include <atomic>
-#include <condition_variable>
 #include <mutex>
+#include <condition_variable>
+
+#include "ISyncService.h"
+#include "api/apiclient.h"
+#include "database/database.h"
+#include "notifications/notificationService.h"
+
 
 class ClanManager
 {
-private:
     Database& db;
     APIClient& apiClient;
     std::unique_ptr<NotificationService> notificationService;

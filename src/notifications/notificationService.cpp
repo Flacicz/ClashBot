@@ -1,5 +1,3 @@
-#include <utility>
-
 #include "notifications/notificationService.h"
 
 NotificationService::NotificationService(Database& db,

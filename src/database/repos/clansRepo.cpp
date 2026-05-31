@@ -1,13 +1,8 @@
 ﻿#include "database/repos/clansRepo.h"
-#include "models/models.h"
-#include "database/database.h"
-#include "database/sqliteHelpers.h"
 
-#include <sqlite3.h>
 #include <spdlog/spdlog.h>
-#include <stdexcept>
-#include <string>
-#include <vector>
+
+#include "database/sqliteHelpers.h"
 
 ClansRepo::ClansRepo(sqlite3* db) : db(db)
 {

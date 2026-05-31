@@ -1,18 +1,11 @@
 ﻿#include "service/clanwarService.h"
-#include "models/models.h"
-#include "database/database.h"
-#include "api/apiclient.h"
-
-#include <vector>
-#include <string>
-#include <utility>
-#include <string_view>
-#include <exception>
-#include <stdexcept>
+#include "database/TransactionGuard.h"
 
 #include <spdlog/spdlog.h>
+#include <string>
+#include <string_view>
 
-#include "database/TransactionGuard.h"
+
 
 ClanwarService::ClanwarService(Database& db,
                                APIClient& apiClient) :
@@ -36,7 +29,7 @@ SyncResult ClanwarService::updateData(std::string_view tag)
     {
         spdlog::info("[Service: {}] War is not active for {}", svc, tag);
         return SyncResult::error(getServiceName(), std::string(tag),
-                                 std::format("[Service: {}] War is not active for {}", svc, tag));
+                                 fmt::format("[Service: {}] War is not active for {}", svc, tag));
     }
 
     const auto& [clanwar, clans, attacks, members] = optClanwarData.value();

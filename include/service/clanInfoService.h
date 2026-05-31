@@ -1,10 +1,10 @@
 #pragma once
-
-#include "../database/database.h"
-#include "../api/apiclient.h"
-#include <string_view>
-
 #include "ISyncService.h"
+#include <api/apiclient.h>
+#include <database/database.h>
+
+class APIClient;
+class Database;
 
 class ClanInfoService : public ISyncService {
 	Database& db;

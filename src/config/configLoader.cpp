@@ -1,12 +1,8 @@
-#include "config/configLoader.h"
-#include "config/config.h"
-
-#include <string>
 #include <fstream>
-#include <stdexcept>
 #include <nlohmann/json.hpp>
 #include <nlohmann/json_fwd.hpp>
-#include <vector>
+
+#include "config/config.h"
 
 AppConfig loadConfig(const std::string& path) {
 	std::ifstream file(path);

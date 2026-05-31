@@ -1,7 +1,5 @@
 #ifndef ACTIVITYTRACKING_ISERVICE_H
 #define ACTIVITYTRACKING_ISERVICE_H
-#include <string_view>
-
 #include "common/SyncResult.h"
 
 

@@ -1,17 +1,7 @@
 #include "service/clanManager.h"
-#include "database/database.h"
-#include "api/apiclient.h"
-#include "service/clanwarLeagueService.h"
 
-#include <exception>
-#include <chrono>
-#include <string>
-#include <utility>
-#include <vector>
-#include <memory>
-#include <condition_variable>
 #include <mutex>
-
+#include <condition_variable>
 #include <spdlog/spdlog.h>
 
 ClanManager::ClanManager(

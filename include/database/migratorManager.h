@@ -1,7 +1,6 @@
 #ifndef ACTIVITYTRACKING_MIGRATORMANAGER_H
 #define ACTIVITYTRACKING_MIGRATORMANAGER_H
 #include <filesystem>
-
 #include "database.h"
 
 class Database;

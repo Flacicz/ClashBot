@@ -1,7 +1,6 @@
-#include "../../include/reports/RaidReportFormatter.h"
+#include "reports/RaidReportFormatter.h"
 
 #include <sstream>
-#include <unordered_set>
 
 bool RaidReportFormatter::shouldNotify(const SyncResult& result) const
 {

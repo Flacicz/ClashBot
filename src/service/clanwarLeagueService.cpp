@@ -1,10 +1,5 @@
-﻿#include "service/clanwarLeagueService.h"
-#include "database/database.h"
-#include "api/apiclient.h"
-
-#include <nlohmann/json.hpp>
+﻿#include <service/clanwarLeagueService.h>
 #include <spdlog/spdlog.h>
-#include <exception>
 #include <string>
 #include <string_view>
 
@@ -32,7 +27,7 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
     {
         spdlog::info("[Service: {}] CWL is not active for {}", svc, tag);
         return SyncResult::error(getServiceName(), std::string(tag),
-                                 std::format("[Service: {}] CWL is not active for {}", svc, tag));
+                                 fmt::format("[Service: {}] CWL is not active for {}", svc, tag));
     }
 
     const auto& [clanwarsLeagueSeason, clanwarsLeagueMembers, warDetails] = optClanwarsLeagueData.value();
