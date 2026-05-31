@@ -10,6 +10,11 @@
 
 class ClanManager
 {
+    struct ServiceStatus {
+        int consecutiveFailures = 0;
+        bool alertSent = false;
+    };
+
     Database& db;
     APIClient& apiClient;
     std::unique_ptr<NotificationService> notificationService;
@@ -21,6 +26,14 @@ class ClanManager
     std::mutex mtx;
     std::condition_variable cv;
     std::atomic<bool> isRunning{true};
+
+    std::map<std::string, ServiceStatus> trackingStatuses;
+
+    constexpr static int MAX_RETRIES = 3;
+
+    static SyncResult syncWithRetry(ISyncService* service, std::string_view clanTag);
+    void handleSyncFailure(const SyncResult& syncResult);
+    void handleSyncRecovery(const std::string& serviceName, const std::string& clanTag);
 
 public:
     ClanManager(

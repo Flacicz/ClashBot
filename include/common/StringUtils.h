@@ -24,6 +24,8 @@ namespace utils
         if (tag.empty()) return "";
         return tag.front() == '#' ? "%23" + std::string(tag.substr(1)) : "%23" + std::string(tag);
     }
+
+    
 }
 
 #endif //ACTIVITYTRACKING_STRINGUTILS_H

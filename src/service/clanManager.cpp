@@ -16,6 +16,51 @@ ClanManager::ClanManager(
 {
 }
 
+SyncResult ClanManager::syncWithRetry(ISyncService* service, const std::string_view clanTag)
+{
+    SyncResult result = {};
+    for (int attempts = 0; attempts < MAX_RETRIES; attempts++)
+    {
+        result = service->updateData(clanTag);
+        if (result.successFlag) return result;
+
+        spdlog::warn("[ClanManager] Service '{}' failed for clan {} (Attempt {}/{}). Retrying...",
+                     service->getServiceName(), clanTag, attempts, MAX_RETRIES);
+
+        std::this_thread::sleep_for(std::chrono::seconds(attempts * 2));
+    }
+
+    return result;
+}
+
+void ClanManager::handleSyncFailure(const SyncResult& syncResult)
+{
+    const std::string trackingKey = syncResult.serviceName + "_" + syncResult.clanTag;
+    auto& [consecutiveFailures, alertSent] = trackingStatuses[trackingKey];
+
+    consecutiveFailures++;
+
+    if (!alertSent)
+    {
+        notificationService->sendFailureAlert(syncResult);
+        alertSent = true;
+    }
+}
+
+void ClanManager::handleSyncRecovery(const std::string& serviceName, const std::string& clanTag)
+{
+    const std::string trackingKey = serviceName + "_" + clanTag;
+    auto& [consecutiveFailures, alertSent] = trackingStatuses[trackingKey];
+
+    if (alertSent)
+    {
+        notificationService->sendRecoveryAlert(serviceName, clanTag);
+    }
+
+    consecutiveFailures = 0;
+    alertSent = false;
+}
+
 void ClanManager::syncAll()
 {
     while (isRunning.load())
@@ -26,11 +71,21 @@ void ClanManager::syncAll()
         {
             for (const auto& service : services)
             {
-                if (!isRunning) break;
+                if (!isRunning.load()) return;
 
                 try
                 {
-                    SyncResult result = service->updateData(tag);
+                    SyncResult result = syncWithRetry(service.get(), tag);
+
+                    if (!result.successFlag)
+                    {
+                        spdlog::error("[ClanManager] Service '{}' completely failed after {} attempts.",
+                                      service->getServiceName(), MAX_RETRIES);
+                        handleSyncFailure(result);
+                        continue;
+                    }
+
+                    handleSyncRecovery(service->getServiceName(), result.clanTag);
                     notificationService->handle(result);
                 }
                 catch (const std::exception& e)
