@@ -186,7 +186,7 @@ std::optional<CompleteClanwarData> APIClient::getCompleteClanwarData(const std::
     return completeClanwarData;
 }
 
-std::optional<CompleteClanwarsLeagueData> APIClient::getCompleteClanwarsLeagueData(const std::string_view clanTag) const
+ClanwarsLeagueFetchResult APIClient::getCompleteClanwarsLeagueData(const std::string_view clanTag) const
 {
     nlohmann::json parsed;
 
@@ -196,13 +196,19 @@ std::optional<CompleteClanwarsLeagueData> APIClient::getCompleteClanwarsLeagueDa
     }
     catch (const std::runtime_error& e)
     {
-        if (const std::string errStr(e.what()); errStr.find("Not Found") != std::string::npos) return {};
-        throw;
+        const std::string errStr(e.what());
+
+        if (errStr.find("Not Found") != std::string::npos)
+        {
+            return { LeagueFetchStatus::NoActiveLeague };
+        }
+
+        return { LeagueFetchStatus::Error, std::nullopt, errStr };
     }
 
     if (const std::string state = parsed.value("state", "notInWar"); state == "notInWar")
     {
-        return std::nullopt;
+        return { LeagueFetchStatus::NoActiveLeague };
     }
 
     CompleteClanwarsLeagueData completeClanwarsLeagueData;
@@ -210,7 +216,7 @@ std::optional<CompleteClanwarsLeagueData> APIClient::getCompleteClanwarsLeagueDa
     completeClanwarsLeagueData.clanwarsLeagueMembers = ClanwarsLeagueMember::parseClanwarsLeagueMembers(parsed);
     completeClanwarsLeagueData.warDetails = getLeagueClanwarRoundsInfo(parsed, clanTag);
 
-    return completeClanwarsLeagueData;
+    return { LeagueFetchStatus::Success, std::move(completeClanwarsLeagueData) };
 }
 
 std::vector<ClanwarsLeagueWarDetails> APIClient::getLeagueClanwarRoundsInfo(

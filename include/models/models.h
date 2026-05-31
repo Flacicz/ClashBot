@@ -231,6 +231,20 @@ struct CompleteClanwarsLeagueData
     std::vector<ClanwarsLeagueWarDetails> warDetails;
 };
 
+enum class LeagueFetchStatus
+{
+    Success,
+    NoActiveLeague,
+    Error
+};
+
+struct ClanwarsLeagueFetchResult
+{
+    LeagueFetchStatus status;
+    std::optional<CompleteClanwarsLeagueData> completeClanwarsLeagueData;
+    std::string errorMsg;
+};
+
 struct RaidSlacker
 {
     std::string playerTag;

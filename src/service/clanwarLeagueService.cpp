@@ -21,16 +21,31 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
     auto svc = "CWL";
     spdlog::info("[Service: {}] Starting Clan War League data update for {}", svc, tag);
 
-    const auto optClanwarsLeagueData = apiClient.getCompleteClanwarsLeagueData(tag);
+    const auto [status, completeClanwarsLeagueData, errorMsg] = apiClient.getCompleteClanwarsLeagueData(tag);
 
-    if (!optClanwarsLeagueData.has_value())
+    if (status == LeagueFetchStatus::Error)
     {
-        spdlog::info("[Service: {}] CWL is not active for {}", svc, tag);
-        return SyncResult::error(getServiceName(), std::string(tag),
-                                 fmt::format("[Service: {}] CWL is not active for {}", svc, tag));
+        std::string detailedError = fmt::format("[Service: {}] Technical error fetching CWL data for {}: {}",
+                                                svc, tag, errorMsg);
+        spdlog::error(detailedError);
+        return SyncResult::error(getServiceName(), std::string(tag), std::move(detailedError));
     }
 
-    const auto& [clanwarsLeagueSeason, clanwarsLeagueMembers, warDetails] = optClanwarsLeagueData.value();
+    if (status == LeagueFetchStatus::NoActiveLeague)
+    {
+        spdlog::info("[Service: {}] CWL is not active for {}", svc, tag);
+        return SyncResult::success(getServiceName(), std::string(tag));
+    }
+
+    if (!completeClanwarsLeagueData.has_value())
+    {
+        std::string criticalError = fmt::format(
+            "[Service: {}] Critical: Fetch status is Success, but data is empty for {}", svc, tag);
+        spdlog::critical(criticalError);
+        return SyncResult::error(getServiceName(), std::string(tag), std::move(criticalError));
+    }
+
+    const auto& [clanwarsLeagueSeason, clanwarsLeagueMembers, warDetails] = completeClanwarsLeagueData.value();
 
     try
     {
