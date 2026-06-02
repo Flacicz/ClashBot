@@ -22,9 +22,17 @@ public:
     [[nodiscard]] InsertedWarResult saveCompleteClanwarData(const Clanwar& war,
                                                             const std::pair<ClanwarClan, ClanwarClan>& clans,
                                                             const std::vector<ClanwarAttack>& attacks) const;
+    [[nodiscard]] InsertedWarResult saveCompleteClanwarData(const Clanwar& war,
+                                                            const std::pair<ClanwarClan, ClanwarClan>& clans,
+                                                            const std::vector<ClanwarAttack>& attacks,
+                                                            const std::pair<
+                                                                std::vector<ClanwarMember>, std::vector<ClanwarMember>>&
+                                                            members) const;
 
-    [[nodiscard]] std
-    ::vector<ClanwarSlacker> getSlackersWithNoAttacks(long long clanwarId, long long warClanId) const;
-    [[nodiscard]] std::vector<ClanwarSlacker> getSlackersWithOneAttack() const;
-    [[nodiscard]] std::vector<ClanwarSlacker> getPlayersWithNotMirrorAttack() const;
+    [[nodiscard]] std::vector<ClanwarSlacker> getSlackersWithNoAttacks(long long clanwarId,
+                                                                       long long warClanId) const;
+    [[nodiscard]] std::vector<ClanwarSlacker> getSlackersWithOneAttack(long long clanwarId,
+                                                                       long long warClanId) const;
+    [[nodiscard]] std::vector<ClanwarSlacker> getPlayersWithNotMirrorAttack(long long clanwarId,
+                                                                            long long homeWarClanId) const;
 };

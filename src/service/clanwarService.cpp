@@ -6,7 +6,6 @@
 #include <string_view>
 
 
-
 ClanwarService::ClanwarService(Database& db,
                                APIClient& apiClient) :
     db(db), apiClient(apiClient)
@@ -38,14 +37,14 @@ SyncResult ClanwarService::updateData(std::string_view tag)
     {
         TransactionGuard tx(db);
 
-        auto [warId, homeId, oppId] = db.war().saveCompleteClanwarData(clanwar, clans, attacks);
+        auto [warId, homeId, oppId] = db.war().saveCompleteClanwarData(clanwar, clans, attacks, members);
         if (warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
 
         tx.commit();
 
         const auto missedAllAttacks = db.war().getSlackersWithNoAttacks(warId, homeId);
-        const auto missedOneAttack = db.war().getSlackersWithOneAttack();
-        const auto noMirror = db.war().getPlayersWithNotMirrorAttack();
+        const auto missedOneAttack = db.war().getSlackersWithOneAttack(warId, homeId);
+        const auto noMirror = db.war().getPlayersWithNotMirrorAttack(warId, homeId);
 
         return SyncResult::successWithClanwarReport(getServiceName(), std::string(tag),
                                                     {

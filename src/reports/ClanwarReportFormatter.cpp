@@ -6,7 +6,7 @@ bool ClanwarReportFormatter::shouldNotify(const SyncResult& result) const
 {
     if (!result.hasReportData()) return false;
 
-    if (const auto& report = std::get<ClanwarReportData>(result.reportData); report.state != "ended") {
+    if (const auto& report = std::get<ClanwarReportData>(result.reportData); report.state != "warEnded") {
         return false;
     }
 
@@ -41,32 +41,35 @@ std::string ClanwarReportFormatter::format(const SyncResult& result)
 
     for (const auto& [playerTag, playerName] : slackersWithNoAttacks)
     {
-        missedAll << "❌ " << playerName << " [0/2]\n";
+        missedAll << "🔹 " << playerName << " [0/2]\n";
     }
 
     for (const auto& [playerTag, playerName] : slackersWithOneAttack)
     {
-        missedOne << "❌ " << playerName << " [0/2]\n";
+        missedOne << "🔹 " << playerName << " [1/2]\n";
     }
 
     for (const auto& [playerTag, playerName] : notMirror)
     {
-        wrongTarget << "❌ " << playerName << " [0/2]\n";
+        wrongTarget << "🔹 " << playerName << "\n";
     }
 
-    report << "<b>НАРУШИТЕЛИ:</b>\n";
+    // Формирование итогового отчета
+    report << "📊 <b>НАРУШИТЕЛИ ПО ИТОГАМ ВОЙНЫ:</b>\n";
 
     if (!missedAll.str().empty())
     {
-        report << "\n🚫 <b>Не били вообще:</b>\n" << missedAll.str();
+        report << "\n🔴 <b>Пропустили все атаки:</b>\n" << missedAll.str();
     }
+
     if (!missedOne.str().empty())
     {
-        report << "\n⚠️ <b>Сделали только 1 атаку:</b>\n" << missedOne.str();
+        report << "\n🟡 <b>Не использовали второй шанс:</b>\n" << missedOne.str();
     }
+
     if (!wrongTarget.str().empty())
     {
-        report << "\n🎯 <b>Атаковали не зеркало:</b>\n" << wrongTarget.str();
+        report << "\n🎯 <b>Атаковали не по зеркалу:</b>\n" << wrongTarget.str();
     }
 
     return report.str();

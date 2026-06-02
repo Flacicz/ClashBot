@@ -62,8 +62,8 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
             if (warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
 
             const auto missedAllAttacks = db.war().getSlackersWithNoAttacks(warId, homeId);
-            const auto missedOneAttack = db.war().getSlackersWithOneAttack();
-            const auto noMirror = db.war().getPlayersWithNotMirrorAttack();
+            const auto missedOneAttack = db.war().getSlackersWithOneAttack(warId, homeId);
+            const auto noMirror = db.war().getPlayersWithNotMirrorAttack(warId, homeId);
 
             leagueRoundsReports.push_back(ClanwarReportData{
                 .clanwarId = warId,

@@ -222,6 +222,32 @@ InsertedWarResult ClanwarRepo::saveCompleteClanwarData(const Clanwar& war,
     return {warId, homeId, oppId};
 }
 
+InsertedWarResult ClanwarRepo::saveCompleteClanwarData(const Clanwar& war,
+                                                       const std::pair<ClanwarClan, ClanwarClan>& clans,
+                                                       const std::vector<ClanwarAttack>& attacks,
+                                                       const std::pair<
+                                                           std::vector<ClanwarMember>, std::vector<ClanwarMember>>&
+                                                       members) const
+{
+    const long long warId = insertSingleClanwarInfo(war);
+    if (warId == -1) return {-1, -1, -1};
+
+    const long long homeId = insertSingleClanwarDetails(warId, clans.first);
+    const long long oppId = insertSingleClanwarDetails(warId, clans.second);
+    if (homeId == -1 || oppId == -1) return {-1, -1, -1};
+
+    if (!insertSingleClanwarAttacks(warId, homeId, oppId, attacks))
+        return {-1, -1, -1};
+
+    if (!insertSingleClanwarMembers(warId, homeId, members.first))
+        return {-1, -1, -1};
+
+    if (!insertSingleClanwarMembers(warId, oppId, members.second))
+        return {-1, -1, -1};
+
+    return {warId, homeId, oppId};
+}
+
 
 std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithNoAttacks(const long long clanwarId,
                                                                   const long long warClanId) const
@@ -235,7 +261,7 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithNoAttacks(const long lon
             wm.player_name
         FROM war_members wm
         LEFT JOIN attacks a ON a.attacker_tag = wm.player_tag AND a.war_id = wm.war_id
-        WHERE wm.war_id = ? AND wm.war_clan_id = ? AND a.attacker_tag IS NULL;
+        WHERE wm.war_id = ? AND wm.war_clan_id = ? AND a.attack_id IS NULL;
     )";
 
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
@@ -261,7 +287,8 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithNoAttacks(const long lon
     return slackers;
 }
 
-std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack() const
+std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack(const long long clanwarId,
+                                                                  const long long warClanId) const
 {
     std::vector<ClanwarSlacker> slackers;
     sqlite3_stmt* raw_stmt = nullptr;
@@ -272,7 +299,8 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack() const
             wm.player_name
         FROM war_members wm
         JOIN attacks a ON a.attacker_tag = wm.player_tag AND a.war_id = wm.war_id
-        GROUP BY wm.war_id, wm.player_tag
+        WHERE wm.war_id = ? AND wm.war_clan_id = ?
+        GROUP BY wm.player_tag
         HAVING COUNT(a.attack_id) = 1;
     )";
 
@@ -285,6 +313,9 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack() const
 
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
+    sqlite3_bind_int64(stmt.get(), 1, clanwarId);
+    sqlite3_bind_int64(stmt.get(), 2, warClanId);
+
     while (sqlite3_step(stmt.get()) == SQLITE_ROW)
     {
         slackers.push_back(ClanwarSlacker{
@@ -296,7 +327,8 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack() const
     return slackers;
 }
 
-std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack() const
+std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack(const long long clanwarId,
+                                                                       const long long homeWarClanId) const
 {
     std::vector<ClanwarSlacker> slackers;
     sqlite3_stmt* raw_stmt = nullptr;
@@ -313,6 +345,7 @@ std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack() const
                     ORDER BY order_num ASC
                 ) as player_attack_index
             FROM attacks
+            WHERE war_id = ? AND attacker_war_clan_id = ?
         )
         SELECT
             wm.player_name,
@@ -321,7 +354,9 @@ std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack() const
         JOIN ranked_attacks ra
             ON wm.war_id = ra.war_id
            AND wm.player_tag = ra.attacker_tag
-        WHERE ra.player_attack_index = 1
+        WHERE wm.war_id = ?
+          AND wm.war_clan_id = ?
+          AND ra.player_attack_index = 1
           AND ra.attacker_position != ra.defender_position;
     )";
 
@@ -333,6 +368,11 @@ std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack() const
     }
 
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_int64(stmt.get(), 1, clanwarId);
+    sqlite3_bind_int64(stmt.get(), 2, homeWarClanId);
+    sqlite3_bind_int64(stmt.get(), 3, clanwarId);
+    sqlite3_bind_int64(stmt.get(), 4, homeWarClanId);
 
     while (sqlite3_step(stmt.get()) == SQLITE_ROW)
     {
