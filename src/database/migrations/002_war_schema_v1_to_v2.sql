@@ -8,34 +8,6 @@ DROP TABLE IF EXISTS clanwar_league_rounds;
 DROP TABLE IF EXISTS clanwar_league_attacks;
 DROP TABLE IF EXISTS clanwar_league_members;
 
--- Пересборка таблицы игроков с изменением внешнего ключа
-PRAGMA foreign_keys = OFF;
-
-CREATE TABLE players_info_new (
-                                  tag TEXT PRIMARY KEY,
-                                  clan_tag TEXT,
-                                  name TEXT NOT NULL,
-                                  role TEXT DEFAULT 'member',
-                                  th_level INTEGER DEFAULT 1,
-                                  exp_level INTEGER DEFAULT 1,
-                                  clan_rank INTEGER DEFAULT 0,
-                                  league_tier TEXT DEFAULT 'Unranked',
-                                  trophies INTEGER DEFAULT 0,
-                                  builder_base_trophies INTEGER DEFAULT 0,
-                                  donations INTEGER DEFAULT 0,
-                                  donations_received INTEGER DEFAULT 0,
-                                  created_at INTEGER DEFAULT (strftime('%s', 'now')),
-                                  updated_at INTEGER DEFAULT (strftime('%s', 'now')),
-                                  FOREIGN KEY (clan_tag) REFERENCES clans(tag) ON DELETE SET NULL
-);
-
-DROP TABLE IF EXISTS players_info;
-ALTER TABLE players_info_new RENAME TO players_info;
-
-PRAGMA foreign_keys = ON;
-
-CREATE INDEX IF NOT EXISTS idx_players_info_clan_tag ON players_info(clan_tag);
-
 CREATE TABLE IF NOT EXISTS cwl_seasons (
                                            cwl_season_id INTEGER PRIMARY KEY AUTOINCREMENT,
                                            clan_tag TEXT NOT NULL,
