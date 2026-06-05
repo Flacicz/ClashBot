@@ -10,7 +10,8 @@ class ClanwarReportFormatter : public IReportFormatter
 {
 public:
     std::string format(const SyncResult& result) override;
-    [[nodiscard]] bool shouldNotify(const SyncResult& result) const override;
+    [[nodiscard]] bool shouldNotify(const SyncResult& result, const Database& db) const override;
+    void onNotificationSent(const SyncResult& result, const Database& db) const override;
 };
 
 #endif //ACTIVITYTRACKING_CLANWARREPORTFORMATTER_H

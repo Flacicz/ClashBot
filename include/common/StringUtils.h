@@ -25,7 +25,10 @@ namespace utils
         return tag.front() == '#' ? "%23" + std::string(tag.substr(1)) : "%23" + std::string(tag);
     }
 
-    
+    inline std::string getCurrentDateString() {
+        const auto now = std::chrono::system_clock::now();
+        return std::format("{:%Y-%m-%d}", now);
+    }
 }
 
 #endif //ACTIVITYTRACKING_STRINGUTILS_H

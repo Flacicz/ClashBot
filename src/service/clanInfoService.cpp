@@ -1,5 +1,9 @@
 ﻿#include "service/clanInfoService.h"
+
+#include <algorithm>
+
 #include "database/TransactionGuard.h"
+#include "common/StringUtils.h"
 
 #include <string_view>
 #include <string>
@@ -16,12 +20,45 @@ std::string ClanInfoService::getServiceName() const
     return "ClanInfoService";
 }
 
+std::pair<std::vector<Player>, std::vector<Player>> ClanInfoService::checkTrackedPlayers(
+    const std::string& clanTag, std::vector<Player>& players) const
+{
+    players.pop_back();
+
+    std::vector<Player> activeClanPlayers = db.clans().getActiveMembers(clanTag);
+
+    std::ranges::sort(activeClanPlayers, [](const Player& p1, const Player& p2) { return p1.tag < p2.tag; });
+    std::ranges::sort(players, [](const Player& p1, const Player& p2) { return p1.tag < p2.tag; });
+
+    auto compare_tags = [](const Player& a, const Player& b)
+    {
+        return a.tag < b.tag;
+    };
+
+    std::vector<Player> left_players;
+    std::ranges::set_difference(activeClanPlayers, players,
+                                std::back_inserter(left_players),
+                                compare_tags
+    );
+
+    std::vector<Player> joined_players;
+    std::ranges::set_difference(players, activeClanPlayers,
+                                std::back_inserter(joined_players),
+                                compare_tags
+    );
+
+    for (auto& player : left_players) if (!db.clans().registerPlayerLeave(player.tag, player.clanTag)) return {};
+    for (auto& player : joined_players) if (!db.clans().registerPlayerJoin(player.tag, player.clanTag)) return {};
+
+    return {left_players, joined_players};
+}
+
 SyncResult ClanInfoService::updateData(std::string_view tag)
 {
     auto svc = "ClanInfo";
     spdlog::info("[Service: {}] Starting update for clan {}", svc, tag);
 
-    const auto optClanData = apiClient.getCompleteClanData(tag);
+    auto optClanData = apiClient.getCompleteClanData(tag);
     if (!optClanData.has_value())
     {
         spdlog::warn("[Service: {}] Received empty API response for clan {}", svc, tag);
@@ -29,13 +66,14 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
                                  fmt::format("[Service: {}] Received empty API response for clan {}", svc, tag));
     }
 
-    const auto& [clan, players, clanSnapshot, playerSnapshots] = optClanData.value();
+    auto& [clan, players, clanSnapshot, playerSnapshots] = optClanData.value();
 
     try
     {
         TransactionGuard tx(db);
 
-        if (!db.clans().saveCompleteClanData(clan, clanSnapshot, players, playerSnapshots)) {
+        if (!db.clans().saveCompleteClanData(clan, clanSnapshot, players, playerSnapshots))
+        {
             throw std::runtime_error("saveCompleteClanData returned false");
         }
 
@@ -44,7 +82,12 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
         spdlog::info("[Service: {}] Successfully updated clan {} ({}). Synchronized {} members.", svc, tag, clan.name,
                      clanSnapshot.membersCount);
 
-        return SyncResult::success(getServiceName(), std::string(tag));
+        std::string normalizedTag = utils::normalizedTag(tag);
+        const auto joinLeavePlayers = checkTrackedPlayers(normalizedTag, players);
+
+        return SyncResult::successWithClanReport(getServiceName(), normalizedTag,
+                                                 {normalizedTag, joinLeavePlayers},
+                                                 fmt::format("{}_{}", normalizedTag, utils::getCurrentDateString()));
     }
     catch (const std::exception& e)
     {

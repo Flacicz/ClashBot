@@ -48,6 +48,10 @@ CREATE TABLE IF NOT EXISTS clan_memberships
 CREATE INDEX IF NOT EXISTS idx_memberships_active
     ON clan_memberships (clan_tag, player_tag) WHERE left_at IS NULL;
 
+INSERT INTO clan_memberships(clan_tag, player_tag, joined_at)
+SELECT clan_tag, tag, strftime('%s', 'now')
+FROM players;
+
 -- 3. Создание таблицы снапшотов кланов (CASCADE сохранен)
 CREATE TABLE IF NOT EXISTS clan_snapshots
 (

@@ -36,6 +36,7 @@
 
 #include "notifications/telegramNotifier.h"
 #include "notifications/notificationService.h"
+#include "reports/ClanInfoReportFormatter.h"
 
 std::atomic g_shutdown_requested{false};
 
@@ -109,6 +110,7 @@ int main(const int argc, char* argv[])
         }
 
         std::map<std::string, std::unique_ptr<IReportFormatter>> formatters;
+        formatters["ClanInfoService"] = std::make_unique<ClanInfoReportFormatter>();
         formatters["RaidService"] = std::make_unique<RaidReportFormatter>();
         formatters["ClanwarService"] = std::make_unique<ClanwarReportFormatter>();
         formatters["ClanwarLeagueService"] = std::make_unique<ClanwarLeagueReportFormatter>();

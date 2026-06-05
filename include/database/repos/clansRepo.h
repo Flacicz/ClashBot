@@ -20,4 +20,8 @@ public:
                               const ClanSnapshot& clanSnapshot,
                               const std::vector<Player>& players,
                               const std::vector<PlayerSnapshot>& playerSnapshots) const;
+
+    [[nodiscard]] std::vector<Player> getActiveMembers(std::string_view clanTag) const;
+    [[nodiscard]] bool registerPlayerJoin(std::string_view playerTag, std::string_view clanTag) const;
+    [[nodiscard]] bool registerPlayerLeave(std::string_view playerTag, std::string_view clanTag) const;
 };

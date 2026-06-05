@@ -1,5 +1,6 @@
 #include "notifications/notificationService.h"
 #include "spdlog/fmt/bundled/compile.h"
+#include <spdlog/spdlog.h>
 
 NotificationService::NotificationService(Database& db,
                                          std::unique_ptr<TelegramNotifier> telegram_notifier,
@@ -34,23 +35,13 @@ std::string NotificationService::formatRecoveryAlert(const std::string& serviceN
 
 void NotificationService::handle(const SyncResult& result) const
 {
-    if (!result.hasReportData()) return;
+    const auto& formatter = formatters.at(result.serviceName);
 
-    const auto entityType = result.serviceName;
-    const auto entityId = result.reportEntityId;
-
-    if (db.isNotified(entityType, entityId)) return;
-
-    const auto& formatter = formatters.at(entityType);
-
-    if (!formatter->shouldNotify(result))
-    {
-        return;
-    }
+    if (!formatter->shouldNotify(result, db)) return;
 
     if (const auto msg = formatter->format(result); telegramNotifier->sendMessage(msg))
     {
-        if (!db.markAsNotified(entityType, entityId)) return;
+        formatter->onNotificationSent(result, db);
     }
 }
 

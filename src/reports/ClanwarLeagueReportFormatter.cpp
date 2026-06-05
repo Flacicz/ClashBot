@@ -1,6 +1,9 @@
 #include "reports/ClanwarLeagueReportFormatter.h"
 
-bool ClanwarLeagueReportFormatter::shouldNotify(const SyncResult& result) const
+#include "database/database.h"
+#include "spdlog/spdlog.h"
+
+bool ClanwarLeagueReportFormatter::shouldNotify(const SyncResult& result, const Database& db) const
 {
     return false;
 }
@@ -58,4 +61,12 @@ std::string ClanwarLeagueReportFormatter::format(const SyncResult& result)
     // return report.str();
 
     return "";
+}
+
+void ClanwarLeagueReportFormatter::onNotificationSent(const SyncResult& result, const Database& db) const
+{
+    if (!db.markAsNotified(result.serviceName, result.reportEntityId))
+    {
+        spdlog::error("[RaidFormatter] Failed to mark raid {} as notified", result.reportEntityId);
+    }
 }

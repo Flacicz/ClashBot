@@ -73,25 +73,6 @@ bool ClansRepo::insertOrUpdateClanSnapshot(const ClanSnapshot& clanSnapshot) con
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?
     )
-    ON CONFLICT(clan_tag, created_at) DO UPDATE SET
-        type = excluded.type,
-        members_count = excluded.members_count,
-        clan_level = excluded.clan_level,
-        clan_points = excluded.clan_points,
-        clan_builder_points = excluded.clan_builder_points,
-        clan_capital_points = excluded.clan_capital_points,
-        capital_hall_level = excluded.capital_hall_level,
-        capital_league_id = excluded.capital_league_id,
-        required_trophies = excluded.required_trophies,
-        required_builder_base_trophies = excluded.required_builder_base_trophies,
-        required_town_hall_level = excluded.required_town_hall_level,
-        war_frequency = excluded.war_frequency,
-        is_war_log_public = excluded.is_war_log_public,
-        war_win_streak = excluded.war_win_streak,
-        war_wins = excluded.war_wins,
-        war_ties = excluded.war_ties,
-        war_losses = excluded.war_losses,
-        war_league_id = excluded.war_league_id;
     )";
 
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
@@ -192,18 +173,6 @@ bool ClansRepo::insertOrUpdatePlayersSnapshots(const std::vector<PlayerSnapshot>
         ?, ?, ?, ?, ?,
         ?, ?
     )
-    ON CONFLICT(player_tag, created_at) DO UPDATE SET
-        clan_tag = excluded.clan_tag,
-        role = excluded.role,
-        th_level = excluded.th_level,
-        exp_level = excluded.exp_level,
-        clan_rank = excluded.clan_rank,
-        league_id = excluded.league_id,
-        builder_base_league_id = excluded.builder_base_league_id,
-        trophies = excluded.trophies,
-        builder_base_trophies = excluded.builder_base_trophies,
-        donations = excluded.donations,
-        donations_received = excluded.donations_received;
     )";
 
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
@@ -244,14 +213,136 @@ bool ClansRepo::insertOrUpdatePlayersSnapshots(const std::vector<PlayerSnapshot>
 }
 
 bool ClansRepo::saveCompleteClanData(const Clan& clan,
-                          const ClanSnapshot& clanSnapshot,
-                          const std::vector<Player>& players,
-                          const std::vector<PlayerSnapshot>& playerSnapshots) const
+                                     const ClanSnapshot& clanSnapshot,
+                                     const std::vector<Player>& players,
+                                     const std::vector<PlayerSnapshot>& playerSnapshots) const
 {
     if (!insertOrUpdateClanInfo(clan)) return false;
     if (!insertOrUpdateClanSnapshot(clanSnapshot)) return false;
     if (!insertOrUpdatePlayersInfo(players)) return false;
     if (!insertOrUpdatePlayersSnapshots(playerSnapshots)) return false;
+
+    return true;
+}
+
+std::vector<Player> ClansRepo::getActiveMembers(const std::string_view clanTag) const
+{
+    std::vector<Player> players;
+    sqlite3_stmt* raw_stmt = nullptr;
+
+    const std::string sql = R"(
+        SELECT cm.player_tag, p.name
+        FROM clan_memberships cm
+        JOIN players p ON cm.player_tag = p.tag
+        WHERE cm.clan_tag = ? AND cm.left_at IS NULL;
+    )";
+
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClansRepo] Failed to prepare getActiveMembers statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
+    }
+
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_text(stmt.get(), 1, clanTag.data(), -1, SQLITE_TRANSIENT);
+
+    while (sqlite3_step(stmt.get()) == SQLITE_ROW)
+    {
+        const auto raw_tag = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 0));
+        const auto raw_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 1));
+
+        players.push_back(Player{
+            .tag = raw_tag ? raw_tag : "",
+            .name = raw_name ? raw_name : "",
+            .clanTag = std::string(clanTag)
+        });
+    }
+
+    return players;
+}
+
+bool ClansRepo::registerPlayerLeave(const std::string_view playerTag, const std::string_view clanTag) const
+{
+    sqlite3_stmt* raw_stmt1 = nullptr;
+    const std::string sql1 = R"(
+        UPDATE clan_memberships
+        SET left_at = strftime('%s', 'now')
+        WHERE clan_tag = ? AND player_tag = ? AND left_at IS NULL;
+    )";
+
+    if (sqlite3_prepare_v2(db, sql1.c_str(), -1, &raw_stmt1, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClansRepo] Failed to prepare registerPlayerLeave update clan_memberships statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
+    }
+
+    const SQliteStmt stmt1(raw_stmt1, &sqlite3_finalize);
+
+    sqlite3_bind_text(stmt1.get(), 1, clanTag.data(), static_cast<int>(clanTag.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt1.get(), 2, playerTag.data(), static_cast<int>(playerTag.size()), SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt1.get()) != SQLITE_DONE)
+    {
+        spdlog::error("[ClansRepo] Failed to update clan_memberships for clan {}: {}", clanTag, sqlite3_errmsg(db));
+        return false;
+    }
+
+    sqlite3_stmt* raw_stmt2 = nullptr;
+    const std::string sql2 = R"(
+        UPDATE players
+        SET clan_tag = NULL
+        WHERE tag = ?;
+    )";
+
+    if (sqlite3_prepare_v2(db, sql2.c_str(), -1, &raw_stmt2, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClansRepo] Failed to prepare registerPlayerLeave update players statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
+    }
+
+    const SQliteStmt stmt2(raw_stmt2, &sqlite3_finalize);
+
+    sqlite3_bind_text(stmt2.get(), 1, playerTag.data(), static_cast<int>(playerTag.size()), SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt2.get()) != SQLITE_DONE)
+    {
+        spdlog::error("[ClansRepo] Failed to update players for player {}: {}", playerTag, sqlite3_errmsg(db));
+        return false;
+    }
+
+    return true;
+}
+
+bool ClansRepo::registerPlayerJoin(const std::string_view playerTag, const std::string_view clanTag) const
+{
+    sqlite3_stmt* raw_stmt = nullptr;
+
+    const std::string sql = R"(
+        INSERT INTO clan_memberships (clan_tag, player_tag, joined_at)
+        VALUES (?, ?, strftime('%s', 'now'));
+    )";
+
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClansRepo] Failed to prepare registerPlayerJoin statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
+    }
+
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_text(stmt.get(), 1, clanTag.data(), static_cast<int>(clanTag.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, playerTag.data(), static_cast<int>(playerTag.size()), SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+    {
+        spdlog::error("[ClanRepo] Failed to insert clan_memberships {}: {}", clanTag, sqlite3_errmsg(db));
+        return false;
+    }
 
     return true;
 }

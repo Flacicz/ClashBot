@@ -6,12 +6,17 @@
 class APIClient;
 class Database;
 
-class ClanInfoService : public ISyncService {
-	Database& db;
-	APIClient& apiClient;
-public:
-	ClanInfoService(Database& db, APIClient& apiClient);
+class ClanInfoService : public ISyncService
+{
+    Database& db;
+    APIClient& apiClient;
 
-	SyncResult updateData(std::string_view tag) override;
-	[[nodiscard]] std::string getServiceName() const override;
+    [[nodiscard]] std::pair<std::vector<Player>, std::vector<Player>> checkTrackedPlayers(
+        const std::string& clanTag, std::vector<Player>& players) const;
+
+public:
+    ClanInfoService(Database& db, APIClient& apiClient);
+
+    SyncResult updateData(std::string_view tag) override;
+    [[nodiscard]] std::string getServiceName() const override;
 };

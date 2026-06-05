@@ -2,15 +2,19 @@
 
 #include <sstream>
 
-bool RaidReportFormatter::shouldNotify(const SyncResult& result) const
+#include "database/database.h"
+#include "spdlog/spdlog.h"
+
+bool RaidReportFormatter::shouldNotify(const SyncResult& result, const Database& db) const
 {
     if (!result.hasReportData()) return false;
 
-    if (const auto& report = std::get<RaidReportData>(result.reportData); report.state != "ended") {
+    if (const auto& report = std::get<RaidReportData>(result.reportData); report.state != "ended")
+    {
         return false;
     }
 
-    return true;
+    return !db.isNotified(result.serviceName, result.reportEntityId);
 }
 
 std::string RaidReportFormatter::format(const SyncResult& result)
@@ -64,4 +68,12 @@ std::string RaidReportFormatter::format(const SyncResult& result)
     }
 
     return report.str();
+}
+
+void RaidReportFormatter::onNotificationSent(const SyncResult& result, const Database& db) const
+{
+    if (!db.markAsNotified(result.serviceName, result.reportEntityId))
+    {
+        spdlog::error("[RaidFormatter] Failed to mark raid {} as notified", result.reportEntityId);
+    }
 }

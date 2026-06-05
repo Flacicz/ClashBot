@@ -95,6 +95,12 @@ struct CompleteClanData
     std::vector<PlayerSnapshot> playerSnapshots;
 };
 
+struct ClanReportData
+{
+    std::string clanTag;
+    std::pair<std::vector<Player>, std::vector<Player>> leaveJoinPlayers;
+};
+
 struct ClanRaid
 {
     std::string clanTag;

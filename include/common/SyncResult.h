@@ -13,7 +13,7 @@ struct SyncResult
     std::string errorMsg;
 
     std::variant<std::monostate,
-                 CompleteClanData,
+                 ClanReportData,
                  RaidReportData,
                  ClanwarReportData,
                  ClanwarsLeagueReportData
@@ -25,7 +25,8 @@ struct SyncResult
     static SyncResult error(std::string service, std::string tag, std::string msg);
 
 
-    static SyncResult successWithClanData(std::string service, std::string tag, CompleteClanData data);
+    static SyncResult successWithClanReport(std::string service, std::string tag, ClanReportData data,
+                                            const std::string& reportEntityId);
     static SyncResult successWithRaidReport(std::string service, std::string tag, RaidReportData data,
                                             const std::string& reportEntityId);
     static SyncResult successWithClanwarReport(std::string service, std::string tag, ClanwarReportData data,

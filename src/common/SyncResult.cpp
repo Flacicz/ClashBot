@@ -23,10 +23,12 @@ SyncResult SyncResult::error(std::string service, std::string tag, std::string m
     return result;
 }
 
-SyncResult SyncResult::successWithClanData(std::string service, std::string tag, CompleteClanData data)
+SyncResult SyncResult::successWithClanReport(std::string service, std::string tag, ClanReportData data,
+                                             const std::string& reportEntityId)
 {
     SyncResult result = success(std::move(service), std::move(tag));
     result.reportData = std::move(data);
+    result.reportEntityId = reportEntityId;
 
     return result;
 }
