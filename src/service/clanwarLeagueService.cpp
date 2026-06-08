@@ -79,7 +79,7 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
 
         return SyncResult::successWithClanwarsLeagueReport(getServiceName(), std::string(tag),
                                                            {lastCWLId, std::string(tag), leagueRoundsReports},
-                                                           std::to_string(lastCWLId));
+                                                           lastCWLId);
     }
     catch (const std::exception& e)
     {

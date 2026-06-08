@@ -19,21 +19,20 @@ struct SyncResult
                  ClanwarsLeagueReportData
     > reportData;
 
-    std::string reportEntityId;
+    long long reportEntityId;
 
     static SyncResult success(std::string service, std::string tag);
     static SyncResult error(std::string service, std::string tag, std::string msg);
 
 
-    static SyncResult successWithClanReport(std::string service, std::string tag, ClanReportData data,
-                                            const std::string& reportEntityId);
+    static SyncResult successWithClanReport(std::string service, std::string tag, ClanReportData data);
     static SyncResult successWithRaidReport(std::string service, std::string tag, RaidReportData data,
-                                            const std::string& reportEntityId);
+                                            long long reportEntityId);
     static SyncResult successWithClanwarReport(std::string service, std::string tag, ClanwarReportData data,
-                                               const std::string& reportEntityId);
+                                               long long reportEntityId);
     static SyncResult successWithClanwarsLeagueReport(std::string service, std::string tag,
                                                       ClanwarsLeagueReportData data,
-                                                      const std::string& reportEntityId);
+                                                      long long reportEntityId);
 
     [[nodiscard]] bool hasReportData() const
     {

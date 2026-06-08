@@ -43,7 +43,7 @@ SyncResult RaidService::updateData(std::string_view tag)
         const auto slackers = db.raids().getRaidSlackers(lastRaidId, clanRaid.clanTag);
 
         return SyncResult::successWithRaidReport(getServiceName(), std::string(tag),
-            {lastRaidId, clanRaid.state, slackers}, std::to_string(lastRaidId));
+            {lastRaidId, clanRaid.state, slackers}, lastRaidId);
     }
     catch (const std::exception& e)
     {

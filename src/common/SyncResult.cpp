@@ -23,18 +23,16 @@ SyncResult SyncResult::error(std::string service, std::string tag, std::string m
     return result;
 }
 
-SyncResult SyncResult::successWithClanReport(std::string service, std::string tag, ClanReportData data,
-                                             const std::string& reportEntityId)
+SyncResult SyncResult::successWithClanReport(std::string service, std::string tag, ClanReportData data)
 {
     SyncResult result = success(std::move(service), std::move(tag));
     result.reportData = std::move(data);
-    result.reportEntityId = reportEntityId;
 
     return result;
 }
 
 SyncResult SyncResult::successWithRaidReport(std::string service, std::string tag, RaidReportData data,
-                                             const std::string& reportEntityId)
+                                             const long long reportEntityId)
 {
     SyncResult result = success(std::move(service), std::move(tag));
     result.reportData = std::move(data);
@@ -44,7 +42,7 @@ SyncResult SyncResult::successWithRaidReport(std::string service, std::string ta
 }
 
 SyncResult SyncResult::successWithClanwarReport(std::string service, std::string tag, ClanwarReportData data,
-                                                const std::string& reportEntityId)
+                                                const long long reportEntityId)
 {
     SyncResult result = success(std::move(service), std::move(tag));
     result.reportData = std::move(data);
@@ -55,7 +53,7 @@ SyncResult SyncResult::successWithClanwarReport(std::string service, std::string
 
 SyncResult SyncResult::successWithClanwarsLeagueReport(std::string service, std::string tag,
                                                        ClanwarsLeagueReportData data,
-                                                       const std::string& reportEntityId)
+                                                       const long long reportEntityId)
 {
     SyncResult result = success(std::move(service), std::move(tag));
     result.reportData = std::move(data);

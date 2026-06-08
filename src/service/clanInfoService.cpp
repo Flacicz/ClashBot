@@ -23,8 +23,6 @@ std::string ClanInfoService::getServiceName() const
 std::pair<std::vector<Player>, std::vector<Player>> ClanInfoService::checkTrackedPlayers(
     const std::string& clanTag, std::vector<Player>& players) const
 {
-    players.pop_back();
-
     std::vector<Player> activeClanPlayers = db.clans().getActiveMembers(clanTag);
 
     std::ranges::sort(activeClanPlayers, [](const Player& p1, const Player& p2) { return p1.tag < p2.tag; });
@@ -82,12 +80,11 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
         spdlog::info("[Service: {}] Successfully updated clan {} ({}). Synchronized {} members.", svc, tag, clan.name,
                      clanSnapshot.membersCount);
 
-        std::string normalizedTag = utils::normalizedTag(tag);
+        const std::string normalizedTag = utils::normalizedTag(tag);
         const auto joinLeavePlayers = checkTrackedPlayers(normalizedTag, players);
 
         return SyncResult::successWithClanReport(getServiceName(), normalizedTag,
-                                                 {normalizedTag, joinLeavePlayers},
-                                                 fmt::format("{}_{}", normalizedTag, utils::getCurrentDateString()));
+                                                 {normalizedTag, joinLeavePlayers});
     }
     catch (const std::exception& e)
     {

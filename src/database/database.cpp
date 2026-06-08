@@ -102,7 +102,7 @@ Database::QueryResult Database::query(std::string_view sql) const
     return result;
 }
 
-bool Database::isNotified(const std::string_view entityType, const std::string_view entityId) const
+bool Database::isNotified(const std::string_view entityType, const long long entityId) const
 {
     const std::string sql = "SELECT COUNT(*) FROM notifications WHERE entity_type = ? AND entity_id = ?";
     sqlite3_stmt* raw_stmt = nullptr;
@@ -117,19 +117,19 @@ bool Database::isNotified(const std::string_view entityType, const std::string_v
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
     sqlite3_bind_text(stmt.get(), 1, entityType.data(), -1,SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt.get(), 2, entityId.data(), -1,SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt.get(), 2, entityId);
 
     if (sqlite3_step(stmt.get()) != SQLITE_ROW)
     {
         spdlog::error("[DB] Failed to select from notification {} - {}: {}", entityType, entityId,
-                                                                                            sqlite3_errmsg(db));
+                      sqlite3_errmsg(db));
         return false;
     }
 
     return sqlite3_column_int64(stmt.get(), 0) > 0;
 }
 
-bool Database::markAsNotified(const std::string_view entityType, const std::string_view entityId) const
+bool Database::markAsNotified(const std::string_view entityType, const long long entityId) const
 {
     const std::string sql = "INSERT OR IGNORE INTO notifications (entity_type, entity_id) VALUES (?, ?)";
     sqlite3_stmt* raw_stmt = nullptr;
@@ -144,12 +144,12 @@ bool Database::markAsNotified(const std::string_view entityType, const std::stri
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
     sqlite3_bind_text(stmt.get(), 1, entityType.data(), -1,SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt.get(), 2, entityId.data(), -1,SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt.get(), 2, entityId);
 
     if (sqlite3_step(stmt.get()) != SQLITE_DONE)
     {
         spdlog::error("[DB] Failed to insert notification {} - {}: {}", entityType, entityId,
-                                                                                            sqlite3_errmsg(db));
+                      sqlite3_errmsg(db));
         return false;
     }
 

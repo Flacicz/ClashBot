@@ -50,8 +50,7 @@ SyncResult ClanwarService::updateData(std::string_view tag)
                                                     {
                                                         warId, clanwar.state, clans,
                                                         missedAllAttacks, missedOneAttack, noMirror
-                                                    },
-                                                    std::to_string(warId));
+                                                    }, warId);
     }
     catch (const std::exception& e)
     {
