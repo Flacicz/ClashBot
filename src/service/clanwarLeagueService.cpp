@@ -56,13 +56,12 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
         std::vector<ClanwarReportData> leagueRoundsReports;
         leagueRoundsReports.reserve(warDetails.size());
 
-        for (const auto& [war, clans, attacks] : warDetails)
+        for (const auto& [war, clans, attacks, members] : warDetails)
         {
-            auto [warId, homeId, oppId] = db.war().saveCompleteClanwarData(war, clans, attacks);
+            auto [warId, homeId, oppId] = db.war().saveCompleteClanwarData(war, clans, attacks, members);
             if (warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
 
             const auto missedAllAttacks = db.war().getSlackersWithNoAttacks(warId, homeId);
-            const auto missedOneAttack = db.war().getSlackersWithOneAttack(warId, homeId);
             const auto noMirror = db.war().getPlayersWithNotMirrorAttack(warId, homeId);
 
             leagueRoundsReports.push_back(ClanwarReportData{
@@ -70,16 +69,25 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
                 .state = war.state,
                 .clanwars = clans,
                 .missedAllAttacks = missedAllAttacks,
-                .missedOneAttack = missedOneAttack,
                 .notMirror = noMirror
             });
         }
 
         tx.commit();
 
+        long long activeReportWarId = 0;
+        for (const auto& report : leagueRoundsReports)
+        {
+            if (report.state == "warEnded" && !db.isNotified(getServiceName(), report.clanwarId))
+            {
+                activeReportWarId = report.clanwarId;
+                break;
+            }
+        }
+
         return SyncResult::successWithClanwarsLeagueReport(getServiceName(), std::string(tag),
                                                            {lastCWLId, std::string(tag), leagueRoundsReports},
-                                                           lastCWLId);
+                                                           activeReportWarId);
     }
     catch (const std::exception& e)
     {

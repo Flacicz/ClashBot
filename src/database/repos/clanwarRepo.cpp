@@ -207,23 +207,6 @@ bool ClanwarRepo::insertSingleClanwarMembers(const long long clanwarId, const lo
 
 InsertedWarResult ClanwarRepo::saveCompleteClanwarData(const Clanwar& war,
                                                        const std::pair<ClanwarClan, ClanwarClan>& clans,
-                                                       const std::vector<ClanwarAttack>& attacks) const
-{
-    const long long warId = insertSingleClanwarInfo(war);
-    if (warId == -1) return {-1, -1, -1};
-
-    const long long homeId = insertSingleClanwarDetails(warId, clans.first);
-    const long long oppId = insertSingleClanwarDetails(warId, clans.second);
-    if (homeId == -1 || oppId == -1) return {-1, -1, -1};
-
-    if (!insertSingleClanwarAttacks(warId, homeId, oppId, attacks))
-        return {-1, -1, -1};
-
-    return {warId, homeId, oppId};
-}
-
-InsertedWarResult ClanwarRepo::saveCompleteClanwarData(const Clanwar& war,
-                                                       const std::pair<ClanwarClan, ClanwarClan>& clans,
                                                        const std::vector<ClanwarAttack>& attacks,
                                                        const std::pair<
                                                            std::vector<ClanwarMember>, std::vector<ClanwarMember>>&

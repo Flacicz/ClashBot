@@ -237,18 +237,11 @@ struct ClanwarsLeagueMember
     static std::vector<ClanwarsLeagueMember> parseClanwarsLeagueMembers(const nlohmann::json& j);
 };
 
-struct ClanwarsLeagueWarDetails
-{
-    Clanwar war;
-    std::pair<ClanwarClan, ClanwarClan> clans;
-    std::vector<ClanwarAttack> attacks;
-};
-
 struct CompleteClanwarsLeagueData
 {
     ClanwarsLeagueSeason clanwarsLeagueSeason;
     std::vector<ClanwarsLeagueMember> clanwarsLeagueMembers;
-    std::vector<ClanwarsLeagueWarDetails> warDetails;
+    std::vector<CompleteClanwarData> warDetails;
 };
 
 enum class LeagueFetchStatus

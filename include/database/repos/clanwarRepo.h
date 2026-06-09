@@ -21,9 +21,6 @@ public:
 
     [[nodiscard]] InsertedWarResult saveCompleteClanwarData(const Clanwar& war,
                                                             const std::pair<ClanwarClan, ClanwarClan>& clans,
-                                                            const std::vector<ClanwarAttack>& attacks) const;
-    [[nodiscard]] InsertedWarResult saveCompleteClanwarData(const Clanwar& war,
-                                                            const std::pair<ClanwarClan, ClanwarClan>& clans,
                                                             const std::vector<ClanwarAttack>& attacks,
                                                             const std::pair<
                                                                 std::vector<ClanwarMember>, std::vector<ClanwarMember>>&

@@ -217,13 +217,13 @@ ClanwarsLeagueFetchResult APIClient::getCompleteClanwarsLeagueData(const std::st
     return {LeagueFetchStatus::Success, std::move(completeClanwarsLeagueData)};
 }
 
-std::vector<ClanwarsLeagueWarDetails> APIClient::getLeagueClanwarRoundsInfo(
+std::vector<CompleteClanwarData> APIClient::getLeagueClanwarRoundsInfo(
     const nlohmann::json& parsed, const std::string_view clanTag) const
 {
     if (!parsed.contains("rounds") || !parsed["rounds"].is_array()) return {};
 
     const auto targetClanTag = std::string(clanTag);
-    std::vector<ClanwarsLeagueWarDetails> cwlWarDetails;
+    std::vector<CompleteClanwarData> cwlWarDetails;
 
     for (const auto& round : parsed["rounds"])
     {
@@ -237,7 +237,7 @@ std::vector<ClanwarsLeagueWarDetails> APIClient::getLeagueClanwarRoundsInfo(
             nlohmann::json warParsed;
             try
             {
-                warParsed = fetchJson("/clanwarleagues/wars/" + warTag);
+                warParsed = fetchJson("/clanwarleagues/wars/" + utils::transformTag(warTag));
             }
             catch (const std::exception& e)
             {
@@ -250,13 +250,28 @@ std::vector<ClanwarsLeagueWarDetails> APIClient::getLeagueClanwarRoundsInfo(
 
             if (targetClanTag == attackerTag || targetClanTag == defenderTag)
             {
-                ClanwarsLeagueWarDetails details;
-                details.war = Clanwar::fromJson(warParsed, WarType::CWL, targetClanTag);
+                CompleteClanwarData details;
+                details.clanwar = Clanwar::fromJson(warParsed, WarType::CWL, targetClanTag);
 
-                if (warParsed.contains("clan"))
-                    details.clans.first = ClanwarClan::fromJson(warParsed["clan"], ClanType::Home);
-                if (warParsed.contains("opponent"))
-                    details.clans.second = ClanwarClan::fromJson(warParsed["opponent"], ClanType::Opponent);
+                if (warParsed.contains("clan") && warParsed.contains("opponent"))
+                {
+                    if (attackerTag == targetClanTag)
+                    {
+                        details.clans.first = ClanwarClan::fromJson(warParsed["clan"], ClanType::Home);
+                        details.clans.second = ClanwarClan::fromJson(warParsed["opponent"], ClanType::Opponent);
+
+                        details.members.first = ClanwarMember::parseClanwarMembers(warParsed["clan"]);
+                        details.members.second = ClanwarMember::parseClanwarMembers(warParsed["opponent"]);
+                    }
+                    else
+                    {
+                        details.clans.first = ClanwarClan::fromJson(warParsed["opponent"], ClanType::Home);
+                        details.clans.second = ClanwarClan::fromJson(warParsed["clan"], ClanType::Opponent);
+
+                        details.members.first = ClanwarMember::parseClanwarMembers(warParsed["opponent"]);
+                        details.members.second = ClanwarMember::parseClanwarMembers(warParsed["clan"]);
+                    }
+                }
 
                 details.attacks = ClanwarAttack::parseAttacksList(warParsed);
 

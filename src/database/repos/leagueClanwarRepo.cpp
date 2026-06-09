@@ -13,8 +13,10 @@ long long LeagueClanwarRepo::insertOrUpdateSingleCWLSeason(const ClanwarsLeagueS
     sqlite3_stmt* raw_stmt = nullptr;
 
     const std::string sql = R"(
-        INSERT INTO cwl_seasons(clan_tag, seasons_id)
+        INSERT INTO cwl_seasons(clan_tag, season_id)
         VALUES (?, ?)
+        ON CONFLICT(clan_tag, season_id) DO UPDATE SET season_id = excluded.season_id
+        RETURNING cwl_season_id;
     )";
 
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
@@ -29,24 +31,24 @@ long long LeagueClanwarRepo::insertOrUpdateSingleCWLSeason(const ClanwarsLeagueS
     sqlite3_bind_text(stmt.get(), 1, season.clanTag.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt.get(), 2, season.seasonId.c_str(), -1, SQLITE_TRANSIENT);
 
-    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
     {
-        spdlog::error("[ClanwarsLeagueRepo] Failed to insert raid {}: {}", season.clanTag, sqlite3_errmsg(db));
+        spdlog::error("[ClanwarsLeagueRepo] Failed to insert cwl season {}: {}", season.clanTag, sqlite3_errmsg(db));
         return -1;
     }
 
-    return sqlite3_last_insert_rowid(db);
+    return sqlite3_column_int64(stmt.get(), 0);
 }
 
 bool LeagueClanwarRepo::insertOrUpdateSingleCWLMembers(const long long lastSeasonId,
-                                                      const std::vector<ClanwarsLeagueMember>& members) const
+                                                       const std::vector<ClanwarsLeagueMember>& members) const
 {
     if (members.empty()) return false;
 
     sqlite3_stmt* raw_stmt = nullptr;
 
     const std::string sql = R"(
-        INSERT INTO cwl_season_members(
+        INSERT OR IGNORE INTO cwl_season_members(
             cwl_season_id, season_id, clan_tag, player_tag, player_name,
             townhall_level
         )
@@ -62,7 +64,8 @@ bool LeagueClanwarRepo::insertOrUpdateSingleCWLMembers(const long long lastSeaso
 
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
-    for (const auto& [playerTag, playerName, townhallLevel, clanTag, seasonId] : members) {
+    for (const auto& [playerTag, playerName, townhallLevel, clanTag, seasonId] : members)
+    {
         sqlite3_bind_int64(stmt.get(), 1, lastSeasonId);
         sqlite3_bind_text(stmt.get(), 2, seasonId.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt.get(), 3, clanTag.c_str(), -1, SQLITE_TRANSIENT);
@@ -72,7 +75,7 @@ bool LeagueClanwarRepo::insertOrUpdateSingleCWLMembers(const long long lastSeaso
 
         if (sqlite3_step(stmt.get()) != SQLITE_DONE)
         {
-            spdlog::error("[ClanwarsLeagueRepo] Failed to insert raid {}: {}", lastSeasonId, sqlite3_errmsg(db));
+            spdlog::error("[ClanwarsLeagueRepo] Failed to insert cwl members {}: {}", lastSeasonId, sqlite3_errmsg(db));
             return false;
         }
 
@@ -83,7 +86,7 @@ bool LeagueClanwarRepo::insertOrUpdateSingleCWLMembers(const long long lastSeaso
 }
 
 long long LeagueClanwarRepo::saveCompleteCWLData(const ClanwarsLeagueSeason& season,
-                                           const std::vector<ClanwarsLeagueMember>& members) const
+                                                 const std::vector<ClanwarsLeagueMember>& members) const
 {
     const long long lastCWLId = insertOrUpdateSingleCWLSeason(season);
     if (lastCWLId == -1) return -1;

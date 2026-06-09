@@ -29,6 +29,6 @@ public:
 
     [[nodiscard]] ClanwarsLeagueFetchResult getCompleteClanwarsLeagueData(
         std::string_view clanTag) const;
-    [[nodiscard]] std::vector<ClanwarsLeagueWarDetails> getLeagueClanwarRoundsInfo(
+    [[nodiscard]] std::vector<CompleteClanwarData> getLeagueClanwarRoundsInfo(
         const nlohmann::json& parsed, std::string_view clanTag) const;
 };
