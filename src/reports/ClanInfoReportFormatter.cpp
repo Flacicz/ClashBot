@@ -1,4 +1,5 @@
 #include <reports/ClanInfoReportFormatter.h>
+#include "database/database.h"
 
 #include "spdlog/fmt/bundled/compile.h"
 
@@ -41,4 +42,8 @@ std::string ClanInfoReportFormatter::format(const SyncResult& result)
     }
 
     return message;
+}
+
+void ClanInfoReportFormatter::onNotificationSent(const SyncResult& result, const Database& db) const
+{
 }

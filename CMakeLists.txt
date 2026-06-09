@@ -61,7 +61,6 @@ add_executable(${PROJECT_NAME}
 		src/reports/ClanwarLeagueReportFormatter.cpp
 		src/database/migratorManager.cpp
 		src/common/TimeParser.cpp
-		include/reports/ClanInfoReportFormatter.h
 		src/reports/ClanInfoReportFormatter.cpp
 )
 

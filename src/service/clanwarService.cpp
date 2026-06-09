@@ -22,16 +22,31 @@ SyncResult ClanwarService::updateData(std::string_view tag)
     auto svc = "CW";
     spdlog::info("[Service: {}] Starting Clan War data update for {}", svc, tag);
 
-    const auto optClanwarData = apiClient.getCompleteClanwarData(tag);
+    const auto [status, completeData, errorMsg] = apiClient.getCompleteClanwarData(tag);
 
-    if (!optClanwarData.has_value())
+    if (status == ClanwarFetchStatus::Error)
     {
-        spdlog::info("[Service: {}] War is not active for {}", svc, tag);
-        return SyncResult::error(getServiceName(), std::string(tag),
-                                 fmt::format("[Service: {}] War is not active for {}", svc, tag));
+        std::string detailedError = fmt::format("[Service: {}] Technical error fetching CW data for {}: {}",
+                                                svc, tag, errorMsg);
+        spdlog::error(detailedError);
+        return SyncResult::error(getServiceName(), std::string(tag), std::move(detailedError));
     }
 
-    const auto& [clanwar, clans, attacks, members] = optClanwarData.value();
+    if (status == ClanwarFetchStatus::NoActiveWar)
+    {
+        spdlog::info("[Service: {}] CW is not active for {}", svc, tag);
+        return SyncResult::success(getServiceName(), std::string(tag));
+    }
+
+    if (!completeData.has_value())
+    {
+        std::string criticalError = fmt::format(
+            "[Service: {}] Critical: Fetch status is Success, but data is empty for {}", svc, tag);
+        spdlog::critical(criticalError);
+        return SyncResult::error(getServiceName(), std::string(tag), std::move(criticalError));
+    }
+
+    const auto& [clanwar, clans, attacks, members] = completeData.value();
 
     try
     {

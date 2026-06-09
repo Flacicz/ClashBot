@@ -204,6 +204,20 @@ struct InsertedWarResult {
     long long opponentClanId;
 };
 
+enum class ClanwarFetchStatus
+{
+    Success,
+    NoActiveWar,
+    Error
+};
+
+struct ClanwarsFetchResult
+{
+    ClanwarFetchStatus status;
+    std::optional<CompleteClanwarData> clanwarData;
+    std::string errorMsg;
+};
+
 struct ClanwarsLeagueSeason
 {
     std::string clanTag;

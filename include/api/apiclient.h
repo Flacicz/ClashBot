@@ -25,7 +25,7 @@ public:
 
     [[nodiscard]] std::optional<CompleteRaidData> getCompleteRaidData(std::string_view clanTag) const;
 
-    [[nodiscard]] std::optional<CompleteClanwarData> getCompleteClanwarData(std::string_view clanTag) const;
+    [[nodiscard]] ClanwarsFetchResult getCompleteClanwarData(std::string_view clanTag) const;
 
     [[nodiscard]] ClanwarsLeagueFetchResult getCompleteClanwarsLeagueData(
         std::string_view clanTag) const;
