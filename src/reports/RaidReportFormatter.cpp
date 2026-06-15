@@ -35,7 +35,7 @@ std::string RaidReportFormatter::format(const SyncResult& result)
     {
         if (constexpr int MAX_ATTACKS = 6; slacker.attacksCount > 0 && slacker.attacksCount < MAX_ATTACKS)
         {
-            incompleteAttacks << "➖ " << slacker.playerName << " [" << slacker.attacksCount << "/6]\n";
+            incompleteAttacks << "• " << slacker.playerName << " [" << slacker.attacksCount << "/6]\n";
             hasAnyProblems = true;
         }
     }
@@ -45,26 +45,26 @@ std::string RaidReportFormatter::format(const SyncResult& result)
     {
         if (slacker.attacksCount == 0)
         {
-            noAttacks << "❌ " << slacker.playerName << "\n";
+            noAttacks << "• " << slacker.playerName << "\n";
             hasAnyProblems = true;
         }
     }
 
     if (!hasAnyProblems)
     {
-        report << "✅ <b>Все участники отбили 6/6 атак!</b>\n";
+        report << "✅ <b>Все участники сделали 6/6 атак!</b>\n";
         report << "<i>Отличная работа!</i>";
         return report.str();
     }
 
     if (!incompleteAttacks.str().empty())
     {
-        report << "⚠️ <b>Не добили атаки:</b>\n" << incompleteAttacks.str() << "\n";
+        report << "⚠️ <b>Не доделали атаки:</b>\n" << incompleteAttacks.str() << "\n";
     }
 
     if (!noAttacks.str().empty())
     {
-        report << "🚫 <b>Вообще не били:</b>\n" << noAttacks.str();
+        report << "🚫 <b>Вообще не сделали атаки:</b>\n" << noAttacks.str();
     }
 
     return report.str();

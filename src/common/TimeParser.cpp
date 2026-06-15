@@ -27,8 +27,8 @@ long long utils::parseISOToUnix(const std::string_view iso)
     if (ss.fail()) return 0;
 
     // Конвертируем std::tm в time_t (Unix timestamp)
-    std::time_t tt = std::mktime(&tm);
+    const std::time_t tt = std::mktime(&tm);
     if (tt == -1) return 0;
 
-    return static_cast<long long>(tt);
+    return tt;
 }

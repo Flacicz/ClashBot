@@ -31,6 +31,8 @@ std::string ClanwarReportFormatter::format(const SyncResult& result)
         "</code>)\n";
 
     report << "Счет: ⭐️ " << reportData.clanwars.first.stars << " - " << reportData.clanwars.second.stars << " ⭐️\n\n";
+    report << "Разрушение: 💥 " << fmt::format("{:.2f}%", reportData.clanwars.first.destructionPercentage)
+            << " - " << fmt::format("{:.2f}%", reportData.clanwars.second.destructionPercentage) << "\n\n";
 
     if (slackersWithNoAttacks.empty() && slackersWithOneAttack.empty() && notMirror.empty())
     {
@@ -45,21 +47,21 @@ std::string ClanwarReportFormatter::format(const SyncResult& result)
 
     for (const auto& [playerTag, playerName] : slackersWithNoAttacks)
     {
-        missedAll << "🔹 " << playerName << " [0/2]\n";
+        missedAll << "• " << playerName << " [0/2]\n";
     }
 
     for (const auto& [playerTag, playerName] : slackersWithOneAttack)
     {
-        missedOne << "🔹 " << playerName << " [1/2]\n";
+        missedOne << "• " << playerName << " [1/2]\n";
     }
 
     for (const auto& [playerTag, playerName] : notMirror)
     {
-        wrongTarget << "🔹 " << playerName << "\n";
+        wrongTarget << "• " << playerName << "\n";
     }
 
     // Формирование итогового отчета
-    report << "📊 <b>НАРУШИТЕЛИ ПО ИТОГАМ ВОЙНЫ:</b>\n";
+    report << "<b>НАРУШИТЕЛИ ПО ИТОГАМ ВОЙНЫ:</b>\n";
 
     if (!missedAll.str().empty())
     {
@@ -68,7 +70,7 @@ std::string ClanwarReportFormatter::format(const SyncResult& result)
 
     if (!missedOne.str().empty())
     {
-        report << "\n🟡 <b>Не использовали второй шанс:</b>\n" << missedOne.str();
+        report << "\n🟡 <b>Не использовали вторую атаку:</b>\n" << missedOne.str();
     }
 
     if (!wrongTarget.str().empty())

@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <string>
 
+#include "spdlog/fmt/bundled/chrono.h"
+
 namespace utils
 {
     inline void normalizeTag(std::string& tag)
@@ -27,7 +29,7 @@ namespace utils
 
     inline std::string getCurrentDateString() {
         const auto now = std::chrono::system_clock::now();
-        return std::format("{:%Y-%m-%d}", now);
+        return fmt::format("{:%Y-%m-%d}", fmt::localtime(now));
     }
 }
 

@@ -1,5 +1,9 @@
 #include "reports/ClanwarLeagueReportFormatter.h"
 
+#include <sstream>
+#include <variant>
+#include <algorithm>
+
 #include "database/database.h"
 #include "spdlog/spdlog.h"
 
@@ -15,13 +19,8 @@ bool ClanwarLeagueReportFormatter::shouldNotify(const SyncResult& result, const 
     return !db.isNotified(result.serviceName, result.reportEntityId);
 }
 
-#include <sstream>
-#include <variant>
-#include <algorithm>
-
 std::string ClanwarLeagueReportFormatter::format(const SyncResult& result)
 {
-    // 1. Извлекаем общие данные ЛВК из Варианта
     const auto& leagueData = std::get<ClanwarsLeagueReportData>(result.reportData);
 
     // 2. Ищем в векторе раундов именно ту войну, которая завершилась прямо сейчас (по ее id)
@@ -65,15 +64,15 @@ std::string ClanwarLeagueReportFormatter::format(const SyncResult& result)
 
     for (const auto& [playerTag, playerName] : slackers)
     {
-        missedAttack << "🔹 " << playerName << " [0/1]\n";
+        missedAttack << "• " << playerName << " [0/1]\n";
     }
 
     for (const auto& [playerTag, playerName] : notMirror)
     {
-        wrongTarget << "🔹 " << playerName << "\n";
+        wrongTarget << "• " << playerName << "\n";
     }
 
-    report << "📊 <b>НАРУШИТЕЛИ РАУНДА:</b>\n";
+    report << "<b>НАРУШИТЕЛИ РАУНДА:</b>\n";
 
     if (!missedAttack.str().empty())
     {

@@ -331,8 +331,8 @@ std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack(const lon
             WHERE war_id = ? AND attacker_war_clan_id = ?
         )
         SELECT
-            wm.player_name,
-            wm.player_tag
+            wm.player_tag,
+            wm.player_name
         FROM war_members wm
         JOIN ranked_attacks ra
             ON wm.war_id = ra.war_id

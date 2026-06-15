@@ -24,7 +24,7 @@ std::string ClanInfoReportFormatter::format(const SyncResult& result)
 
     if (!snd.empty())
     {
-        message += "➕ <b>Пришли в клан:</b>\n";
+        message += "<b>Пришли в клан:</b>\n";
         for (const auto& player : snd)
         {
             message += fmt::format("• {} (<code>{}</code>)\n", player.name, player.tag);
@@ -34,7 +34,7 @@ std::string ClanInfoReportFormatter::format(const SyncResult& result)
 
     if (!fst.empty())
     {
-        message += "➖ <b>Покинули клан:</b>\n";
+        message += "<b>Покинули клан:</b>\n";
         for (const auto& player : fst)
         {
             message += fmt::format("• {} (<code>{}</code>)\n", player.name, player.tag);
