@@ -7,7 +7,7 @@
 #include "database/database.h"
 #include "spdlog/spdlog.h"
 
-bool ClanwarLeagueReportFormatter::shouldNotify(const SyncResult& result, const Database& db) const
+bool ClanwarLeagueReportFormatter::shouldNotify(const SyncResult& result, const Database& db, long long chatId) const
 {
     if (!result.hasReportData()) return false;
 
@@ -16,7 +16,7 @@ bool ClanwarLeagueReportFormatter::shouldNotify(const SyncResult& result, const 
         return false;
     }
 
-    return !db.isNotified(result.serviceName, result.reportEntityId);
+    return !db.isNotified(result.serviceName, result.reportEntityId, chatId);
 }
 
 std::string ClanwarLeagueReportFormatter::format(const SyncResult& result)
@@ -87,9 +87,10 @@ std::string ClanwarLeagueReportFormatter::format(const SyncResult& result)
     return report.str();
 }
 
-void ClanwarLeagueReportFormatter::onNotificationSent(const SyncResult& result, const Database& db) const
+void ClanwarLeagueReportFormatter::onNotificationSent(const SyncResult& result, const Database& db,
+                                                      const long long chatId) const
 {
-    if (!db.markAsNotified(result.serviceName, result.reportEntityId))
+    if (!db.markAsNotified(result.serviceName, result.reportEntityId, chatId))
     {
         spdlog::error("[CWLFormatter] Failed to mark war {} as notified", result.reportEntityId);
     }

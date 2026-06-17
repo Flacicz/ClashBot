@@ -47,14 +47,14 @@ void ClanManager::handleSyncFailure(const SyncResult& syncResult)
     }
 }
 
-void ClanManager::handleSyncRecovery(const std::string& serviceName, const std::string& clanTag)
+void ClanManager::handleSyncRecovery(const SyncResult& syncResult)
 {
-    const std::string trackingKey = serviceName + "_" + clanTag;
+    const std::string trackingKey = syncResult.serviceName + "_" + syncResult.clanTag;
     auto& [consecutiveFailures, alertSent] = trackingStatuses[trackingKey];
 
     if (alertSent)
     {
-        notificationService->sendRecoveryAlert(serviceName, clanTag);
+        notificationService->sendRecoveryAlert(syncResult);
     }
 
     consecutiveFailures = 0;
@@ -85,7 +85,7 @@ void ClanManager::syncAll()
                         continue;
                     }
 
-                    handleSyncRecovery(service->getServiceName(), result.clanTag);
+                    handleSyncRecovery(result);
                     notificationService->handle(result);
                 }
                 catch (const std::exception& e)

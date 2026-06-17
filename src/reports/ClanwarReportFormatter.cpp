@@ -5,7 +5,7 @@
 #include "database/database.h"
 #include "spdlog/spdlog.h"
 
-bool ClanwarReportFormatter::shouldNotify(const SyncResult& result, const Database& db) const
+bool ClanwarReportFormatter::shouldNotify(const SyncResult& result, const Database& db, long long chatId) const
 {
     if (!result.hasReportData()) return false;
 
@@ -14,7 +14,7 @@ bool ClanwarReportFormatter::shouldNotify(const SyncResult& result, const Databa
         return false;
     }
 
-    return !db.isNotified(result.serviceName, result.reportEntityId);
+    return !db.isNotified(result.serviceName, result.reportEntityId, chatId);
 }
 
 std::string ClanwarReportFormatter::format(const SyncResult& result)
@@ -32,7 +32,7 @@ std::string ClanwarReportFormatter::format(const SyncResult& result)
 
     report << "Счет: ⭐️ " << reportData.clanwars.first.stars << " - " << reportData.clanwars.second.stars << " ⭐️\n\n";
     report << "Разрушение: 💥 " << fmt::format("{:.2f}%", reportData.clanwars.first.destructionPercentage)
-            << " - " << fmt::format("{:.2f}%", reportData.clanwars.second.destructionPercentage) << "\n\n";
+        << " - " << fmt::format("{:.2f}%", reportData.clanwars.second.destructionPercentage) << "\n\n";
 
     if (slackersWithNoAttacks.empty() && slackersWithOneAttack.empty() && notMirror.empty())
     {
@@ -81,9 +81,9 @@ std::string ClanwarReportFormatter::format(const SyncResult& result)
     return report.str();
 }
 
-void ClanwarReportFormatter::onNotificationSent(const SyncResult& result, const Database& db) const
+void ClanwarReportFormatter::onNotificationSent(const SyncResult& result, const Database& db, long long chatId) const
 {
-    if (!db.markAsNotified(result.serviceName, result.reportEntityId))
+    if (!db.markAsNotified(result.serviceName, result.reportEntityId, chatId))
     {
         spdlog::error("[RaidFormatter] Failed to mark raid {} as notified", result.reportEntityId);
     }

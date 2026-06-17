@@ -8,6 +8,35 @@ ClansRepo::ClansRepo(sqlite3* db) : db(db)
 {
 }
 
+std::vector<std::string> ClansRepo::getTrackedClans() const
+{
+    std::vector<std::string> trackedClans;
+    sqlite3_stmt* raw_stmt = nullptr;
+
+    const std::string sql = R"(
+        SELECT tag
+        FROM clans;
+    )";
+
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClansRepo] Failed to prepare insertOrUpdateClanInfo statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
+    }
+
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    while (sqlite3_step(stmt.get()) == SQLITE_ROW)
+    {
+        const auto raw_tag = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 0));
+
+        trackedClans.emplace_back(raw_tag);
+    }
+
+    return trackedClans;
+}
+
 bool ClansRepo::insertOrUpdateClanInfo(const Clan& clan) const
 {
     sqlite3_stmt* raw_stmt = nullptr;

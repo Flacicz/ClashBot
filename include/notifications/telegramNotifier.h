@@ -3,11 +3,9 @@
 #include <string>
 
 class TelegramNotifier {
-private:
     std::string botToken;
-    std::string chatId;
 public:
-    TelegramNotifier(std::string  token, std::string  chatId);
+    explicit TelegramNotifier(std::string  token);
 
-    bool sendMessage(const std::string& message);
+    [[nodiscard]] bool sendMessage(const std::string& message, long long chatId) const;
 };

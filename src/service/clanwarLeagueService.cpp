@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 
+#include "common/StringUtils.h"
 #include "database/TransactionGuard.h"
 
 ClanwarLeagueService::ClanwarLeagueService(Database& db,
@@ -75,14 +76,20 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
 
         tx.commit();
 
+        const auto chatIds = db.subscriptions().getChatIdsForClan(utils::normalizedTag(tag));
         long long activeReportWarId = 0;
         for (const auto& report : leagueRoundsReports)
         {
-            if (report.state == "warEnded" && !db.isNotified(getServiceName(), report.clanwarId))
+            for (const auto& chatId : chatIds)
             {
-                activeReportWarId = report.clanwarId;
-                break;
+                if (report.state == "warEnded" && !db.isNotified(getServiceName(), report.clanwarId, chatId))
+                {
+                    activeReportWarId = report.clanwarId;
+                    break;
+                }
             }
+
+            if (activeReportWarId != 0) break;
         }
 
         return SyncResult::successWithClanwarsLeagueReport(getServiceName(), std::string(tag),

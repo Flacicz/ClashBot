@@ -62,6 +62,8 @@ add_executable(${PROJECT_NAME}
 		src/database/migratorManager.cpp
 		src/common/TimeParser.cpp
 		src/reports/ClanInfoReportFormatter.cpp
+		include/database/repos/SubscriptionRepo.h
+		src/database/repos/SubscriptionRepo.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

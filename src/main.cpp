@@ -95,12 +95,15 @@ int main(const int argc, char* argv[])
 
         AppConfig config = loadConfig(configPath);
 
-        spdlog::info("[Main] Configuration loaded from '{}'. Target clans: {}", configPath,
-                     config.defaultClanTags.size());
+        spdlog::info("[Main] Configuration loaded from '{}'.", configPath);
 
         const auto apiClient = std::make_shared<APIClient>(config.supercellToken, config.useTunnel, config.baseUrl,
                                                            config.tunnelBaseUrl);
         const auto db = std::make_shared<Database>(config.databasePath);
+
+        const auto targetClans = db->clans().getTrackedClans();
+
+        spdlog::info("[Main] Target clans: {}", targetClans.size());
 
         if (const auto migratorManager = std::make_unique<MigratorManager>(*db); !migratorManager->migrate(
             config.migrationPath))
@@ -115,7 +118,7 @@ int main(const int argc, char* argv[])
         formatters["ClanwarService"] = std::make_unique<ClanwarReportFormatter>();
         formatters["ClanwarLeagueService"] = std::make_unique<ClanwarLeagueReportFormatter>();
 
-        auto telegramNotifier = std::make_unique<TelegramNotifier>(config.telegramToken, config.telegramChatId);
+        auto telegramNotifier = std::make_unique<TelegramNotifier>(config.telegramToken);
         auto notificationService = std::make_unique<NotificationService>(
             *db, std::move(telegramNotifier), std::move(formatters));
 
@@ -125,7 +128,7 @@ int main(const int argc, char* argv[])
         services.push_back(std::make_unique<RaidService>(*db, *apiClient));
         services.push_back(std::make_unique<ClanwarLeagueService>(*db, *apiClient));
         ClanManager clanManager(*db, *apiClient, std::move(notificationService),
-                                std::move(services), config.defaultClanTags);
+                                std::move(services), targetClans);
 
         std::thread syncThread([&clanManager]
         {

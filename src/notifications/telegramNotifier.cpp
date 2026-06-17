@@ -6,13 +6,13 @@
 #include <nlohmann/json_fwd.hpp>
 #include <spdlog/spdlog.h>
 
-TelegramNotifier::TelegramNotifier(std::string  token, std::string  chatId)
-	: botToken(std::move(token)), chatId(std::move(chatId)) {}
+TelegramNotifier::TelegramNotifier(std::string  token)
+	: botToken(std::move(token)) {}
 
-bool TelegramNotifier::sendMessage(const std::string& message)
+bool TelegramNotifier::sendMessage(const std::string& message, long long chatId) const
 {
-	if (botToken.empty() || chatId.empty()) {
-		spdlog::warn("[Telegram] Token or Chat ID is empty. Message not sent.");
+	if (botToken.empty()) {
+		spdlog::warn("[Telegram] Token is empty. Message not sent.");
 		return false;
 	}
 

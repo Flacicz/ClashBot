@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include "database/sqliteHelpers.h"
+#include "database/repos/SubscriptionRepo.h"
 
 Database::Database(const std::string& path) : pathToDb(path)
 {
@@ -38,6 +39,7 @@ Database::Database(const std::string& path) : pathToDb(path)
     raidRepo = std::make_unique<RaidRepo>(db);
     cwRepo = std::make_unique<ClanwarRepo>(db);
     cwlRepo = std::make_unique<LeagueClanwarRepo>(db);
+    subscriptionRepo = std::make_unique<SubscriptionRepo>(db);
 }
 
 Database::~Database()
@@ -102,9 +104,10 @@ Database::QueryResult Database::query(std::string_view sql) const
     return result;
 }
 
-bool Database::isNotified(const std::string_view entityType, const long long entityId) const
+bool Database::isNotified(const std::string_view entityType, const long long entityId, long long chatId) const
 {
-    const std::string sql = "SELECT COUNT(*) FROM notifications WHERE entity_type = ? AND entity_id = ?";
+    const std::string sql =
+        "SELECT COUNT(*) FROM notifications WHERE entity_type = ? AND entity_id = ? AND chat_id = ?";
     sqlite3_stmt* raw_stmt = nullptr;
 
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
@@ -118,20 +121,21 @@ bool Database::isNotified(const std::string_view entityType, const long long ent
 
     sqlite3_bind_text(stmt.get(), 1, entityType.data(), -1,SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt.get(), 2, entityId);
+    sqlite3_bind_int64(stmt.get(), 3, chatId);
 
     if (sqlite3_step(stmt.get()) != SQLITE_ROW)
     {
-        spdlog::error("[DB] Failed to select from notification {} - {}: {}", entityType, entityId,
-                      sqlite3_errmsg(db));
+        spdlog::error("[DB] Failed to select from notification {} - {} with chat id - {}: {}", entityType, entityId,
+                      chatId, sqlite3_errmsg(db));
         return false;
     }
 
     return sqlite3_column_int64(stmt.get(), 0) > 0;
 }
 
-bool Database::markAsNotified(const std::string_view entityType, const long long entityId) const
+bool Database::markAsNotified(const std::string_view entityType, const long long entityId, long long chatId) const
 {
-    const std::string sql = "INSERT OR IGNORE INTO notifications (entity_type, entity_id) VALUES (?, ?)";
+    const std::string sql = "INSERT OR IGNORE INTO notifications (entity_type, entity_id, chat_id) VALUES (?, ?, ?)";
     sqlite3_stmt* raw_stmt = nullptr;
 
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
@@ -145,10 +149,11 @@ bool Database::markAsNotified(const std::string_view entityType, const long long
 
     sqlite3_bind_text(stmt.get(), 1, entityType.data(), -1,SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt.get(), 2, entityId);
+    sqlite3_bind_int64(stmt.get(), 3, chatId);
 
     if (sqlite3_step(stmt.get()) != SQLITE_DONE)
     {
-        spdlog::error("[DB] Failed to insert notification {} - {}: {}", entityType, entityId,
+        spdlog::error("[DB] Failed to insert notification {} - {} with chat id - {}: {}", entityType, entityId, chatId,
                       sqlite3_errmsg(db));
         return false;
     }

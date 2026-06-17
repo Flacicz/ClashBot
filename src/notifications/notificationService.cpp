@@ -37,22 +37,47 @@ void NotificationService::handle(const SyncResult& result) const
 {
     const auto& formatter = formatters.at(result.serviceName);
 
-    if (!formatter->shouldNotify(result, db)) return;
+    const auto chatIds = db.subscriptions().getChatIdsForClan(result.clanTag);
 
-    if (const auto msg = formatter->format(result); telegramNotifier->sendMessage(msg))
+    for (const auto& chatId : chatIds)
     {
-        formatter->onNotificationSent(result, db);
+        if (!formatter->shouldNotify(result, db, chatId)) continue;
+
+        const auto report = formatter->format(result);
+
+        if (telegramNotifier->sendMessage(report, chatId))
+        {
+            formatter->onNotificationSent(result, db, chatId);
+        }
     }
 }
 
 void NotificationService::sendFailureAlert(const SyncResult& result) const
 {
+    const auto chatIds = db.subscriptions().getChatIdsForClan(result.clanTag);
     const std::string failureMessage = formatFailureAlert(result);
-    telegramNotifier->sendMessage(failureMessage);
+
+    for (const auto& chatId : chatIds)
+    {
+        if (!telegramNotifier->sendMessage(failureMessage, chatId))
+        {
+            spdlog::error("[NotificationService] Failed to send failure message. Entity ID - {}, Chat ID - {}",
+                          result.reportEntityId, chatId);
+        }
+    }
 }
 
-void NotificationService::sendRecoveryAlert(const std::string& serviceName, const std::string& clanTag) const
+void NotificationService::sendRecoveryAlert(const SyncResult& result) const
 {
-    const std::string recoveryMessage = formatRecoveryAlert(serviceName, clanTag);
-    telegramNotifier->sendMessage(recoveryMessage);
+    const auto chatIds = db.subscriptions().getChatIdsForClan(result.clanTag);
+    const std::string recoveryMessage = formatRecoveryAlert(result.serviceName, result.clanTag);
+
+    for (const auto& chatId : chatIds)
+    {
+        if (!telegramNotifier->sendMessage(recoveryMessage, chatId))
+        {
+            spdlog::error("[NotificationService] Failed to send recovery message. Entity ID - {}, Chat ID - {}",
+                          result.reportEntityId, chatId);
+        }
+    }
 }

@@ -3,7 +3,7 @@
 
 #include "spdlog/fmt/bundled/compile.h"
 
-bool ClanInfoReportFormatter::shouldNotify(const SyncResult& result, const Database& db) const
+bool ClanInfoReportFormatter::shouldNotify(const SyncResult& result, const Database& db, long long chatId) const
 {
     if (!result.hasReportData()) return false;
 
@@ -44,6 +44,6 @@ std::string ClanInfoReportFormatter::format(const SyncResult& result)
     return message;
 }
 
-void ClanInfoReportFormatter::onNotificationSent(const SyncResult& result, const Database& db) const
+void ClanInfoReportFormatter::onNotificationSent(const SyncResult& result, const Database& db, long long chatId) const
 {
 }

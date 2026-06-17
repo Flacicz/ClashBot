@@ -11,6 +11,8 @@ class ClansRepo
 public:
     explicit ClansRepo(sqlite3* db);
 
+    [[nodiscard]] std::vector<std::string> getTrackedClans() const;
+
     [[nodiscard]] bool insertOrUpdateClanInfo(const Clan& clan) const;
     [[nodiscard]] bool insertOrUpdateClanSnapshot(const ClanSnapshot& clanSnapshot) const;
     [[nodiscard]] bool insertOrUpdatePlayersInfo(const std::vector<Player>& players) const;

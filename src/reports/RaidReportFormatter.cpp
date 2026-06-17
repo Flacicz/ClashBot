@@ -5,7 +5,7 @@
 #include "database/database.h"
 #include "spdlog/spdlog.h"
 
-bool RaidReportFormatter::shouldNotify(const SyncResult& result, const Database& db) const
+bool RaidReportFormatter::shouldNotify(const SyncResult& result, const Database& db, const long long chatId) const
 {
     if (!result.hasReportData()) return false;
 
@@ -14,7 +14,7 @@ bool RaidReportFormatter::shouldNotify(const SyncResult& result, const Database&
         return false;
     }
 
-    return !db.isNotified(result.serviceName, result.reportEntityId);
+    return !db.isNotified(result.serviceName, result.reportEntityId, chatId);
 }
 
 std::string RaidReportFormatter::format(const SyncResult& result)
@@ -70,9 +70,9 @@ std::string RaidReportFormatter::format(const SyncResult& result)
     return report.str();
 }
 
-void RaidReportFormatter::onNotificationSent(const SyncResult& result, const Database& db) const
+void RaidReportFormatter::onNotificationSent(const SyncResult& result, const Database& db, long long chatId) const
 {
-    if (!db.markAsNotified(result.serviceName, result.reportEntityId))
+    if (!db.markAsNotified(result.serviceName, result.reportEntityId, chatId))
     {
         spdlog::error("[RaidFormatter] Failed to mark raid {} as notified", result.reportEntityId);
     }

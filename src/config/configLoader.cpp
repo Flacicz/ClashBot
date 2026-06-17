@@ -43,11 +43,7 @@ AppConfig loadConfig(const std::string& path) {
 
     if (j.contains("bot"))
     {
-	    if (j["bot"].contains("default_clan_tags") && j["bot"]["default_clan_tags"].is_array())
-			config.defaultClanTags = j["bot"]["default_clan_tags"].get<std::vector<std::string>>();
-
     	config.telegramToken = j["bot"].value("telegram_token", "");
-    	config.telegramChatId = j["bot"].value("telegram_chat_id", "");
     }
 
     return config;

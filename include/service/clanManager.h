@@ -10,7 +10,8 @@
 
 class ClanManager
 {
-    struct ServiceStatus {
+    struct ServiceStatus
+    {
         int consecutiveFailures = 0;
         bool alertSent = false;
     };
@@ -33,7 +34,7 @@ class ClanManager
 
     static SyncResult syncWithRetry(ISyncService* service, std::string_view clanTag);
     void handleSyncFailure(const SyncResult& syncResult);
-    void handleSyncRecovery(const std::string& serviceName, const std::string& clanTag);
+    void handleSyncRecovery(const SyncResult& syncResult);
 
 public:
     ClanManager(

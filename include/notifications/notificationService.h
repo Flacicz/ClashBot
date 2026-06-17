@@ -23,7 +23,7 @@ public:
     void handle(const SyncResult& result) const;
 
     void sendFailureAlert(const SyncResult& result) const;
-    void sendRecoveryAlert(const std::string& serviceName, const std::string& clanTag) const;
+    void sendRecoveryAlert(const SyncResult& result) const;
 };
 
 

@@ -9,9 +9,9 @@ class IReportFormatter
 public:
     virtual ~IReportFormatter() = default;
 
-    [[nodiscard]] virtual bool shouldNotify(const SyncResult& result, const Database& db) const = 0;
+    [[nodiscard]] virtual bool shouldNotify(const SyncResult& result, const Database& db, long long chatId) const = 0;
     [[nodiscard]] virtual std::string format(const SyncResult& result) = 0;
-    virtual void onNotificationSent(const SyncResult& result, const Database& db) const = 0;
+    virtual void onNotificationSent(const SyncResult& result, const Database& db, long long chatId) const = 0;
 };
 
 
