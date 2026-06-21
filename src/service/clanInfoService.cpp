@@ -3,7 +3,6 @@
 #include <algorithm>
 
 #include "database/TransactionGuard.h"
-#include "common/StringUtils.h"
 
 #include <string_view>
 #include <string>
@@ -21,7 +20,7 @@ std::string ClanInfoService::getServiceName() const
 }
 
 MembershipChanges ClanInfoService::detectMembershipChanges(
-    const std::string& clanTag, std::vector<Player>& players) const
+    const std::string_view clanTag, std::vector<Player>& players) const
 {
     std::vector<Player> activeClanPlayers = db.clans().getActiveMembers(clanTag);
 
@@ -104,8 +103,7 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
             throw std::runtime_error("saveCompleteClanData returned false");
         }
 
-        const std::string normalizedTag = utils::normalizedTag(tag);
-        const auto changes = detectMembershipChanges(normalizedTag, players);
+        const auto changes = detectMembershipChanges(tag, players);
 
         if (!db.clans().saveMembershipChanges(changes))
         {
@@ -115,7 +113,9 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
         auto events = generateEvents(changes);
         syncResult.events = std::move(events);
         syncResult.successFlag = true;
-        syncResult.clanTag = normalizedTag;
+
+        syncResult.serviceName = svc;
+        syncResult.clanTag = tag;
 
         tx.commit();
 

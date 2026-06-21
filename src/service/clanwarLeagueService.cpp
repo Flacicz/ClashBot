@@ -35,7 +35,7 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
     if (status == LeagueFetchStatus::NoActiveLeague)
     {
         spdlog::info("[Service: {}] CWL is not active for {}", svc, tag);
-        return SyncResult::success(getServiceName(), std::string(tag));
+        return {};
     }
 
     if (!completeClanwarsLeagueData.has_value())
@@ -50,51 +50,32 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
 
     try
     {
+        SyncResult syncResult;
+
         TransactionGuard tx(db);
 
         const long long lastCWLId = db.leagueWar().saveCompleteCWLData(clanwarsLeagueSeason, clanwarsLeagueMembers);
 
-        std::vector<ClanwarReportData> leagueRoundsReports;
-        leagueRoundsReports.reserve(warDetails.size());
-
         for (const auto& [war, clans, attacks, members] : warDetails)
         {
-            auto [warId, homeId, oppId] = db.war().saveCompleteClanwarData(war, clans, attacks, members);
-            if (warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
+            auto warResult = db.war().saveCompleteClanwarData(war, clans, attacks, members);
+            if (warResult.warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
 
-            const auto missedAllAttacks = db.war().getSlackersWithNoAttacks(warId, homeId);
-            const auto noMirror = db.war().getPlayersWithNotMirrorAttack(warId, homeId);
-
-            leagueRoundsReports.push_back(ClanwarReportData{
-                .clanwarId = warId,
-                .state = war.state,
-                .clanwars = clans,
-                .missedAllAttacks = missedAllAttacks,
-                .notMirror = noMirror
-            });
+            if (war.state == "ended")
+            {
+                syncResult.events.emplace_back(
+                    ClanwarLeagueRoundEndedEvent(std::string(tag), lastCWLId, warResult)
+                );
+            }
         }
+
+        syncResult.successFlag = true;
+        syncResult.serviceName = svc;
+        syncResult.clanTag = tag;
 
         tx.commit();
 
-        const auto chatIds = db.subscriptions().getChatIdsForClan(utils::normalizedTag(tag));
-        long long activeReportWarId = 0;
-        for (const auto& report : leagueRoundsReports)
-        {
-            for (const auto& chatId : chatIds)
-            {
-                if (report.state == "warEnded" && !db.isNotified(getServiceName(), report.clanwarId, chatId))
-                {
-                    activeReportWarId = report.clanwarId;
-                    break;
-                }
-            }
-
-            if (activeReportWarId != 0) break;
-        }
-
-        return SyncResult::successWithClanwarsLeagueReport(getServiceName(), std::string(tag),
-                                                           {lastCWLId, std::string(tag), leagueRoundsReports},
-                                                           activeReportWarId);
+        return syncResult;
     }
     catch (const std::exception& e)
     {

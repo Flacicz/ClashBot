@@ -17,6 +17,20 @@ std::string ClanwarService::getServiceName() const
     return "ClanwarService";
 }
 
+std::vector<DomainEvent> ClanwarService::generateEvents(const std::string_view clanTag, const std::string& state, InsertedWarResult insertedWarResult)
+{
+    std::vector<DomainEvent> events;
+
+    if (state == "ended")
+    {
+        events.emplace_back(
+            WarEndedEvent(std::string(clanTag), insertedWarResult)
+        );
+    }
+
+    return events;
+}
+
 SyncResult ClanwarService::updateData(std::string_view tag)
 {
     auto svc = "CW";
@@ -35,7 +49,7 @@ SyncResult ClanwarService::updateData(std::string_view tag)
     if (status == ClanwarFetchStatus::NoActiveWar)
     {
         spdlog::info("[Service: {}] CW is not active for {}", svc, tag);
-        return SyncResult::success(getServiceName(), std::string(tag));
+        return {};
     }
 
     if (!completeData.has_value())
@@ -50,22 +64,22 @@ SyncResult ClanwarService::updateData(std::string_view tag)
 
     try
     {
+        SyncResult syncResult;
+
         TransactionGuard tx(db);
 
-        auto [warId, homeId, oppId] = db.war().saveCompleteClanwarData(clanwar, clans, attacks, members);
-        if (warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
+        const auto warResult = db.war().saveCompleteClanwarData(clanwar, clans, attacks, members);
+        if (warResult.warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
+
+        auto events = generateEvents(tag, clanwar.state, warResult);
+        syncResult.events = std::move(events);
+        syncResult.successFlag = true;
+        syncResult.serviceName = svc;
+        syncResult.clanTag = tag;
 
         tx.commit();
 
-        const auto missedAllAttacks = db.war().getSlackersWithNoAttacks(warId, homeId);
-        const auto missedOneAttack = db.war().getSlackersWithOneAttack(warId, homeId);
-        const auto noMirror = db.war().getPlayersWithNotMirrorAttack(warId, homeId);
-
-        return SyncResult::successWithClanwarReport(getServiceName(), std::string(tag),
-                                                    {
-                                                        warId, clanwar.state, clans,
-                                                        missedAllAttacks, missedOneAttack, noMirror
-                                                    }, warId);
+        return syncResult;
     }
     catch (const std::exception& e)
     {
