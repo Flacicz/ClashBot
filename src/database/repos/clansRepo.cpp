@@ -375,3 +375,18 @@ bool ClansRepo::registerPlayerJoin(const std::string_view playerTag, const std::
 
     return true;
 }
+
+bool ClansRepo::saveMembershipChanges(const MembershipChanges& changes) const
+{
+    for (const auto& leftPlayer : changes.leftPlayers)
+    {
+        if (!registerPlayerLeave(leftPlayer.tag, leftPlayer.clanTag)) return false;
+    }
+
+    for (const auto& joinedPlayer : changes.joinedPlayers)
+    {
+        if (!registerPlayerJoin(joinedPlayer.tag, joinedPlayer.clanTag)) return false;
+    }
+
+    return true;
+}

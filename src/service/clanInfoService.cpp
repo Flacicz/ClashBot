@@ -20,7 +20,7 @@ std::string ClanInfoService::getServiceName() const
     return "ClanInfoService";
 }
 
-std::pair<std::vector<Player>, std::vector<Player>> ClanInfoService::checkTrackedPlayers(
+MembershipChanges ClanInfoService::detectMembershipChanges(
     const std::string& clanTag, std::vector<Player>& players) const
 {
     std::vector<Player> activeClanPlayers = db.clans().getActiveMembers(clanTag);
@@ -45,10 +45,37 @@ std::pair<std::vector<Player>, std::vector<Player>> ClanInfoService::checkTracke
                                 compare_tags
     );
 
-    for (auto& player : left_players) if (!db.clans().registerPlayerLeave(player.tag, player.clanTag)) return {};
-    for (auto& player : joined_players) if (!db.clans().registerPlayerJoin(player.tag, player.clanTag)) return {};
-
     return {left_players, joined_players};
+}
+
+std::vector<DomainEvent> ClanInfoService::generateEvents(const MembershipChanges& changes)
+{
+    std::vector<DomainEvent> events;
+    events.reserve(changes.joinedPlayers.size() + changes.leftPlayers.size());
+
+    for (const auto& player : changes.leftPlayers)
+    {
+        events.emplace_back(
+            PlayerLeftClanEvent(
+                player.clanTag,
+                player.tag,
+                player.name
+            )
+        );
+    }
+
+    for (const auto& player : changes.joinedPlayers)
+    {
+        events.emplace_back(
+            PlayerJoinedClanEvent(
+                player.clanTag,
+                player.tag,
+                player.name
+            )
+        );
+    }
+
+    return events;
 }
 
 SyncResult ClanInfoService::updateData(std::string_view tag)
@@ -68,6 +95,8 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
 
     try
     {
+        SyncResult syncResult;
+
         TransactionGuard tx(db);
 
         if (!db.clans().saveCompleteClanData(clan, clanSnapshot, players, playerSnapshots))
@@ -75,16 +104,25 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
             throw std::runtime_error("saveCompleteClanData returned false");
         }
 
+        const std::string normalizedTag = utils::normalizedTag(tag);
+        const auto changes = detectMembershipChanges(normalizedTag, players);
+
+        if (!db.clans().saveMembershipChanges(changes))
+        {
+            throw std::runtime_error("saveMembershipChanges returned false");
+        }
+
+        auto events = generateEvents(changes);
+        syncResult.events = std::move(events);
+        syncResult.successFlag = true;
+        syncResult.clanTag = normalizedTag;
+
         tx.commit();
 
         spdlog::info("[Service: {}] Successfully updated clan {} ({}). Synchronized {} members.", svc, tag, clan.name,
                      clanSnapshot.membersCount);
 
-        const std::string normalizedTag = utils::normalizedTag(tag);
-        const auto joinLeavePlayers = checkTrackedPlayers(normalizedTag, players);
-
-        return SyncResult::successWithClanReport(getServiceName(), normalizedTag,
-                                                 {normalizedTag, joinLeavePlayers});
+        return syncResult;
     }
     catch (const std::exception& e)
     {
