@@ -1,36 +1,35 @@
-#include "reports/RaidReportFormatter.h"
+#include "reports/RaidsEndedFormatter.h"
 
 #include <sstream>
 
+#include "common/SyncResult.h"
 #include "database/database.h"
+#include "events/DomainEvents.h"
 #include "spdlog/spdlog.h"
 
-bool RaidReportFormatter::shouldNotify(const SyncResult& result, const Database& db, const long long chatId) const
+RaidsEndedFormatter::RaidsEndedFormatter(RaidRepo& raidRepo) : raidRepo(raidRepo)
 {
-    if (!result.hasReportData()) return false;
-
-    if (const auto& report = std::get<RaidReportData>(result.reportData); report.state != "ended")
-    {
-        return false;
-    }
-
-    return !db.isNotified(result.serviceName, result.reportEntityId, chatId);
 }
 
-std::string RaidReportFormatter::format(const SyncResult& result)
+std::string RaidsEndedFormatter::format(const RaidsEndedEvent& result) const
 {
-    auto slackers = std::get<RaidReportData>(result.reportData).raidSlackers;
+    const auto report = raidRepo.getRaidsReportData(result.raidsId, result.clanTag);
 
+    return buildReport(report);
+}
+
+std::string RaidsEndedFormatter::buildReport(const RaidReportData& reportData)
+{
     std::ostringstream report;
     report << "🏰 <b>ОТЧЕТ ПО РЕЙДАМ</b>\n";
-    report << "Клан: <code>" << result.clanTag << "</code>\n\n";
+    report << "Клан: <code>" << reportData.clanTag << "</code>\n\n";
 
     bool hasAnyProblems = false;
+    auto slackers = reportData.raidSlackers;
 
     std::ostringstream incompleteAttacks;
     std::ostringstream noAttacks;
 
-    // Группа 1: Не закончили атаки
     for (const auto& slacker : slackers)
     {
         if (constexpr int MAX_ATTACKS = 6; slacker.attacksCount > 0 && slacker.attacksCount < MAX_ATTACKS)
@@ -38,12 +37,7 @@ std::string RaidReportFormatter::format(const SyncResult& result)
             incompleteAttacks << "• " << slacker.playerName << " [" << slacker.attacksCount << "/6]\n";
             hasAnyProblems = true;
         }
-    }
-
-    // Группа 2: Прогульщики
-    for (const auto& slacker : slackers)
-    {
-        if (slacker.attacksCount == 0)
+        else if (slacker.attacksCount == 0)
         {
             noAttacks << "• " << slacker.playerName << "\n";
             hasAnyProblems = true;
@@ -70,10 +64,3 @@ std::string RaidReportFormatter::format(const SyncResult& result)
     return report.str();
 }
 
-void RaidReportFormatter::onNotificationSent(const SyncResult& result, const Database& db, long long chatId) const
-{
-    if (!db.markAsNotified(result.serviceName, result.reportEntityId, chatId))
-    {
-        spdlog::error("[RaidFormatter] Failed to mark raid {} as notified", result.reportEntityId);
-    }
-}

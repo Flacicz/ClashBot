@@ -1,11 +1,18 @@
 #include "notifications/notificationService.h"
-#include "spdlog/fmt/bundled/compile.h"
 #include <spdlog/spdlog.h>
 
-NotificationService::NotificationService(Database& db,
-                                         std::unique_ptr<TelegramNotifier> telegram_notifier,
-                                         std::map<std::string, std::unique_ptr<IReportFormatter>> formatters) :
-    db(db), telegramNotifier(std::move(telegram_notifier)), formatters(std::move(formatters))
+#include "reports/PlayerJoinedFormatter.h"
+#include "reports/PlayerLeftFormatter.h"
+
+NotificationService::NotificationService(Database& db, std::unique_ptr<TelegramNotifier> telegramNotifier,
+                                         const PlayerJoinedFormatter& playerJoinedFormatter,
+                                         const PlayerLeftFormatter& playerLeftFormatter,
+                                         const RaidsEndedFormatter& raidsEndedFormatter,
+                                         const ClanwarEndedFormatter& clanwarEndedFormatter,
+                                         const ClanwarsLeagueRoundEndedFormatter& clanwarLeagueRoundEndedFormatter) :
+    db(db), telegramNotifier(std::move(telegramNotifier)), playerJoinedFormatter(playerJoinedFormatter),
+    playerLeftFormatter(playerLeftFormatter), raidsEndedFormatter(raidsEndedFormatter),
+    clanwarEndedFormatter(clanwarEndedFormatter), clanwarLeagueRoundEndedFormatter(clanwarLeagueRoundEndedFormatter)
 {
 }
 
@@ -33,25 +40,6 @@ std::string NotificationService::formatRecoveryAlert(const std::string& serviceN
         serviceName, clanTag);
 }
 
-void NotificationService::handle(const SyncResult& result) const
-{
-    const auto& formatter = formatters.at(result.serviceName);
-
-    const auto chatIds = db.subscriptions().getChatIdsForClan(result.clanTag);
-
-    for (const auto& chatId : chatIds)
-    {
-        if (!formatter->shouldNotify(result, db, chatId)) continue;
-
-        const auto report = formatter->format(result);
-
-        if (telegramNotifier->sendMessage(report, chatId))
-        {
-            formatter->onNotificationSent(result, db, chatId);
-        }
-    }
-}
-
 void NotificationService::sendFailureAlert(const SyncResult& result) const
 {
     const auto chatIds = db.subscriptions().getChatIdsForClan(result.clanTag);
@@ -61,8 +49,7 @@ void NotificationService::sendFailureAlert(const SyncResult& result) const
     {
         if (!telegramNotifier->sendMessage(failureMessage, chatId))
         {
-            spdlog::error("[NotificationService] Failed to send failure message. Entity ID - {}, Chat ID - {}",
-                          result.reportEntityId, chatId);
+            spdlog::error("[NotificationService] Failed to send failure message. Chat ID - {}", chatId);
         }
     }
 }
@@ -76,8 +63,110 @@ void NotificationService::sendRecoveryAlert(const SyncResult& result) const
     {
         if (!telegramNotifier->sendMessage(recoveryMessage, chatId))
         {
-            spdlog::error("[NotificationService] Failed to send recovery message. Entity ID - {}, Chat ID - {}",
-                          result.reportEntityId, chatId);
+            spdlog::error("[NotificationService] Failed to send recovery message. Chat ID - {}", chatId);
         }
+    }
+}
+
+void NotificationService::handle(const DomainEvent& domainEvent)
+{
+    std::visit(
+        [this](auto&& e)
+        {
+            handleEvent(e);
+        },
+        domainEvent
+    );
+}
+
+void NotificationService::handleEvent(const PlayerJoinedClanEvent& event) const
+{
+    const auto& message = PlayerJoinedFormatter::format(event);
+
+    const auto chatIds = db.subscriptions().getChatIdsForClan(event.clanTag);
+
+    for (const auto& chatId : chatIds)
+    {
+        if (!telegramNotifier->sendMessage(message, chatId))
+        {
+            spdlog::error("[NotificationService] Failed to send PlayerJoinedClanEvent message. ClanTag - {}, Chat ID - {}",
+                          event.clanTag, chatId);
+        }
+    }
+}
+
+void NotificationService::handleEvent(const PlayerLeftClanEvent& event) const
+{
+    const auto& message = PlayerLeftFormatter::format(event);
+
+    const auto chatIds = db.subscriptions().getChatIdsForClan(event.clanTag);
+
+    for (const auto& chatId : chatIds)
+    {
+        if (!telegramNotifier->sendMessage(message, chatId))
+        {
+            spdlog::error("[NotificationService] Failed to send PlayerLeftClanEvent message. ClanTag - {}, Chat ID - {}",
+                          event.clanTag, chatId);
+        }
+    }
+}
+
+void NotificationService::handleEvent(const RaidsEndedEvent& event) const
+{
+    const auto& message = raidsEndedFormatter.format(event);
+
+    const auto chatIds = db.subscriptions().getChatIdsForClan(event.clanTag);
+
+    for (const auto& chatId : chatIds)
+    {
+        if (db.notifications().wasSent(event.Type, event.key(), chatId)) continue;
+
+        if (!telegramNotifier->sendMessage(message, chatId))
+        {
+            spdlog::error("[NotificationService] Failed to send RaidsEndedEvent message. ClanTag - {}, Chat ID - {}",
+                          event.clanTag, chatId);
+        }
+
+        db.notifications().markAsSent(event.Type, event.key(), chatId);
+    }
+}
+
+void NotificationService::handleEvent(const WarEndedEvent& event) const
+{
+    const auto& message = clanwarEndedFormatter.format(event);
+
+    const auto chatIds = db.subscriptions().getChatIdsForClan(event.clanTag);
+
+    for (const auto& chatId : chatIds)
+    {
+        if (db.notifications().wasSent(event.Type, event.key(), chatId)) continue;
+
+        if (!telegramNotifier->sendMessage(message, chatId))
+        {
+            spdlog::error("[NotificationService] Failed to send WarEndedEvent message. ClanTag - {}, Chat ID - {}",
+                          event.clanTag, chatId);
+        }
+
+        db.notifications().markAsSent(event.Type, event.key(), chatId);
+    }
+}
+
+void NotificationService::handleEvent(const ClanwarsLeagueRoundEndedEvent& event) const
+{
+    const auto& message = clanwarLeagueRoundEndedFormatter.format(event);
+
+    const auto chatIds = db.subscriptions().getChatIdsForClan(event.clanTag);
+
+    for (const auto& chatId : chatIds)
+    {
+        if (db.notifications().wasSent(event.Type, event.key(), chatId)) continue;
+
+        if (!telegramNotifier->sendMessage(message, chatId))
+        {
+            spdlog::error("[NotificationService] Failed to send WarEndedEvent message. ClanTag - {}, Chat ID - {}",
+                          event.clanTag, chatId);
+        }
+
+        db.notifications().markAsSent(event.Type, event.key(), chatId);
     }
 }

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS wars (
                                     start_time INTEGER,
                                     end_time INTEGER,
                                     season_id TEXT,
+                                    round_number INTEGER,
                                     created_at INTEGER DEFAULT (strftime('%s', 'now')),
                                     FOREIGN KEY (clan_tag, season_id) REFERENCES cwl_seasons(clan_tag, season_id),
                                     UNIQUE (war_uid)

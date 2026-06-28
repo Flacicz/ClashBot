@@ -7,11 +7,13 @@
 ClanManager::ClanManager(
     Database& db,
     APIClient& apiClient,
+    std::unique_ptr<EventDispatcher> eventDispatcher,
     std::unique_ptr<NotificationService> notificationService,
     std::vector<std::unique_ptr<ISyncService>> services,
     const std::vector<std::string>& targetClans
 )
-    : db(db), apiClient(apiClient), notificationService(std::move(notificationService)),
+    : db(db), apiClient(apiClient), eventDispatcher(std::move(eventDispatcher)),
+      notificationService(std::move(notificationService)),
       services(std::move(services)), targetClans(targetClans)
 {
 }
@@ -67,6 +69,7 @@ void ClanManager::syncAll()
     {
         spdlog::info("[Manager] Starting synchronization cycle...");
 
+        SyncResult result;
         for (const std::string& tag : targetClans)
         {
             for (const auto& service : services)
@@ -75,7 +78,7 @@ void ClanManager::syncAll()
 
                 try
                 {
-                    SyncResult result = syncWithRetry(service.get(), tag);
+                    result = syncWithRetry(service.get(), tag);
 
                     if (!result.successFlag)
                     {
@@ -86,7 +89,6 @@ void ClanManager::syncAll()
                     }
 
                     handleSyncRecovery(result);
-                    notificationService->handle(result);
                 }
                 catch (const std::exception& e)
                 {
@@ -95,6 +97,8 @@ void ClanManager::syncAll()
                 }
             }
         }
+
+        eventDispatcher->dispatch(result.events);
 
         spdlog::info("[Manager] Cycle finished. Sleeping for 30 minutes...");
 

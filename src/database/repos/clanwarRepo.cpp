@@ -231,6 +231,43 @@ InsertedWarResult ClanwarRepo::saveCompleteClanwarData(const Clanwar& war,
     return {warId, homeId, oppId};
 }
 
+ClanwarOverview ClanwarRepo::getClanwarOverview(const long long clanwarId, const std::string& side) const
+{
+    sqlite3_stmt* raw_stmt;
+    const std::string sql = R"(
+        SELECT
+            clan_tag,
+            clan_name,
+            stars,
+            destruction_percentage
+        FROM war_clans
+        WHERE war_id = ? AND side = ?;
+    )";
+
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClanwarRepo] Failed to prepare getClanwarOverview statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
+    }
+
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_int64(stmt.get(), 1, clanwarId);
+    sqlite3_bind_text(stmt.get(), 2, side.c_str(), -1, SQLITE_TRANSIENT);
+
+    ClanwarOverview clanwarOverview;
+
+    while (sqlite3_step(stmt.get()) == SQLITE_ROW)
+    {
+        clanwarOverview.clanTag = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 0));
+        clanwarOverview.clanName = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 1));
+        clanwarOverview.stars = sqlite3_column_int(stmt.get(), 3);
+        clanwarOverview.stars = sqlite3_column_double(stmt.get(), 4);
+    }
+
+    return clanwarOverview;
+}
 
 std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithNoAttacks(const long long clanwarId,
                                                                   const long long warClanId) const
@@ -311,7 +348,7 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack(const long lon
 }
 
 std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack(const long long clanwarId,
-                                                                       const long long homeWarClanId) const
+                                                                       const long long warClanId) const
 {
     std::vector<ClanwarSlacker> slackers;
     sqlite3_stmt* raw_stmt = nullptr;
@@ -353,9 +390,9 @@ std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack(const lon
     const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
 
     sqlite3_bind_int64(stmt.get(), 1, clanwarId);
-    sqlite3_bind_int64(stmt.get(), 2, homeWarClanId);
+    sqlite3_bind_int64(stmt.get(), 2, warClanId);
     sqlite3_bind_int64(stmt.get(), 3, clanwarId);
-    sqlite3_bind_int64(stmt.get(), 4, homeWarClanId);
+    sqlite3_bind_int64(stmt.get(), 4, warClanId);
 
     while (sqlite3_step(stmt.get()) == SQLITE_ROW)
     {
@@ -366,4 +403,27 @@ std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack(const lon
     }
 
     return slackers;
+}
+
+ClanwarReportData ClanwarRepo::getReportData(const long long clanwarId, const long long warClanId) const
+{
+    const auto home = getClanwarOverview(clanwarId, "home");
+    const auto opponent = getClanwarOverview(clanwarId, "opponent");
+
+    const auto noAttacks = getSlackersWithNoAttacks(clanwarId, warClanId);
+    const auto oneAttack = getSlackersWithOneAttack(clanwarId, warClanId);
+    const auto notMirror = getPlayersWithNotMirrorAttack(clanwarId, warClanId);
+
+    return {home, opponent, noAttacks, oneAttack, notMirror};
+}
+
+WarRoundDetails ClanwarRepo::getWarRoundDetails(const long long warId, const long long homeClanId) const
+{
+    const auto home = getClanwarOverview(warId, "home");
+    const auto opponent = getClanwarOverview(warId, "opponent");
+
+    const auto noAttack = getSlackersWithNoAttacks(warId, homeClanId);
+    const auto notMirror = getPlayersWithNotMirrorAttack(warId, homeClanId);
+
+    return {home, opponent, noAttack, notMirror};
 }

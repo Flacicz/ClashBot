@@ -95,3 +95,34 @@ long long LeagueClanwarRepo::saveCompleteCWLData(const ClanwarsLeagueSeason& sea
 
     return lastCWLId;
 }
+
+CWLRoundInfo LeagueClanwarRepo::getRoundInfo(long long warId)
+{
+    sqlite3_stmt* raw_stmt = nullptr;
+
+    const std::string sql = R"(
+        SELECT season_id, round_number
+        FROM wars
+        WHERE war_id = ?;
+    )";
+
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClanwarsLeagueRepo] Failed to prepare getRoundInfo statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
+    }
+
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_int64(stmt.get(), 1, warId);
+
+    CWLRoundInfo roundInfo;
+    while (sqlite3_step(stmt.get()) == SQLITE_ROW)
+    {
+        roundInfo.season = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 0));
+        roundInfo.roundNumber = sqlite3_column_int64(stmt.get(), 1);
+    }
+
+    return roundInfo;
+}

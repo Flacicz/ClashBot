@@ -30,9 +30,9 @@
 #include "service/clanwarLeagueService.h"
 #include "service/clanManager.h"
 
-#include "reports/RaidReportFormatter.h"
-#include "reports/ClanwarLeagueReportFormatter.h"
-#include "reports/ClanwarReportFormatter.h"
+#include "reports/RaidsEndedFormatter.h"
+#include "reports/ClanwarsLeagueRoundEndedFormatter.h"
+#include "reports/ClanwarEndedFormatter.h"
 
 #include "notifications/telegramNotifier.h"
 #include "notifications/notificationService.h"
@@ -112,22 +112,27 @@ int main(const int argc, char* argv[])
             return EXIT_FAILURE;
         }
 
-        std::map<std::string, std::unique_ptr<IReportFormatter>> formatters;
-        formatters["ClanInfoService"] = std::make_unique<ClanInfoReportFormatter>();
-        formatters["RaidService"] = std::make_unique<RaidReportFormatter>();
-        formatters["ClanwarService"] = std::make_unique<ClanwarReportFormatter>();
-        formatters["ClanwarLeagueService"] = std::make_unique<ClanwarLeagueReportFormatter>();
-
         auto telegramNotifier = std::make_unique<TelegramNotifier>(config.telegramToken);
+
+        PlayerJoinedFormatter playerJoinedFormatter;
+        PlayerLeftFormatter playerLeftFormatter;
+
+        RaidsEndedFormatter raidsEndedFormatter(db->raids());
+        ClanwarEndedFormatter clanwarEndedFormatter(db->war());
+        ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(db->leagueWar(), db->war());
+
         auto notificationService = std::make_unique<NotificationService>(
-            *db, std::move(telegramNotifier), std::move(formatters));
+            *db, std::move(telegramNotifier), playerJoinedFormatter, playerLeftFormatter,
+            raidsEndedFormatter, clanwarEndedFormatter, clanwarsLeagueRoundEndedFormatter);
+
+        auto eventDispatcher = std::make_unique<EventDispatcher>(std::move(notificationService));
 
         std::vector<std::unique_ptr<ISyncService>> services;
         services.push_back(std::make_unique<ClanInfoService>(*db, *apiClient));
         services.push_back(std::make_unique<ClanwarService>(*db, *apiClient));
         services.push_back(std::make_unique<RaidService>(*db, *apiClient));
         services.push_back(std::make_unique<ClanwarLeagueService>(*db, *apiClient));
-        ClanManager clanManager(*db, *apiClient, std::move(notificationService),
+        ClanManager clanManager(*db, *apiClient, std::move(eventDispatcher), std::move(notificationService),
                                 std::move(services), targetClans);
 
         std::thread syncThread([&clanManager]

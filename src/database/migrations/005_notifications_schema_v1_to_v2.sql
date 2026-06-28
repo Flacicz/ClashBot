@@ -16,9 +16,11 @@ CREATE TABLE clan_subscriptions (
 DROP TABLE IF EXISTS notifications;
 
 CREATE TABLE IF NOT EXISTS notifications(
-                                            entity_type TEXT NOT NULL,
-                                            entity_id INTEGER NOT NULL,
+                                            event_type TEXT NOT NULL,
+                                            event_id TEXT NOT NULL,
                                             chat_id INTEGER NOT NULL,
                                             notified_at INTEGER DEFAULT (strftime('%s', 'now')),
-                                            PRIMARY KEY (entity_type, entity_id, chat_id)
+                                            PRIMARY KEY (event_type, event_id, chat_id)
 ) WITHOUT ROWID;
+
+ALTER TABLE wars ADD COLUMN round_number INTEGER;

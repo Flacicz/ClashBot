@@ -104,7 +104,7 @@ bool RaidRepo::insertOrUpdateRaidPlayersSnapshots(const long long raidId,
 }
 
 long long RaidRepo::saveCompleteRaidData(const ClanRaid& clanRaid,
-                                    const std::vector<PlayerRaidSnapshot>& playerRaidSnapshots) const
+                                         const std::vector<PlayerRaidSnapshot>& playerRaidSnapshots) const
 {
     const long long lastRaidId = insertOrUpdateSingleRaid(clanRaid);
     if (lastRaidId == -1) return -1;
@@ -152,4 +152,11 @@ std::vector<RaidSlacker> RaidRepo::getRaidSlackers(const long long raidId, const
     }
 
     return slackers;
+}
+
+RaidReportData RaidRepo::getRaidsReportData(const long long raidId, const std::string_view clanTag) const
+{
+    const std::vector<RaidSlacker> slackers = getRaidSlackers(raidId, clanTag);
+
+    return {std::string(clanTag), slackers};
 }

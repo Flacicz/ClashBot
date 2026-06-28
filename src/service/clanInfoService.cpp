@@ -113,7 +113,6 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
         auto events = generateEvents(changes);
         syncResult.events = std::move(events);
         syncResult.successFlag = true;
-
         syncResult.serviceName = svc;
         syncResult.clanTag = tag;
 
