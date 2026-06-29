@@ -34,7 +34,6 @@ Database::Database(const std::string& path) : pathToDb(path)
         throw std::runtime_error("DB Error: synchronous NORMAL failed");
     }
 
-    tableManager = std::make_unique<TableManager>(db);
     clansRepo = std::make_unique<ClansRepo>(db);
     raidRepo = std::make_unique<RaidRepo>(db);
     cwRepo = std::make_unique<ClanwarRepo>(db);
@@ -49,7 +48,6 @@ Database::~Database()
     raidRepo.reset();
     cwRepo.reset();
     cwlRepo.reset();
-    tableManager.reset();
 
     if (db)
     {

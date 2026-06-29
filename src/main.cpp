@@ -113,15 +113,16 @@ int main(const int argc, char* argv[])
 
         auto telegramNotifier = std::make_unique<TelegramNotifier>(config.telegramToken);
 
-        PlayerJoinedFormatter playerJoinedFormatter;
-        PlayerLeftFormatter playerLeftFormatter;
+        PlayerJoinedFormatter playerJoinedFormatter(db->clans());
+        PlayerLeftFormatter playerLeftFormatter(db->clans());
+        PlayerRoleChangedFormatter playerRoleChangedFormatter;
 
-        RaidsEndedFormatter raidsEndedFormatter(db->raids());
+        RaidsEndedFormatter raidsEndedFormatter(db->clans(), db->raids());
         ClanwarEndedFormatter clanwarEndedFormatter(db->war());
         ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(db->leagueWar(), db->war());
 
         auto notificationService = std::make_unique<NotificationService>(
-            *db, std::move(telegramNotifier), playerJoinedFormatter, playerLeftFormatter,
+            *db, std::move(telegramNotifier), playerJoinedFormatter, playerLeftFormatter, playerRoleChangedFormatter,
             raidsEndedFormatter, clanwarEndedFormatter, clanwarsLeagueRoundEndedFormatter);
 
         auto eventDispatcher = std::make_unique<EventDispatcher>(std::move(notificationService));

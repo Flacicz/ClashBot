@@ -5,11 +5,16 @@
 #include "reports/PlayerLeftFormatter.h"
 #include "spdlog/fmt/bundled/format.h"
 
-std::string PlayerLeftFormatter::format(const PlayerLeftClanEvent& event)
+PlayerLeftFormatter::PlayerLeftFormatter(ClansRepo& clansRepo) : clansRepo(clansRepo)
 {
-    std::string message = fmt::format("🔔 <b>Обновление состава клана {}</b>\n\n", event.clanTag);
+}
 
-    message += fmt::format("• Игрок {}(<code>{}</code>) присоединился к клану.\n", event.playerName,
+std::string PlayerLeftFormatter::format(const PlayerLeftClanEvent& event) const
+{
+    std::string message = fmt::format("🔔 <b>Обновление состава клана {}(<code>{}</code>)</b>\n\n",
+                                      clansRepo.getClanNameByTag(event.clanTag), event.clanTag);
+
+    message += fmt::format("• Игрок {}(<code>{}</code>) покинул клан.\n", event.playerName,
                            event.playerTag);
 
     return message;

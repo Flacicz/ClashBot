@@ -154,7 +154,7 @@ bool ClansRepo::insertOrUpdatePlayersInfo(const std::vector<Player>& players) co
         )
         VALUES (?, ?, ?)
         ON CONFLICT(tag) DO UPDATE SET
-            name = excluded.name;
+            name = excluded.name,
             clan_tag = excluded.clan_tag;
     )";
 
@@ -389,4 +389,115 @@ bool ClansRepo::saveMembershipChanges(const MembershipChanges& changes) const
     }
 
     return true;
+}
+
+std::string ClansRepo::getClanNameByTag(const std::string_view clanTag) const
+{
+    sqlite3_stmt* raw_stmt = nullptr;
+
+    const std::string sql = R"(
+        SELECT name FROM clans
+        WHERE tag = ?;
+    )";
+
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClansRepo] Failed to prepare getActiveMembers statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
+    }
+
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_text(stmt.get(), 1, clanTag.data(), -1, SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt.get()) == SQLITE_ROW)
+    {
+        return std::string(
+            reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 0)));
+    }
+
+    throw std::runtime_error(
+        "[ClansRepo] Clan not found: " + std::string(clanTag));
+}
+
+std::vector<LatestPlayerState> ClansRepo::getLatestPlayerSnapshots(const std::string_view clanTag) const
+{
+    std::vector<LatestPlayerState> result;
+    sqlite3_stmt* raw_stmt = nullptr;
+
+    const std::string sql = R"(
+        SELECT
+            ps.player_tag,
+            p.name AS player_name,
+            ps.role,
+            ps.th_level,
+            ps.exp_level,
+            ps.clan_rank,
+            ps.trophies,
+            ps.builder_base_trophies,
+            ps.donations,
+            ps.donations_received,
+            ps.league_id,
+            ps.builder_base_league_id
+        FROM player_snapshots ps
+        JOIN (
+            SELECT
+                player_tag,
+                MAX(id) AS last_snapshot_id
+            FROM player_snapshots
+            WHERE clan_tag = ?
+            GROUP BY player_tag
+        ) latest
+        ON ps.id = latest.last_snapshot_id
+        LEFT JOIN players p
+        ON p.tag = ps.player_tag
+        ORDER BY ps.clan_rank;
+    )";
+
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClansRepo] Failed to prepare getActiveMembers statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
+    }
+
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_text(stmt.get(), 1, clanTag.data(), -1, SQLITE_TRANSIENT);
+
+    while (sqlite3_step(stmt.get()) == SQLITE_ROW)
+    {
+        const auto raw_tag = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 0));
+        const auto raw_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 1));
+        const auto raw_role = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 2));
+        const int thLevel = sqlite3_column_int(stmt.get(), 3);
+        const int expLevel = sqlite3_column_int(stmt.get(), 4);
+        const int clanRank = sqlite3_column_int(stmt.get(), 5);
+        const int trophies = sqlite3_column_int(stmt.get(), 6);
+        const int builderBaseTrophies = sqlite3_column_int(stmt.get(), 7);
+        const int donations = sqlite3_column_int(stmt.get(), 8);
+        const int donationsRecieved = sqlite3_column_int(stmt.get(), 9);
+        const int leagueId = sqlite3_column_int(stmt.get(), 10);
+        const int builderBaseLeagueId = sqlite3_column_int(stmt.get(), 11);
+
+
+        result.emplace_back(LatestPlayerState{
+            .clanTag = std::string(clanTag),
+            .playerTag = raw_tag ? raw_tag : "",
+            .playerName = raw_name ? raw_name : "",
+            .role = raw_role ? raw_role : "",
+            .townHallLevel = thLevel,
+            .expLevel = expLevel,
+            .clanRank = clanRank,
+            .leagueId = leagueId,
+            .builderBaseLeagueId = builderBaseLeagueId,
+            .trophies = trophies,
+            .builderBaseTrophies = builderBaseTrophies,
+            .donations = donations,
+            .donationsReceived = donationsRecieved
+        });
+    }
+
+    return result;
 }

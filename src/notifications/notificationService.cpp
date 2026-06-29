@@ -7,6 +7,7 @@
 NotificationService::NotificationService(Database& db, std::unique_ptr<TelegramNotifier> telegramNotifier,
                                          const PlayerJoinedFormatter& playerJoinedFormatter,
                                          const PlayerLeftFormatter& playerLeftFormatter,
+                                         const PlayerRoleChangedFormatter& playerRoleChangedFormatter,
                                          const RaidsEndedFormatter& raidsEndedFormatter,
                                          const ClanwarEndedFormatter& clanwarEndedFormatter,
                                          const ClanwarsLeagueRoundEndedFormatter& clanwarLeagueRoundEndedFormatter) :
@@ -81,7 +82,7 @@ void NotificationService::handle(const DomainEvent& domainEvent)
 
 void NotificationService::handleEvent(const PlayerJoinedClanEvent& event) const
 {
-    const auto& message = PlayerJoinedFormatter::format(event);
+    const auto& message = playerJoinedFormatter.format(event);
 
     const auto chatIds = db.subscriptions().getChatIdsForClan(event.clanTag);
 
@@ -89,15 +90,16 @@ void NotificationService::handleEvent(const PlayerJoinedClanEvent& event) const
     {
         if (!telegramNotifier->sendMessage(message, chatId))
         {
-            spdlog::error("[NotificationService] Failed to send PlayerJoinedClanEvent message. ClanTag - {}, Chat ID - {}",
-                          event.clanTag, chatId);
+            spdlog::error(
+                "[NotificationService] Failed to send PlayerJoinedClanEvent message. ClanTag - {}, Chat ID - {}",
+                event.clanTag, chatId);
         }
     }
 }
 
 void NotificationService::handleEvent(const PlayerLeftClanEvent& event) const
 {
-    const auto& message = PlayerLeftFormatter::format(event);
+    const auto& message = playerLeftFormatter.format(event);
 
     const auto chatIds = db.subscriptions().getChatIdsForClan(event.clanTag);
 
@@ -105,8 +107,26 @@ void NotificationService::handleEvent(const PlayerLeftClanEvent& event) const
     {
         if (!telegramNotifier->sendMessage(message, chatId))
         {
-            spdlog::error("[NotificationService] Failed to send PlayerLeftClanEvent message. ClanTag - {}, Chat ID - {}",
-                          event.clanTag, chatId);
+            spdlog::error(
+                "[NotificationService] Failed to send PlayerLeftClanEvent message. ClanTag - {}, Chat ID - {}",
+                event.clanTag, chatId);
+        }
+    }
+}
+
+void NotificationService::handleEvent(const PlayerRoleChangedEvent& event) const
+{
+    const auto& message = playerRoleChangedFormatter.format(event);
+
+    const auto chatIds = db.subscriptions().getChatIdsForClan(event.clanTag);
+
+    for (const auto& chatId : chatIds)
+    {
+        if (!telegramNotifier->sendMessage(message, chatId))
+        {
+            spdlog::error(
+                "[NotificationService] Failed to send PlayerRoleChangedEvent message. ClanTag - {}, Chat ID - {}",
+                event.clanTag, chatId);
         }
     }
 }

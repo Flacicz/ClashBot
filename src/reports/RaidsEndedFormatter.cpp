@@ -7,22 +7,27 @@
 #include "events/DomainEvents.h"
 #include "spdlog/spdlog.h"
 
-RaidsEndedFormatter::RaidsEndedFormatter(RaidRepo& raidRepo) : raidRepo(raidRepo)
+RaidsEndedFormatter::RaidsEndedFormatter(ClansRepo& clansRepo, RaidRepo& raidRepo) : clansRepo(clansRepo),
+    raidRepo(raidRepo)
 {
 }
 
-std::string RaidsEndedFormatter::format(const RaidsEndedEvent& result) const
+std::string RaidsEndedFormatter::format(const RaidsEndedEvent& event) const
 {
-    const auto report = raidRepo.getRaidsReportData(result.raidsId, result.clanTag);
+    const RaidReportData reportData = {
+        .clanTag = event.clanTag,
+        .clanName = clansRepo.getClanNameByTag(event.clanTag),
+        .raidSlackers = raidRepo.getRaidSlackers(event.raidsId, event.clanTag)
+    };
 
-    return buildReport(report);
+    return buildReport(reportData);
 }
 
 std::string RaidsEndedFormatter::buildReport(const RaidReportData& reportData)
 {
     std::ostringstream report;
     report << "🏰 <b>ОТЧЕТ ПО РЕЙДАМ</b>\n";
-    report << "Клан: <code>" << reportData.clanTag << "</code>\n\n";
+    report << "Клан: " << reportData.clanName << " (<code>" << reportData.clanTag << "</code>)\n\n";
 
     bool hasAnyProblems = false;
     auto slackers = reportData.raidSlackers;
@@ -63,4 +68,3 @@ std::string RaidsEndedFormatter::buildReport(const RaidReportData& reportData)
 
     return report.str();
 }
-

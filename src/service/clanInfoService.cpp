@@ -47,7 +47,42 @@ MembershipChanges ClanInfoService::detectMembershipChanges(
     return {left_players, joined_players};
 }
 
-std::vector<DomainEvent> ClanInfoService::generateEvents(const MembershipChanges& changes)
+RoleChanges ClanInfoService::detectRoleChanges(const std::string& clanTag,
+                                               const std::vector<PlayerSnapshot>& currentPlayers) const
+{
+    RoleChanges roleChanges;
+
+    const std::vector<LatestPlayerState> latestPlayerStates = db.clans().getLatestPlayerSnapshots(clanTag);
+    std::unordered_map<std::string, LatestPlayerState> oldPlayers;
+
+    for (const auto& player : latestPlayerStates)
+    {
+        oldPlayers.emplace(player.playerTag, player);
+    }
+
+    for (const auto& player : currentPlayers)
+    {
+        auto it = oldPlayers.find(player.playerTag);
+
+        if (it == oldPlayers.end())
+            continue;
+
+        if (it->second.role != player.role)
+        {
+            roleChanges.changes.emplace_back(RoleChange{
+                .clanTag = clanTag,
+                .playerTag = it->second.playerTag,
+                .playerName = it->second.playerName,
+                .oldRole = it->second.role,
+                .newRole = player.role
+            });
+        }
+    }
+    return roleChanges;
+}
+
+std::vector<DomainEvent> ClanInfoService::generateEvents(const MembershipChanges& changes,
+                                                         const RoleChanges& roleChanges)
 {
     std::vector<DomainEvent> events;
     events.reserve(changes.joinedPlayers.size() + changes.leftPlayers.size());
@@ -71,6 +106,19 @@ std::vector<DomainEvent> ClanInfoService::generateEvents(const MembershipChanges
                 player.tag,
                 player.name
             )
+        );
+    }
+
+    for (const auto& roleChange : roleChanges.changes)
+    {
+        events.emplace_back(
+            PlayerRoleChangedEvent{
+                .clanTag = roleChange.clanTag,
+                .playerTag = roleChange.playerTag,
+                .playerName = roleChange.playerName,
+                .oldRole = roleChange.oldRole,
+                .newRole = roleChange.newRole
+            }
         );
     }
 
@@ -98,6 +146,8 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
 
         TransactionGuard tx(db);
 
+        const auto roleChanges = detectRoleChanges(std::string(tag), playerSnapshots);
+
         if (!db.clans().saveCompleteClanData(clan, clanSnapshot, players, playerSnapshots))
         {
             throw std::runtime_error("saveCompleteClanData returned false");
@@ -110,7 +160,7 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
             throw std::runtime_error("saveMembershipChanges returned false");
         }
 
-        syncResult.events = generateEvents(changes);
+        syncResult.events = generateEvents(changes, roleChanges);
         syncResult.successFlag = true;
         syncResult.serviceName = svc;
         syncResult.clanTag = tag;
