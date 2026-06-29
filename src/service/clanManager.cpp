@@ -89,6 +89,8 @@ void ClanManager::syncAll()
                     }
 
                     handleSyncRecovery(result);
+
+                    eventDispatcher->dispatch(result.events);
                 }
                 catch (const std::exception& e)
                 {
@@ -98,7 +100,6 @@ void ClanManager::syncAll()
             }
         }
 
-        eventDispatcher->dispatch(result.events);
 
         spdlog::info("[Manager] Cycle finished. Sleeping for 30 minutes...");
 

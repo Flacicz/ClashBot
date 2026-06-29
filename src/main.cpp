@@ -36,7 +36,6 @@
 
 #include "notifications/telegramNotifier.h"
 #include "notifications/notificationService.h"
-#include "reports/ClanInfoReportFormatter.h"
 
 std::atomic g_shutdown_requested{false};
 

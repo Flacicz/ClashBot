@@ -23,7 +23,7 @@ std::vector<DomainEvent> RaidService::generateEvents(const std::string_view clan
     if (state == "ended")
     {
         events.emplace_back(
-            RaidEndedEvent(std::string(clanTag), raidId)
+            RaidsEndedEvent(std::string(clanTag), raidId)
         );
     }
 
@@ -53,9 +53,8 @@ SyncResult RaidService::updateData(std::string_view tag)
         TransactionGuard tx(db);
 
         const long long lastRaidId = db.raids().saveCompleteRaidData(clanRaid, playerRaidSnapshots);
-        auto events = generateEvents(tag, clanRaid.state, lastRaidId);
 
-        syncResult.events = std::move(events);
+        syncResult.events = generateEvents(tag, clanRaid.state, lastRaidId);;
         syncResult.successFlag = true;
         syncResult.serviceName = svc;
         syncResult.clanTag = tag;

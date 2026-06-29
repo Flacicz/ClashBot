@@ -40,6 +40,7 @@ Database::Database(const std::string& path) : pathToDb(path)
     cwRepo = std::make_unique<ClanwarRepo>(db);
     cwlRepo = std::make_unique<LeagueClanwarRepo>(db);
     subscriptionRepo = std::make_unique<SubscriptionRepo>(db);
+    notificationRepo = std::make_unique<NotificationRepo>(db);
 }
 
 Database::~Database()
@@ -103,5 +104,3 @@ Database::QueryResult Database::query(std::string_view sql) const
 
     return result;
 }
-
-

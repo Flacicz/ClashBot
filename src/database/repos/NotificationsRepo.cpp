@@ -15,9 +15,16 @@ NotificationRepo::NotificationRepo(sqlite3* db) : db(db)
 
 bool NotificationRepo::wasSent(std::string_view entityType, std::string_view entityId, long long chatId) const
 {
-    const std::string sql =
-        "SELECT COUNT(*) FROM notifications WHERE entity_type = ? AND entity_id = ? AND chat_id = ?";
     sqlite3_stmt* raw_stmt = nullptr;
+
+    const std::string sql = R"(
+        SELECT 1
+        FROM notifications
+        WHERE event_type = ?
+          AND event_id = ?
+          AND chat_id = ?
+        LIMIT 1;
+    )";
 
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
     {
@@ -32,20 +39,17 @@ bool NotificationRepo::wasSent(std::string_view entityType, std::string_view ent
     sqlite3_bind_text(stmt.get(), 2, entityId.data(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt.get(), 3, chatId);
 
-    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
-    {
-        spdlog::error("[DB] Failed to select from notification {} - {} with chat id - {}: {}", entityType, entityId,
-                      chatId, sqlite3_errmsg(db));
-        return false;
-    }
-
-    return sqlite3_column_int64(stmt.get(), 0) > 0;
+    return sqlite3_step(stmt.get()) == SQLITE_ROW;
 }
 
 void NotificationRepo::markAsSent(std::string_view entityType, std::string_view entityId, long long chatId) const
 {
-    const std::string sql = "INSERT OR IGNORE INTO notifications (entity_type, entity_id, chat_id) VALUES (?, ?, ?)";
     sqlite3_stmt* raw_stmt = nullptr;
+
+    const std::string sql = R"(
+        INSERT OR IGNORE INTO notifications (event_type, event_id, chat_id)
+        VALUES (?, ?, ?);
+    )";
 
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
     {

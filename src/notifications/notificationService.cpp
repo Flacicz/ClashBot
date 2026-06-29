@@ -119,7 +119,7 @@ void NotificationService::handleEvent(const RaidsEndedEvent& event) const
 
     for (const auto& chatId : chatIds)
     {
-        if (db.notifications().wasSent(event.Type, event.key(), chatId)) continue;
+        if (db.notifications().wasSent(RaidsEndedEvent::Type, event.key(), chatId)) continue;
 
         if (!telegramNotifier->sendMessage(message, chatId))
         {
@@ -127,7 +127,7 @@ void NotificationService::handleEvent(const RaidsEndedEvent& event) const
                           event.clanTag, chatId);
         }
 
-        db.notifications().markAsSent(event.Type, event.key(), chatId);
+        db.notifications().markAsSent(RaidsEndedEvent::Type, event.key(), chatId);
     }
 }
 
@@ -139,7 +139,7 @@ void NotificationService::handleEvent(const WarEndedEvent& event) const
 
     for (const auto& chatId : chatIds)
     {
-        if (db.notifications().wasSent(event.Type, event.key(), chatId)) continue;
+        if (db.notifications().wasSent(WarEndedEvent::Type, event.key(), chatId)) continue;
 
         if (!telegramNotifier->sendMessage(message, chatId))
         {
@@ -147,7 +147,7 @@ void NotificationService::handleEvent(const WarEndedEvent& event) const
                           event.clanTag, chatId);
         }
 
-        db.notifications().markAsSent(event.Type, event.key(), chatId);
+        db.notifications().markAsSent(WarEndedEvent::Type, event.key(), chatId);
     }
 }
 
@@ -159,7 +159,7 @@ void NotificationService::handleEvent(const ClanwarsLeagueRoundEndedEvent& event
 
     for (const auto& chatId : chatIds)
     {
-        if (db.notifications().wasSent(event.Type, event.key(), chatId)) continue;
+        if (db.notifications().wasSent(ClanwarsLeagueRoundEndedEvent::Type, event.key(), chatId)) continue;
 
         if (!telegramNotifier->sendMessage(message, chatId))
         {
@@ -167,6 +167,6 @@ void NotificationService::handleEvent(const ClanwarsLeagueRoundEndedEvent& event
                           event.clanTag, chatId);
         }
 
-        db.notifications().markAsSent(event.Type, event.key(), chatId);
+        db.notifications().markAsSent(ClanwarsLeagueRoundEndedEvent::Type, event.key(), chatId);
     }
 }

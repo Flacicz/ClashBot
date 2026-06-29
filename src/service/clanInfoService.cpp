@@ -110,8 +110,7 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
             throw std::runtime_error("saveMembershipChanges returned false");
         }
 
-        auto events = generateEvents(changes);
-        syncResult.events = std::move(events);
+        syncResult.events = generateEvents(changes);
         syncResult.successFlag = true;
         syncResult.serviceName = svc;
         syncResult.clanTag = tag;

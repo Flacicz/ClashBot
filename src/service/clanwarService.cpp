@@ -17,7 +17,8 @@ std::string ClanwarService::getServiceName() const
     return "ClanwarService";
 }
 
-std::vector<DomainEvent> ClanwarService::generateEvents(const std::string_view clanTag, const std::string& state, InsertedWarResult insertedWarResult)
+std::vector<DomainEvent> ClanwarService::generateEvents(const std::string_view clanTag, const std::string& state,
+                                                        InsertedWarResult insertedWarResult)
 {
     std::vector<DomainEvent> events;
 
@@ -71,8 +72,7 @@ SyncResult ClanwarService::updateData(std::string_view tag)
         const auto warResult = db.war().saveCompleteClanwarData(clanwar, clans, attacks, members);
         if (warResult.warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
 
-        auto events = generateEvents(tag, clanwar.state, warResult);
-        syncResult.events = std::move(events);
+        syncResult.events = generateEvents(tag, clanwar.state, warResult);
         syncResult.successFlag = true;
         syncResult.serviceName = svc;
         syncResult.clanTag = tag;

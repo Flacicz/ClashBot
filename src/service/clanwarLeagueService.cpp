@@ -32,10 +32,13 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
         return SyncResult::error(getServiceName(), std::string(tag), std::move(detailedError));
     }
 
+    SyncResult syncResult;
     if (status == LeagueFetchStatus::NoActiveLeague)
     {
         spdlog::info("[Service: {}] CWL is not active for {}", svc, tag);
-        return {};
+
+        syncResult.successFlag = true;
+        return syncResult;
     }
 
     if (!completeClanwarsLeagueData.has_value())
@@ -50,8 +53,6 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
 
     try
     {
-        SyncResult syncResult;
-
         TransactionGuard tx(db);
 
         const long long lastCWLId = db.leagueWar().saveCompleteCWLData(clanwarsLeagueSeason, clanwarsLeagueMembers);
@@ -64,7 +65,7 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
             if (war.state == "ended")
             {
                 syncResult.events.emplace_back(
-                    ClanwarLeagueRoundEndedEvent(std::string(tag), lastCWLId, warResult)
+                    ClanwarsLeagueRoundEndedEvent(std::string(tag), lastCWLId, warResult)
                 );
             }
         }
