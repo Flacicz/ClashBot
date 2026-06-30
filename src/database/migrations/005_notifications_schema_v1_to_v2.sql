@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS telegram_chats (
     created_at INTEGER DEFAULT (strftime('%s', 'now'))
 ) WITHOUT ROWID;
 
-CREATE TABLE clan_subscriptions (
+CREATE TABLE IF NOT EXISTS clan_subscriptions (
     clan_tag TEXT NOT NULL,
     chat_id INTEGER NOT NULL,
     created_at INTEGER DEFAULT (strftime('%s', 'now')),
@@ -22,5 +22,3 @@ CREATE TABLE IF NOT EXISTS notifications(
                                             notified_at INTEGER DEFAULT (strftime('%s', 'now')),
                                             PRIMARY KEY (event_type, event_id, chat_id)
 ) WITHOUT ROWID;
-
-ALTER TABLE wars ADD COLUMN round_number INTEGER;

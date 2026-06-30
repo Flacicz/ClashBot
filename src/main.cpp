@@ -100,16 +100,16 @@ int main(const int argc, char* argv[])
                                                            config.tunnelBaseUrl);
         const auto db = std::make_shared<Database>(config.databasePath);
 
-        const auto targetClans = db->clans().getTrackedClans();
-
-        spdlog::info("[Main] Target clans: {}", targetClans.size());
-
         if (const auto migratorManager = std::make_unique<MigratorManager>(*db); !migratorManager->migrate(
             config.migrationPath))
         {
             spdlog::critical("[DB] Failed to apply migrations. Startup aborted.");
             return EXIT_FAILURE;
         }
+
+        const auto targetClans = db->clans().getTrackedClans();
+
+        spdlog::info("[Main] Target clans: {}", targetClans.size());
 
         auto telegramNotifier = std::make_unique<TelegramNotifier>(config.telegramToken);
 

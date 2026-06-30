@@ -93,7 +93,7 @@ bool RaidRepo::insertOrUpdateRaidPlayersSnapshots(const long long raidId,
 
         if (sqlite3_step(stmt.get()) != SQLITE_DONE)
         {
-            spdlog::error("[RaidRepo] Failed to insert raid player snapshot {}: {}", raidId, sqlite3_errmsg(db));
+            spdlog::error("[RaidRepo] Failed to insert raid player snapshot {} - {}: {}", raidId, playerTag, sqlite3_errmsg(db));
             return false;
         }
 

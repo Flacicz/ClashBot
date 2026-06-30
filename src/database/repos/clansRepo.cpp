@@ -501,3 +501,29 @@ std::vector<LatestPlayerState> ClansRepo::getLatestPlayerSnapshots(const std::st
 
     return result;
 }
+
+void ClansRepo::insertMinimal(std::string_view tag) const
+{
+    sqlite3_stmt* raw_stmt = nullptr;
+
+    const std::string sql = R"(
+        INSERT OR IGNORE INTO players(tag, name)
+        VALUES (?, 'Unknown Player');
+    )";
+
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    {
+        std::string err = sqlite3_errmsg(db);
+        spdlog::error("[ClansRepo] Failed to prepare insertMinimal statement: {}", err);
+        throw std::runtime_error("SQL Prepare Error: " + err);
+    }
+
+    const SQliteStmt stmt(raw_stmt, &sqlite3_finalize);
+
+    sqlite3_bind_text(stmt.get(), 1, tag.data(), -1, SQLITE_TRANSIENT);
+
+    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+    {
+        spdlog::error("[ClanRepo] Failed to insert minimal player into players {}: {}", tag, sqlite3_errmsg(db));
+    }
+}

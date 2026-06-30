@@ -15,6 +15,14 @@ std::string RaidService::getServiceName() const
     return "RaidService";
 }
 
+void RaidService::ensurePlayersExist(const std::vector<PlayerRaidSnapshot>& players) const
+{
+    for (const auto& player : players)
+    {
+        db.clans().insertMinimal(player.playerTag);
+    }
+}
+
 std::vector<DomainEvent> RaidService::generateEvents(const std::string_view clanTag, const std::string& state,
                                                      const long long raidId)
 {
@@ -51,6 +59,8 @@ SyncResult RaidService::updateData(std::string_view tag)
         SyncResult syncResult;
 
         TransactionGuard tx(db);
+
+        ensurePlayersExist(playerRaidSnapshots);
 
         const long long lastRaidId = db.raids().saveCompleteRaidData(clanRaid, playerRaidSnapshots);
 

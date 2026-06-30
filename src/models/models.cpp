@@ -10,7 +10,6 @@ Clan Clan::fromJson(const nlohmann::json& j)
     Clan clan;
 
     clan.tag = j.value("tag", "unknown");
-    utils::normalizeTag(clan.tag);
 
     clan.name = j.value("name", "Unknown");
     clan.description = j.value("description", "");
@@ -31,11 +30,10 @@ Player Player::parsePlayer(const nlohmann::json& j, const std::string_view clanT
     Player player;
 
     player.tag = j.value("tag", "unknown");
-    utils::normalizeTag(player.tag);
 
     player.name = j.value("name", "Unknown");
 
-    player.clanTag = utils::normalizedTag(clanTag);
+    player.clanTag = clanTag;
 
     return player;
 }
@@ -60,7 +58,6 @@ ClanSnapshot ClanSnapshot::fromJson(const nlohmann::json& j)
     ClanSnapshot clanSnapshot;
 
     clanSnapshot.clanTag = j.value("tag", "unknown");
-    utils::normalizeTag(clanSnapshot.clanTag);
 
     clanSnapshot.type = j.value("type", "open");
     clanSnapshot.membersCount = j.value("members", 0);
@@ -95,9 +92,8 @@ PlayerSnapshot PlayerSnapshot::parsePlayerSnapshot(const nlohmann::json& j, cons
     PlayerSnapshot playerSnapshot;
 
     playerSnapshot.playerTag = j.value("tag", "unknown");
-    utils::normalizeTag(playerSnapshot.playerTag);
 
-    playerSnapshot.clanTag = utils::normalizedTag(currentClanTag);
+    playerSnapshot.clanTag = currentClanTag;
 
     playerSnapshot.role = j.value("role", "member");
     playerSnapshot.townHallLevel = j.value("townHallLevel", 1);
@@ -132,7 +128,7 @@ ClanRaid ClanRaid::fromJson(const nlohmann::json& j, const std::string_view clan
 {
     ClanRaid clanRaid;
 
-    clanRaid.clanTag = utils::normalizedTag(clanTag);
+    clanRaid.clanTag = clanTag;
 
     const std::string startTime = utils::extractTime(j, "startTime");
     const std::string endTime = utils::extractTime(j, "endTime");
@@ -156,7 +152,6 @@ PlayerRaidSnapshot PlayerRaidSnapshot::parsePlayerRaidSnapshot(const nlohmann::j
     PlayerRaidSnapshot playerRaidSnapshot;
 
     playerRaidSnapshot.playerTag = j.value("tag", "unknown");
-    utils::normalizeTag(playerRaidSnapshot.playerTag);
 
     playerRaidSnapshot.attacksCount = j.value("attacks", 0);
     playerRaidSnapshot.bonusAttack = j.value("bonusAttackLimit", 0);
@@ -182,8 +177,6 @@ ClanwarsLeagueSeason ClanwarsLeagueSeason::fromJson(const nlohmann::json& j, con
 {
     ClanwarsLeagueSeason season;
 
-    season.clanTag = utils::normalizedTag(clanTag);
-
     season.seasonId = j.value("season", "0000-00");
 
     return season;
@@ -201,11 +194,8 @@ Clanwar Clanwar::fromJson(const nlohmann::json& j, std::string_view warType, std
     std::string tag2 = j.value("/opponent/tag"_json_pointer, "unknown");
     if (tag1 > tag2) std::swap(tag1, tag2);
 
-    utils::normalizeTag(tag1);
-    utils::normalizeTag(tag2);
-
     clanwar.warUID = tag1 + "_" + tag2 + "_" + prepTime;
-    clanwar.clanTag = tag1 == utils::normalizedTag(clanTag) ? tag1 : tag2;
+    clanwar.clanTag = tag1 == clanTag ? tag1 : tag2;
     clanwar.state = j.value("state", "notInWar");
     clanwar.warType = std::string(warType);
     clanwar.teamSize = j.value("teamSize", 0);
@@ -226,7 +216,6 @@ ClanwarClan ClanwarClan::fromJson(const nlohmann::json& j, const std::string_vie
     clanwarClan.side = std::string(side);
 
     clanwarClan.clanTag = j.value("tag", "unknown");
-    utils::normalizeTag(clanwarClan.clanTag);
 
     clanwarClan.clanName = j.value("name", "Unknown");
     clanwarClan.clanLevel = j.value("clanLevel", 0);
@@ -247,11 +236,9 @@ std::vector<ClanwarAttack> ClanwarAttack::parseAttacksList(const nlohmann::json&
         if (!j.contains(side) || !j[side].contains("members")) continue;
 
         std::string clanTag = j[side].value("tag", "unknown");
-        utils::normalizeTag(clanTag);
 
         for (const auto& member : j[side]["members"]) {
             std::string tag = member.value("tag", "unknown");
-            utils::normalizeTag(tag);
 
             int pos = member.value("mapPosition", 0);
             playerInfo[tag] = {clanTag, pos};
@@ -263,18 +250,14 @@ std::vector<ClanwarAttack> ClanwarAttack::parseAttacksList(const nlohmann::json&
         if (!j.contains(side) || !j[side].contains("members")) continue;
 
         std::string attackerClanTag = j[side].value("tag", "unknown");
-        utils::normalizeTag(attackerClanTag);
 
         for (const auto& member : j[side]["members"]) {
             std::string attackerTag = member.value("tag", "unknown");
-            utils::normalizeTag(attackerTag);
-
             int attackerPos = member.value("mapPosition", 0);
 
             if (!member.contains("attacks") || !member["attacks"].is_array()) continue;
             for (const auto& atk : member["attacks"]) {
                 std::string defenderTag = atk.value("defenderTag", "unknown");
-                utils::normalizeTag(defenderTag);
 
                 std::string defenderClanTag = "unknown";
                 int defenderPos = 0;
@@ -307,12 +290,9 @@ std::vector<ClanwarMember> ClanwarMember::parseClanwarMembers(const nlohmann::js
     std::vector<ClanwarMember> membersList;
 
     std::string clanTag = j.value("tag", "unknown");
-    utils::normalizeTag(clanTag);
 
     for (const auto& member : j["members"]) {
         std::string tag = member.value("tag", "unknown");
-        utils::normalizeTag(tag);
-
         std::string name = member.value("name", "Unknown");
         int townhallLevel = member.value("townhallLevel", 0);
         int pos = member.value("mapPosition", 0);
@@ -334,11 +314,10 @@ std::vector<ClanwarsLeagueMember> ClanwarsLeagueMember::parseClanwarsLeagueMembe
         if (!clan.contains("members") || !clan["members"].is_array()) continue;
 
         std::string clanTag = clan.value("tag", "unknown");
-        utils::normalizeTag(clanTag);
 
         for (const auto& m : clan["members"]) {
             std::string tag = m.value("tag", "");
-            utils::normalizeTag(tag);
+
 
             members.push_back({
                 tag,
@@ -352,4 +331,3 @@ std::vector<ClanwarsLeagueMember> ClanwarsLeagueMember::parseClanwarsLeagueMembe
 
     return members;
 }
-
