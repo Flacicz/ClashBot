@@ -16,9 +16,9 @@ long long ClanwarRepo::saveClanwar(const Clanwar& clanwar) const
         INSERT INTO wars(
              war_uid, clan_tag, state, war_type, team_size,
              attacks_per_member, preparation_start_time,
-             start_time, end_time, season_id
+             start_time, end_time, season_id, round_number
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(war_uid) DO UPDATE SET
             state = excluded.state
         RETURNING war_id;
@@ -35,9 +35,12 @@ long long ClanwarRepo::saveClanwar(const Clanwar& clanwar) const
     sqlite::bind(stmt.get(), 7, clanwar.preparationStartTime);
     sqlite::bind(stmt.get(), 8, clanwar.startTime);
     sqlite::bind(stmt.get(), 9, clanwar.endTime);
-    clanwar.seasonId.has_value() // Если это раунд ЛВК - поле остается NULL.
+    clanwar.seasonId.has_value() // Если это не раунд ЛВК - поле остается NULL.
         ? sqlite::bind(stmt.get(), 10, *clanwar.seasonId)
         : sqlite::bind(stmt.get(), 10);
+    clanwar.roundNumber.has_value() // Если это не раунд ЛВК - поле остается NULL.
+        ? sqlite::bind(stmt.get(), 11, *clanwar.roundNumber)
+        : sqlite::bind(stmt.get(), 11);
 
     if (sqlite3_step(stmt.get()) != SQLITE_ROW)
     {
@@ -174,7 +177,7 @@ void ClanwarRepo::saveClanwarMembers(const long long clanwarId, const long long 
             throw DatabaseException(
                 fmt::format(
                     "[{}] Failed to save clanwar member (clan_tag = {}, player_tag = {}, war_id = {}): {}",
-                    repoName,clanTag,
+                    repoName, clanTag,
                     playerTag, clanwarId,
                     sqlite3_errmsg(db)));
         }

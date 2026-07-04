@@ -145,7 +145,8 @@ struct Clanwar
     long long preparationStartTime;
     long long startTime;
     long long endTime;
-    std::optional<std::string> seasonId;
+    std::optional<long long> seasonId;
+    std::optional<int> roundNumber;
 
     static Clanwar fromJson(const nlohmann::json& j, std::string_view warType, std::string_view clanTag);
 };

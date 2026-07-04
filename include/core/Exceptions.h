@@ -18,4 +18,31 @@ public:
     using ClashBotException::ClashBotException;
 };
 
+enum class ApiError
+{
+    Network,
+    NotFound,
+    RateLimit,
+    Forbidden,
+    InvalidJSON,
+    UnexpectedResponse
+};
+
+class ApiException : public ClashBotException
+{
+    ApiError apiError;
+
+public:
+    ApiException(const ApiError error, const std::string& message)
+        : ClashBotException(message),
+          apiError(error)
+    {
+    }
+
+    [[nodiscard]] ApiError error() const noexcept
+    {
+        return apiError;
+    }
+};
+
 #endif //ACTIVITYTRACKING_EXCEPTIONS_H

@@ -6,6 +6,7 @@
 #include <spdlog/spdlog.h>
 
 #include "common/StringUtils.h"
+#include "core/Exceptions.h"
 
 using json = nlohmann::json;
 
@@ -21,8 +22,6 @@ nlohmann::json APIClient::fetchJson(std::string_view endpoint) const
 {
     const std::string url = (isTunnel ? tunnelUrl : baseUrl) + std::string(endpoint);
 
-    spdlog::debug("[API] Fetching data from: {}", endpoint);
-
     cpr::Response response = cpr::Get(
         cpr::Url{url},
         cpr::Header{
@@ -35,30 +34,41 @@ nlohmann::json APIClient::fetchJson(std::string_view endpoint) const
 
     if (response.error)
     {
-        spdlog::error("[API] Network error: {} at {}", response.error.message, endpoint);
-        throw std::runtime_error("Network error: " + response.error.message);
+        throw ApiException(
+            ApiError::Network,
+            fmt::format("[{}] Network error (endpoint = {}): {}",
+                        clientName, endpoint, response.error.message)
+        );
     }
 
-    if (response.status_code == 404)
+    switch (response.status_code)
     {
-        spdlog::warn("[API] Not Found (404) at {}", endpoint);
-        throw std::runtime_error("Not Found: " + std::string(endpoint));
-    }
-    if (response.status_code == 429)
-    {
-        spdlog::error("[API] Rate Limit Exceeded (429) at {}", endpoint);
-        throw std::runtime_error("Rate Limit Exceeded!");
-    }
-    if (response.status_code == 403)
-    {
-        spdlog::error("[API] Access Denied (403): Invalid Token or IP at {}", endpoint);
-        throw std::runtime_error("Access Denied: Invalid Token or IP not allowed.");
-    }
-    if (response.status_code != 200)
-    {
-        spdlog::error("[API] Unexpected Error [{}] at {}", response.status_code, endpoint);
-        throw std::runtime_error(
-            "API Error [" + std::to_string(response.status_code) + "] at: " + std::string(endpoint));
+    case 200:
+        break;
+    case 404:
+        throw ApiException(
+            ApiError::NotFound,
+            fmt::format("[{}] Not found error 404 (endpoint = {}): {}",
+                        clientName, endpoint, response.text)
+        );
+    case 429:
+        throw ApiException(
+            ApiError::RateLimit,
+            fmt::format("[{}] Rate Limit Exceeded 429 (endpoint = {}): {}",
+                        clientName, endpoint, response.text)
+        );
+    case 403:
+        throw ApiException(
+            ApiError::Forbidden,
+            fmt::format("[{}] Access Denied 403 (endpoint = {}): {}",
+                        clientName, endpoint, response.text)
+        );
+    default:
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            fmt::format("[{}] Unexpected HTTP status {} (endpoint = {}): {}",
+                        clientName, response.status_code, endpoint, response.error.message)
+        );
     }
 
     try
@@ -68,8 +78,11 @@ nlohmann::json APIClient::fetchJson(std::string_view endpoint) const
     }
     catch (const nlohmann::json::parse_error& e)
     {
-        spdlog::error("[API] JSON Parse Error at {}: {}", endpoint, e.what());
-        throw std::runtime_error("JSON Parse Error at " + std::string(endpoint) + ": " + e.what());
+        throw ApiException(
+            ApiError::InvalidJSON,
+            fmt::format("[{}] Json Parse Error (endpoint = {}): {}",
+                        clientName, endpoint, e.what())
+        );
     }
 }
 
@@ -81,9 +94,9 @@ std::optional<CompleteClanData> APIClient::getCompleteClanData(const std::string
     {
         parsed = fetchJson("/clans/" + utils::transformTag(clanTag));
     }
-    catch (const std::runtime_error& e)
+    catch (const ApiException& e)
     {
-        if (const std::string errStr(e.what()); errStr.find("Not Found") != std::string::npos)
+        if (e.error() == ApiError::NotFound)
         {
             return std::nullopt;
         }
@@ -92,8 +105,12 @@ std::optional<CompleteClanData> APIClient::getCompleteClanData(const std::string
 
     if (!parsed.contains("tag") || !parsed.contains("memberList") || !parsed["memberList"].is_array())
     {
-        spdlog::error("[API] Received invalid clan JSON structure for tag: {}", clanTag);
-        return std::nullopt;
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            fmt::format(
+                "[{}] Invalid response for clan (clan_tag = {})",
+                clientName,
+                clanTag));
     }
 
     CompleteClanData data;
@@ -112,9 +129,9 @@ std::optional<CompleteRaidData> APIClient::getCompleteRaidData(const std::string
     {
         parsed = fetchJson("/clans/" + utils::transformTag(clanTag) + "/capitalraidseasons?limit=1");
     }
-    catch (const std::runtime_error& e)
+    catch (const ApiException& e)
     {
-        if (const std::string errStr(e.what()); errStr.find("Not Found") != std::string::npos)
+        if (e.error() == ApiError::NotFound)
         {
             return std::nullopt;
         }
@@ -123,7 +140,12 @@ std::optional<CompleteRaidData> APIClient::getCompleteRaidData(const std::string
 
     if (!parsed.contains("items") || !parsed["items"].is_array() || parsed["items"].empty())
     {
-        return std::nullopt;
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            fmt::format(
+                "[{}] Invalid raid response for clan (clan_tag = {})",
+                clientName,
+                clanTag));
     }
 
     const auto& part = parsed["items"][0];
@@ -135,7 +157,12 @@ std::optional<CompleteRaidData> APIClient::getCompleteRaidData(const std::string
 
     if (!part.contains("members") || !part["members"].is_array())
     {
-        return std::nullopt;
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            fmt::format(
+                "[{}] Invalid raid response for clan (clan_tag = {})",
+                clientName,
+                clanTag));
     }
 
     CompleteRaidData completeRaidData;
@@ -152,7 +179,7 @@ ClanwarsFetchResult APIClient::getCompleteClanwarData(const std::string_view cla
     {
         parsed = fetchJson("/clans/" + utils::transformTag(clanTag) + "/currentwar");
     }
-    catch (const std::runtime_error& e)
+    catch (const ApiException& e)
     {
         const std::string errStr(e.what());
 
@@ -166,7 +193,14 @@ ClanwarsFetchResult APIClient::getCompleteClanwarData(const std::string_view cla
 
     if (!parsed.contains("clan") || !parsed.contains("opponent"))
     {
-        return {ClanwarFetchStatus::Success, std::nullopt};
+        return {
+            ClanwarFetchStatus::Error,
+            std::nullopt,
+            fmt::format(
+                "[{}] Invalid clanwar response for clan (clan_tag = {})",
+                clientName,
+                clanTag)
+        };
     }
 
     CompleteClanwarData completeClanwarData;
@@ -192,11 +226,11 @@ ClanwarsLeagueFetchResult APIClient::getCompleteClanwarsLeagueData(const std::st
     {
         parsed = fetchJson("/clans/" + utils::transformTag(clanTag) + "/currentwar/leaguegroup");
     }
-    catch (const std::runtime_error& e)
+    catch (const ApiException& e)
     {
         const std::string errStr(e.what());
 
-        if (errStr.find("Not Found") != std::string::npos)
+        if (e.error() == ApiError::NotFound)
         {
             return {LeagueFetchStatus::NoActiveLeague};
         }
@@ -207,6 +241,18 @@ ClanwarsLeagueFetchResult APIClient::getCompleteClanwarsLeagueData(const std::st
     if (const std::string state = parsed.value("state", "notInWar"); state == "notInWar")
     {
         return {LeagueFetchStatus::NoActiveLeague};
+    }
+
+    if (!parsed.contains("season") || !parsed.contains("rounds"))
+    {
+        return {
+            LeagueFetchStatus::Error,
+            std::nullopt,
+            fmt::format(
+                "[{}] Invalid CWL response for clan (clan_tag = {})",
+                clientName,
+                clanTag)
+        };
     }
 
     CompleteClanwarsLeagueData completeClanwarsLeagueData;
@@ -231,7 +277,7 @@ std::vector<CompleteClanwarData> APIClient::getLeagueClanwarRoundsInfo(
 
         for (const auto& warTagJson : round["warTags"])
         {
-            auto warTag = warTagJson.get<std::string>();
+            const auto warTag = warTagJson.get<std::string>();
             if (warTag == "#0" || warTag.length() < 2) continue;
 
             nlohmann::json warParsed;
@@ -239,10 +285,24 @@ std::vector<CompleteClanwarData> APIClient::getLeagueClanwarRoundsInfo(
             {
                 warParsed = fetchJson("/clanwarleagues/wars/" + utils::transformTag(warTag));
             }
-            catch (const std::exception& e)
+            catch (const ApiException& e)
             {
-                spdlog::warn("[API] Failed to fetch CWL round {}: {}", warTag, e.what());
-                continue;
+                if (e.error() == ApiError::NotFound)
+                    continue;
+
+                throw;
+            }
+
+            if (!warParsed.contains("clan") ||
+                !warParsed.contains("opponent"))
+            {
+                throw ApiException(
+                    ApiError::UnexpectedResponse,
+                    fmt::format(
+                        "[{}] Invalid CWL war response (war_tag = {}, clan_tag = {})",
+                        clientName,
+                        warTag,
+                        clanTag));
             }
 
             std::string attackerTag = warParsed.value("/clan/tag"_json_pointer, "unknown");

@@ -8,11 +8,11 @@ class Database;
 
 class ClanwarsLeagueRoundEndedFormatter
 {
-    LeagueClanwarRepo& clanwarsLeagueRepo;
+    ClanwarsLeagueRepo& clanwarsLeagueRepo;
     ClanwarRepo& clanwarRepo;
 
 public:
-    explicit ClanwarsLeagueRoundEndedFormatter(LeagueClanwarRepo& clanwarsLeagueRepo,
+    explicit ClanwarsLeagueRoundEndedFormatter(ClanwarsLeagueRepo& clanwarsLeagueRepo,
                                                ClanwarRepo& clanwarRepo);
 
     [[nodiscard]] std::string format(const ClanwarsLeagueRoundEndedEvent& event) const;

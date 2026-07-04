@@ -102,7 +102,8 @@ int main(const int argc, char* argv[])
                                                            config.tunnelBaseUrl);
         const auto db = std::make_shared<Database>(config.databasePath);
 
-        if (const auto migratorManager = std::make_unique<MigratorManager>(*db); !migratorManager->migrate(
+        const auto migratorManager = std::make_unique<MigratorManager>(*db);
+        if (!migratorManager->migrate(
             config.migrationPath))
         {
             spdlog::critical("[DB] Failed to apply migrations. Startup aborted.");

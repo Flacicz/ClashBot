@@ -22,7 +22,7 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
     auto svc = getServiceName();
     spdlog::info("[Service: {}] Starting Clan War League data update for {}", svc, tag);
 
-    const auto [status, completeClanwarsLeagueData, errorMsg] = apiClient.getCompleteClanwarsLeagueData(tag);
+    auto [status, completeClanwarsLeagueData, errorMsg] = apiClient.getCompleteClanwarsLeagueData(tag);
 
     if (status == LeagueFetchStatus::Error)
     {
@@ -52,7 +52,7 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
         return SyncResult::error(getServiceName(), std::string(tag), std::move(criticalError));
     }
 
-    const auto& [clanwarsLeagueSeason, clanwarsLeagueMembers, warDetails] = completeClanwarsLeagueData.value();
+    auto& [clanwarsLeagueSeason, clanwarsLeagueMembers, warDetails] = completeClanwarsLeagueData.value();
 
     try
     {
@@ -60,12 +60,23 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
 
         const long long lastCWLId = db.leagueWar().saveCompleteCWLData(clanwarsLeagueSeason, clanwarsLeagueMembers);
 
-        for (const auto& [war, clans, attacks, members] : warDetails)
+        int roundNumber = 1;
+        for (auto& [war, clans, attacks, members] : warDetails)
         {
             try
             {
+                war.seasonId = lastCWLId;
+                war.roundNumber = roundNumber++;
+
                 auto warResult = db.war().saveCompleteClanwarData(war, clans, attacks, members);
                 if (warResult.warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
+
+                if (war.state == "warEnded")
+                {
+                    syncResult.events.emplace_back(
+                        ClanwarsLeagueRoundEndedEvent(std::string(tag), lastCWLId, warResult)
+                    );
+                }
             }
             catch (const std::exception& e)
             {
@@ -74,13 +85,6 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
                         "Failed to save war '{}' in CWL season: {}",
                         war.warUID,
                         e.what()));
-            }
-
-            if (war.state == "ended")
-            {
-                syncResult.events.emplace_back(
-                    ClanwarsLeagueRoundEndedEvent(std::string(tag), lastCWLId, warResult)
-                );
             }
         }
 

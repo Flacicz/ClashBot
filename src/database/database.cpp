@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include "core/Exceptions.h"
 #include "database/sqliteHelpers.h"
 #include "database/repos/SubscriptionRepo.h"
 
@@ -9,35 +10,21 @@ Database::Database(const std::string& path) : pathToDb(path)
 {
     if (sqlite3_open(path.c_str(), &db) != SQLITE_OK)
     {
-        std::string errMsg = sqlite3_errmsg(db);
-        spdlog::critical("[DB] Failed to open/create database: {}", errMsg);
-        throw std::runtime_error("Database initialization failed: " + errMsg);
+        throw DatabaseException(
+            fmt::format("[{}] Failed to open database (path = {}): {}",
+                        name, path, sqlite3_errmsg(db)));
     }
 
-    spdlog::info("[DB] Database successfully opened at {}", path);
+    spdlog::info("[{}] Database successfully opened (path = {})", name, path);
 
-    if (!execute("PRAGMA foreign_keys = ON;"))
-    {
-        spdlog::critical("[DB] Critical configuration failure: Cannot enable FOREIGN KEYS constraint!");
-        throw std::runtime_error("DB Error: foreign_keys failed");
-    }
-
-    if (!execute("PRAGMA journal_mode = WAL;"))
-    {
-        spdlog::critical("[DB] Critical configuration failure: Cannot switch journal mode to WAL!");
-        throw std::runtime_error("DB Error: WAL mode failed");
-    }
-
-    if (!execute("PRAGMA synchronous = NORMAL;"))
-    {
-        spdlog::critical("[DB] Critical configuration failure: Cannot set synchronous mode to NORMAL!");
-        throw std::runtime_error("DB Error: synchronous NORMAL failed");
-    }
+    execute("PRAGMA foreign_keys = ON;");
+    execute("PRAGMA journal_mode = WAL;");
+    execute("PRAGMA synchronous = NORMAL;");
 
     clansRepo = std::make_unique<ClansRepo>(db);
     raidRepo = std::make_unique<RaidRepo>(db);
     cwRepo = std::make_unique<ClanwarRepo>(db);
-    cwlRepo = std::make_unique<LeagueClanwarRepo>(db);
+    cwlRepo = std::make_unique<ClanwarsLeagueRepo>(db);
     subscriptionRepo = std::make_unique<SubscriptionRepo>(db);
     notificationRepo = std::make_unique<NotificationRepo>(db);
 }
@@ -48,56 +35,66 @@ Database::~Database()
     raidRepo.reset();
     cwRepo.reset();
     cwlRepo.reset();
+    subscriptionRepo.reset();
+    notificationRepo.reset();
 
     if (db)
     {
         sqlite3_close(db);
-        spdlog::info("[DB] Database closed.");
+        spdlog::info("[{}] Database closed.", name);
     }
 }
 
-bool Database::execute(std::string_view sql) const
+void Database::execute(const std::string_view sql) const
 {
     char* err = nullptr;
     if (sqlite3_exec(db, sql.data(), nullptr, nullptr, &err) != SQLITE_OK)
     {
-        spdlog::error("[DB] Execute failed: {} | SQL: {}", err, sql);
-        sqlite3_free(err);
-        return false;
+        std::unique_ptr<char, decltype(&sqlite3_free)> errGuard(err, sqlite3_free);
+
+        throw DatabaseException(
+            fmt::format(
+                "[{}] Failed to execute SQL (sql = {}): {}",
+                name,
+                sql,
+                errGuard ? errGuard.get() : "Unknown error"));
     }
-    return true;
 }
 
-Database::QueryResult Database::query(std::string_view sql) const
+Database::QueryResult Database::query(const std::string_view sql) const
 {
     QueryResult result;
-    sqlite3_stmt* raw_stmt;
 
-    if (sqlite3_prepare_v2(db, sql.data(), static_cast<int>(sql.size()), &raw_stmt, nullptr) != SQLITE_OK)
-    {
-        spdlog::error("[DB] Failed to prepare query: {} | SQL: {}", sqlite3_errmsg(db), sql);
-        return result;
-    }
+    const auto stmt = sqlite::prepare(db, sql);
 
-    const SQliteStmt statement(raw_stmt, &sqlite3_finalize);
-
-    const int cols = sqlite3_column_count(statement.get());
+    const int cols = sqlite3_column_count(stmt.get());
     for (int i = 0; i < cols; i++)
     {
-        result.columns.emplace_back(sqlite3_column_name(statement.get(), i));
+        result.columns.emplace_back(sqlite3_column_name(stmt.get(), i));
     }
 
-    while (sqlite3_step(statement.get()) == SQLITE_ROW)
+    int rc;
+    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
     {
         std::vector<std::string> row;
         row.reserve(cols);
 
         for (int i = 0; i < cols; i++)
         {
-            auto text = reinterpret_cast<const char*>(sqlite3_column_text(statement.get(), i));
-            row.emplace_back(text ? text : "");
+            auto text = sqlite::getString(stmt.get(), i);
+            row.emplace_back(text);
         }
         result.rows.push_back(row);
+    }
+
+    if (rc != SQLITE_DONE)
+    {
+        throw DatabaseException(
+            fmt::format(
+                "[{}] Failed to execute query\n{}\n: {}",
+                name,
+                sql,
+                sqlite3_errmsg(db)));
     }
 
     return result;

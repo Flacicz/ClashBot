@@ -25,7 +25,7 @@ std::vector<long long> SubscriptionRepo::getChatIdsForClan(const std::string_vie
     while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
     {
         chatIds.push_back(
-            sqlite::getInt(stmt.get(), 0)
+            sqlite::getLong(stmt.get(), 0)
         );
     }
 

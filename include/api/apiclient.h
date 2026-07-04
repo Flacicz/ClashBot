@@ -12,6 +12,8 @@ class APIClient
     std::string tunnelUrl;
     bool isTunnel;
 
+    static constexpr std::string_view clientName = "ApiClient";
+
 public:
     APIClient(std::string token, bool tunnel, std::string baseUrl, std::string tunnelUrl);
     ~APIClient() = default;

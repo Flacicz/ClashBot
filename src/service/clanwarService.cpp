@@ -50,10 +50,12 @@ SyncResult ClanwarService::updateData(std::string_view tag)
         return SyncResult::error(getServiceName(), std::string(tag), std::move(detailedError));
     }
 
+    SyncResult syncResult;
     if (status == ClanwarFetchStatus::NoActiveWar)
     {
         spdlog::info("[Service: {}] No active Clan War for clan '{}'.", svc, tag);
-        return {};
+        syncResult.successFlag= true;
+        return syncResult;
     }
 
     if (!completeData.has_value())
@@ -68,8 +70,6 @@ SyncResult ClanwarService::updateData(std::string_view tag)
 
     try
     {
-        SyncResult syncResult;
-
         TransactionGuard tx(db);
 
         const auto warResult = db.war().saveCompleteClanwarData(clanwar, clans, attacks, members);

@@ -9,9 +9,11 @@ class MigratorManager
 {
     Database& db;
 
-    [[nodiscard]] bool createMigrationTable() const;
+    void createMigrationTable() const;
     [[nodiscard]] bool isMigrationApplied(const std::string& version) const;
-    [[nodiscard]] bool applyMigration(const std::string& version, const std::filesystem::path& file) const;
+    void applyMigration(const std::string& version, const std::filesystem::path& file) const;
+
+    static constexpr std::string_view name = "MigratorManager";
 public:
     explicit MigratorManager(Database& db);
 
