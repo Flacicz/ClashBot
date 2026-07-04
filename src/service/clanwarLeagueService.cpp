@@ -19,7 +19,7 @@ std::string ClanwarLeagueService::getServiceName() const
 
 SyncResult ClanwarLeagueService::updateData(std::string_view tag)
 {
-    auto svc = "CWL";
+    auto svc = getServiceName();
     spdlog::info("[Service: {}] Starting Clan War League data update for {}", svc, tag);
 
     const auto [status, completeClanwarsLeagueData, errorMsg] = apiClient.getCompleteClanwarsLeagueData(tag);
@@ -35,7 +35,10 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
     SyncResult syncResult;
     if (status == LeagueFetchStatus::NoActiveLeague)
     {
-        spdlog::info("[Service: {}] CWL is not active for {}", svc, tag);
+        spdlog::info(
+            "[Service: {}] No active Clan War League season for clan '{}'.",
+            svc,
+            tag);
 
         syncResult.successFlag = true;
         return syncResult;
@@ -59,8 +62,19 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
 
         for (const auto& [war, clans, attacks, members] : warDetails)
         {
-            auto warResult = db.war().saveCompleteClanwarData(war, clans, attacks, members);
-            if (warResult.warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
+            try
+            {
+                auto warResult = db.war().saveCompleteClanwarData(war, clans, attacks, members);
+                if (warResult.warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
+            }
+            catch (const std::exception& e)
+            {
+                throw std::runtime_error(
+                    fmt::format(
+                        "Failed to save war '{}' in CWL season: {}",
+                        war.warUID,
+                        e.what()));
+            }
 
             if (war.state == "ended")
             {
@@ -76,11 +90,24 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
 
         tx.commit();
 
+        spdlog::info(
+            "[Service: {}] Successfully updated Clan War League for clan '{}'. "
+            "Wars: {}, Members: {}, Events generated: {}.",
+            svc,
+            tag,
+            warDetails.size(),
+            clanwarsLeagueMembers.size(),
+            syncResult.events.size());
+
         return syncResult;
     }
     catch (const std::exception& e)
     {
-        spdlog::error("[DB] Transaction failed: {}", e.what());
+        spdlog::error(
+            "[Service: {}] Failed to update Clan War League for clan '{}': {}",
+            svc,
+            tag,
+            e.what());
         return SyncResult::error(getServiceName(), std::string(tag), e.what());
     }
 }

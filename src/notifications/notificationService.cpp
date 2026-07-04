@@ -116,7 +116,7 @@ void NotificationService::handleEvent(const PlayerLeftClanEvent& event) const
 
 void NotificationService::handleEvent(const PlayerRoleChangedEvent& event) const
 {
-    const auto& message = playerRoleChangedFormatter.format(event);
+    const auto& message = PlayerRoleChangedFormatter::format(event);
 
     const auto chatIds = db.subscriptions().getChatIdsForClan(event.clanTag);
 

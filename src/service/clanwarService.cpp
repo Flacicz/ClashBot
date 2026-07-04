@@ -18,7 +18,7 @@ std::string ClanwarService::getServiceName() const
 }
 
 std::vector<DomainEvent> ClanwarService::generateEvents(const std::string_view clanTag, const std::string& state,
-                                                        InsertedWarResult insertedWarResult)
+                                                        const InsertedWarResult& insertedWarResult)
 {
     std::vector<DomainEvent> events;
 
@@ -34,8 +34,11 @@ std::vector<DomainEvent> ClanwarService::generateEvents(const std::string_view c
 
 SyncResult ClanwarService::updateData(std::string_view tag)
 {
-    auto svc = "CW";
-    spdlog::info("[Service: {}] Starting Clan War data update for {}", svc, tag);
+    auto svc = getServiceName();
+    spdlog::info(
+        "[Service: {}] Starting update for clan '{}'.",
+        svc,
+        tag);
 
     const auto [status, completeData, errorMsg] = apiClient.getCompleteClanwarData(tag);
 
@@ -49,7 +52,7 @@ SyncResult ClanwarService::updateData(std::string_view tag)
 
     if (status == ClanwarFetchStatus::NoActiveWar)
     {
-        spdlog::info("[Service: {}] CW is not active for {}", svc, tag);
+        spdlog::info("[Service: {}] No active Clan War for clan '{}'.", svc, tag);
         return {};
     }
 
@@ -79,11 +82,23 @@ SyncResult ClanwarService::updateData(std::string_view tag)
 
         tx.commit();
 
+        spdlog::info(
+            "[Service: {}] Successfully updated Clan War for clan '{}'. Members: {}, Attacks: {}, Events generated: {}.",
+            svc,
+            tag,
+            members.first.size() + members.second.size(),
+            attacks.size(),
+            syncResult.events.size());
+
         return syncResult;
     }
     catch (const std::exception& e)
     {
-        spdlog::error("[DB] Transaction failed: {}", e.what());
+        spdlog::error(
+            "[Service: {}] Failed to update Clan War for clan '{}': {}",
+            svc,
+            tag,
+            e.what());
         return SyncResult::error(getServiceName(), std::string(tag), e.what());
     }
 }

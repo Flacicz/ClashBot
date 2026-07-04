@@ -8,28 +8,38 @@ ClanManager::ClanManager(
     Database& db,
     APIClient& apiClient,
     std::unique_ptr<EventDispatcher> eventDispatcher,
-    std::unique_ptr<NotificationService> notificationService,
+    NotificationService& notificationService,
     std::vector<std::unique_ptr<ISyncService>> services,
     const std::vector<std::string>& targetClans
 )
     : db(db), apiClient(apiClient), eventDispatcher(std::move(eventDispatcher)),
-      notificationService(std::move(notificationService)),
+      notificationService(notificationService),
       services(std::move(services)), targetClans(targetClans)
 {
 }
 
 SyncResult ClanManager::syncWithRetry(ISyncService* service, const std::string_view clanTag)
 {
-    SyncResult result = {};
-    for (int attempts = 0; attempts < MAX_RETRIES; attempts++)
+    SyncResult result{};
+
+    for (int attempt = 1; attempt <= MAX_RETRIES; ++attempt)
     {
         result = service->updateData(clanTag);
-        if (result.successFlag) return result;
 
-        spdlog::warn("[ClanManager] Service '{}' failed for clan {} (Attempt {}/{}). Retrying...",
-                     service->getServiceName(), clanTag, attempts, MAX_RETRIES);
+        if (result.successFlag)
+            return result;
 
-        std::this_thread::sleep_for(std::chrono::seconds(attempts * 2));
+        if (attempt < MAX_RETRIES)
+        {
+            spdlog::warn(
+                "[Manager] Service '{}' failed for clan '{}' (attempt {}/{}). Retrying...",
+                service->getServiceName(),
+                clanTag,
+                attempt,
+                MAX_RETRIES);
+
+            std::this_thread::sleep_for(std::chrono::seconds(attempt * 2));
+        }
     }
 
     return result;
@@ -44,7 +54,7 @@ void ClanManager::handleSyncFailure(const SyncResult& syncResult)
 
     if (!alertSent)
     {
-        notificationService->sendFailureAlert(syncResult);
+        notificationService.sendFailureAlert(syncResult);
         alertSent = true;
     }
 }
@@ -56,7 +66,7 @@ void ClanManager::handleSyncRecovery(const SyncResult& syncResult)
 
     if (alertSent)
     {
-        notificationService->sendRecoveryAlert(syncResult);
+        notificationService.sendRecoveryAlert(syncResult);
     }
 
     consecutiveFailures = 0;
@@ -67,13 +77,20 @@ void ClanManager::syncAll()
 {
     while (isRunning.load())
     {
-        spdlog::info("[Manager] Starting synchronization cycle...");
+        spdlog::info(
+            "[Manager] Starting synchronization cycle for {} tracked clans.",
+            targetClans.size());
 
         SyncResult result;
         for (const std::string& tag : targetClans)
         {
             for (const auto& service : services)
             {
+                spdlog::debug(
+                    "[Manager] Synchronizing service '{}' for clan '{}'.",
+                    service->getServiceName(),
+                    tag);
+
                 if (!isRunning.load()) return;
 
                 try
@@ -94,8 +111,11 @@ void ClanManager::syncAll()
                 }
                 catch (const std::exception& e)
                 {
-                    spdlog::error("[Manager] Service '{}' failed for clan {}: {}",
-                                  service->getServiceName(), tag, e.what());
+                    spdlog::error(
+                        "[Manager] Unhandled exception while synchronizing service '{}' for clan '{}': {}",
+                        service->getServiceName(),
+                        tag,
+                        e.what());
                 }
             }
         }

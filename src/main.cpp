@@ -86,15 +86,17 @@ int main(const int argc, char* argv[])
     std::signal(SIGINT, signalHandler);
     std::signal(SIGTERM, signalHandler);
 
-    spdlog::info("[Main] Starting ClashBot v1.0...");
+    spdlog::info("[Main] Starting ClashBot v1.0");
 
     try
     {
         std::string configPath = argc > 1 ? argv[1] : "../config.json";
 
+        spdlog::info("[Main] Loading configuration from '{}'.", configPath);
+
         AppConfig config = loadConfig(configPath);
 
-        spdlog::info("[Main] Configuration loaded from '{}'.", configPath);
+        spdlog::info("[Main] Configuration loaded successfully.");
 
         const auto apiClient = std::make_shared<APIClient>(config.supercellToken, config.useTunnel, config.baseUrl,
                                                            config.tunnelBaseUrl);
@@ -106,6 +108,8 @@ int main(const int argc, char* argv[])
             spdlog::critical("[DB] Failed to apply migrations. Startup aborted.");
             return EXIT_FAILURE;
         }
+
+        spdlog::info("[DB] Database migrations completed successfully.");
 
         const auto targetClans = db->clans().getTrackedClans();
 
@@ -121,19 +125,24 @@ int main(const int argc, char* argv[])
         ClanwarEndedFormatter clanwarEndedFormatter(db->war());
         ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(db->leagueWar(), db->war());
 
-        auto notificationService = std::make_unique<NotificationService>(
+        auto notificationService = std::make_shared<NotificationService>(
             *db, std::move(telegramNotifier), playerJoinedFormatter, playerLeftFormatter, playerRoleChangedFormatter,
             raidsEndedFormatter, clanwarEndedFormatter, clanwarsLeagueRoundEndedFormatter);
 
-        auto eventDispatcher = std::make_unique<EventDispatcher>(std::move(notificationService));
+        auto eventDispatcher = std::make_unique<EventDispatcher>(*notificationService);
 
         std::vector<std::unique_ptr<ISyncService>> services;
         services.push_back(std::make_unique<ClanInfoService>(*db, *apiClient));
         services.push_back(std::make_unique<ClanwarService>(*db, *apiClient));
         services.push_back(std::make_unique<RaidService>(*db, *apiClient));
         services.push_back(std::make_unique<ClanwarLeagueService>(*db, *apiClient));
-        ClanManager clanManager(*db, *apiClient, std::move(eventDispatcher), std::move(notificationService),
+
+        spdlog::info("[Main] All application services initialized successfully.");
+
+        ClanManager clanManager(*db, *apiClient, std::move(eventDispatcher), *notificationService,
                                 std::move(services), targetClans);
+
+        spdlog::info("[Main] Application startup completed successfully.");
 
         std::thread syncThread([&clanManager]
         {
@@ -168,12 +177,17 @@ int main(const int argc, char* argv[])
             syncThread.join();
         }
 
-        spdlog::info("[Main] Shutting down gracefully...");
+        spdlog::info("[Main] Shutdown completed successfully.");
         return 0;
     }
     catch (const std::exception& e)
     {
-        spdlog::error("[Main] Startup/runtime error: {}", e.what());
-        return 1;
+        spdlog::critical("[Main] Application startup failed: {}", e.what());
+        return EXIT_FAILURE;
+    }
+    catch (...)
+    {
+        spdlog::critical("[Main] Application startup failed with unknown exception.");
+        return EXIT_FAILURE;
     }
 }

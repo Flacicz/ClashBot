@@ -127,7 +127,7 @@ std::vector<DomainEvent> ClanInfoService::generateEvents(const MembershipChanges
 
 SyncResult ClanInfoService::updateData(std::string_view tag)
 {
-    auto svc = "ClanInfo";
+    auto svc = getServiceName();
     spdlog::info("[Service: {}] Starting update for clan {}", svc, tag);
 
     auto optClanData = apiClient.getCompleteClanData(tag);
@@ -148,17 +148,11 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
 
         const auto roleChanges = detectRoleChanges(std::string(tag), playerSnapshots);
 
-        if (!db.clans().saveCompleteClanData(clan, clanSnapshot, players, playerSnapshots))
-        {
-            throw std::runtime_error("saveCompleteClanData returned false");
-        }
+        db.clans().saveCompleteClanData(clan, clanSnapshot, players, playerSnapshots);
 
         const auto changes = detectMembershipChanges(tag, players);
 
-        if (!db.clans().saveMembershipChanges(changes))
-        {
-            throw std::runtime_error("saveMembershipChanges returned false");
-        }
+        db.clans().saveMembershipChanges(changes);
 
         syncResult.events = generateEvents(changes, roleChanges);
         syncResult.successFlag = true;
@@ -167,14 +161,23 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
 
         tx.commit();
 
-        spdlog::info("[Service: {}] Successfully updated clan {} ({}). Synchronized {} members.", svc, tag, clan.name,
-                     clanSnapshot.membersCount);
+        spdlog::info(
+            "[Service: {}] Successfully updated clan '{}' ({}). Members: {}, Events generated: {}.",
+            svc,
+            tag,
+            clan.name,
+            clanSnapshot.membersCount,
+            syncResult.events.size());
 
         return syncResult;
     }
     catch (const std::exception& e)
     {
-        spdlog::error("[DB] Transaction failed: {}", e.what());
+        spdlog::error(
+            "[Service: {}] Database transaction failed while updating clan '{}': {}",
+            svc,
+            tag,
+            e.what());
         return SyncResult::error(getServiceName(), std::string(tag), e.what());
     }
 }

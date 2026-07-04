@@ -40,7 +40,7 @@ std::vector<DomainEvent> RaidService::generateEvents(const std::string_view clan
 
 SyncResult RaidService::updateData(std::string_view tag)
 {
-    auto svc = "Raid";
+    auto svc = getServiceName();
     spdlog::info("[Service: {}] Starting Capital Raids data update for {}", svc, tag);
 
     const auto optRaidData = apiClient.getCompleteRaidData(tag);
@@ -64,21 +64,29 @@ SyncResult RaidService::updateData(std::string_view tag)
 
         const long long lastRaidId = db.raids().saveCompleteRaidData(clanRaid, playerRaidSnapshots);
 
-        syncResult.events = generateEvents(tag, clanRaid.state, lastRaidId);;
+        syncResult.events = generateEvents(tag, clanRaid.state, lastRaidId);
         syncResult.successFlag = true;
         syncResult.serviceName = svc;
         syncResult.clanTag = tag;
 
         tx.commit();
 
-        spdlog::info("[Service: {}] Raids for {} successfully updated. Participants: {}", svc, clanRaid.startTime,
-                     playerRaidSnapshots.size());
+        spdlog::info(
+            "[Service: {}] Successfully updated Capital Raid for clan '{}'. Participants: {}, Events generated: {}.",
+            svc,
+            tag,
+            playerRaidSnapshots.size(),
+            syncResult.events.size());
 
         return syncResult;
     }
     catch (const std::exception& e)
     {
-        spdlog::error("[DB] Transaction failed: {}", e.what());
+        spdlog::error(
+            "[Service: {}] Failed to update Capital Raid for clan '{}': {}",
+            svc,
+            tag,
+            e.what());
         return SyncResult::error(getServiceName(), std::string(tag), e.what());
     }
 }

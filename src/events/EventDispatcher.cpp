@@ -1,7 +1,7 @@
 #include <events/EventDispatcher.h>
 
-EventDispatcher::EventDispatcher(std::unique_ptr<NotificationService> notificationService) :
-    notificationService(std::move(notificationService))
+EventDispatcher::EventDispatcher(NotificationService& notifications) :
+    notifications(notifications)
 {
 }
 
@@ -9,6 +9,6 @@ void EventDispatcher::dispatch(const std::vector<DomainEvent>& events) const
 {
     for (const auto& event : events)
     {
-        notificationService->handle(event);
+        notifications.handle(event);
     }
 }
