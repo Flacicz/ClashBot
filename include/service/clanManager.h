@@ -5,6 +5,7 @@
 #include "ISyncService.h"
 #include "api/apiclient.h"
 #include "database/database.h"
+#include "events/EventDispatcher.h"
 #include "notifications/notificationService.h"
 
 
@@ -18,7 +19,8 @@ class ClanManager
 
     Database& db;
     APIClient& apiClient;
-    std::unique_ptr<NotificationService> notificationService;
+    NotificationService& notificationService;
+    std::unique_ptr<EventDispatcher> eventDispatcher;
 
     std::vector<std::unique_ptr<ISyncService>> services;
 
@@ -40,7 +42,8 @@ public:
     ClanManager(
         Database& db,
         APIClient& apiClient,
-        std::unique_ptr<NotificationService> notificationService,
+        std::unique_ptr<EventDispatcher> eventDispatcher,
+        NotificationService& notificationService,
         std::vector<std::unique_ptr<ISyncService>> services,
         const std::vector<std::string>& targetClans
     );

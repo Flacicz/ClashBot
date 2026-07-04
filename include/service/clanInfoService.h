@@ -11,8 +11,13 @@ class ClanInfoService : public ISyncService
     Database& db;
     APIClient& apiClient;
 
-    [[nodiscard]] std::pair<std::vector<Player>, std::vector<Player>> checkTrackedPlayers(
-        const std::string& clanTag, std::vector<Player>& players) const;
+    [[nodiscard]] MembershipChanges detectMembershipChanges(
+        std::string_view clanTag, std::vector<Player>& players) const;
+    [[nodiscard]] RoleChanges detectRoleChanges(const std::string& clanTag,
+                                                const std::vector<PlayerSnapshot>& currentPlayers) const;
+
+    static std::vector<DomainEvent> generateEvents(const MembershipChanges& changes,
+                                                   const RoleChanges& roleChanges);
 
 public:
     ClanInfoService(Database& db, APIClient& apiClient);

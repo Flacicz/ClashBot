@@ -6,15 +6,16 @@
 class RaidRepo
 {
     sqlite3* db;
+    static constexpr std::string_view repoName = "RaidRepo";
 
 public:
     explicit RaidRepo(sqlite3* db);
 
-    [[nodiscard]] long long insertOrUpdateSingleRaid(const ClanRaid& clanRaid) const;
-    [[nodiscard]] bool insertOrUpdateRaidPlayersSnapshots(long long raidId,
-                                                          const std::vector<PlayerRaidSnapshot>& members) const;
+    [[nodiscard]] long long saveRaid(const ClanRaid& clanRaid) const;
+    void saveRaidPlayerSnapshots(long long raidId,
+                                            const std::vector<PlayerRaidSnapshot>& members) const;
     [[nodiscard]] long long saveCompleteRaidData(const ClanRaid& clanRaid,
-                                            const std::vector<PlayerRaidSnapshot>& playerRaidSnapshots) const;
+                                                 const std::vector<PlayerRaidSnapshot>& playerRaidSnapshots) const;
 
     [[nodiscard]] std::vector<RaidSlacker> getRaidSlackers(long long raidId, std::string_view clanTag) const;
 };

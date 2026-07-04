@@ -7,17 +7,18 @@
 class ClanwarRepo
 {
     sqlite3* db;
+    static constexpr std::string_view repoName = "ClanwarRepo";
 
 public:
     explicit ClanwarRepo(sqlite3* db);
 
-    [[nodiscard]] long long insertSingleClanwarInfo(const Clanwar& clanwar) const;
-    [[nodiscard]] long long insertSingleClanwarDetails(long long clanwarId, const ClanwarClan& clanwarClan) const;
-    [[nodiscard]] bool insertSingleClanwarAttacks(long long clanwarId,
-                                                  long long attackerClanId, long long defenderClanId,
-                                                  const std::vector<ClanwarAttack>& attacks) const;
-    [[nodiscard]] bool insertSingleClanwarMembers(long long clanwarId, long long clanId,
-                                                  const std::vector<ClanwarMember>& members) const;
+    [[nodiscard]] long long saveClanwar(const Clanwar& clanwar) const;
+    [[nodiscard]] long long saveClanwarDetails(long long clanwarId, const ClanwarClan& clanwarClan) const;
+    void saveClanwarAttacks(long long clanwarId,
+                                    long long attackerClanId, long long defenderClanId,
+                                    const std::vector<ClanwarAttack>& attacks) const;
+    void saveClanwarMembers(long long clanwarId, long long clanId,
+                                    const std::vector<ClanwarMember>& members) const;
 
     [[nodiscard]] InsertedWarResult saveCompleteClanwarData(const Clanwar& war,
                                                             const std::pair<ClanwarClan, ClanwarClan>& clans,
@@ -26,10 +27,15 @@ public:
                                                                 std::vector<ClanwarMember>, std::vector<ClanwarMember>>&
                                                             members) const;
 
+    [[nodiscard]] ClanwarOverview getClanwarOverview(long long clanwarId, const std::string& side) const;
+
     [[nodiscard]] std::vector<ClanwarSlacker> getSlackersWithNoAttacks(long long clanwarId,
                                                                        long long warClanId) const;
     [[nodiscard]] std::vector<ClanwarSlacker> getSlackersWithOneAttack(long long clanwarId,
                                                                        long long warClanId) const;
     [[nodiscard]] std::vector<ClanwarSlacker> getPlayersWithNotMirrorAttack(long long clanwarId,
-                                                                            long long homeWarClanId) const;
+                                                                            long long warClanId) const;
+
+    [[nodiscard]] ClanwarReportData getReportData(long long clanwarId, long long warClanId) const;
+    [[nodiscard]] WarRoundDetails getWarRoundDetails(long long warId, long long homeClanId) const;
 };

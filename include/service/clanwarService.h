@@ -9,6 +9,9 @@ class ClanwarService : public ISyncService
     Database& db;
     APIClient& apiClient;
 
+    static std::vector<DomainEvent> generateEvents(std::string_view clanTag, const std::string& state,
+                                                   const InsertedWarResult& insertedWarResult);
+
 public:
     ClanwarService(Database& db,
                    APIClient& apiClient);

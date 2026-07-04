@@ -42,11 +42,10 @@ add_executable(${PROJECT_NAME}
 		src/api/apiclient.cpp
 		src/config/configLoader.cpp
 		src/database/database.cpp
-		src/database/tableManager.cpp
-		src/database/repos/clansRepo.cpp
+        src/database/repos/clansRepo.cpp
 		src/database/repos/clanwarRepo.cpp
 		src/database/repos/raidRepo.cpp
-		src/database/repos/leagueClanwarRepo.cpp
+		src/database/repos/ClanwarsLeagueRepo.cpp
 		src/models/models.cpp
 		src/service/clanManager.cpp
 		src/service/clanInfoService.cpp
@@ -54,16 +53,21 @@ add_executable(${PROJECT_NAME}
 		src/service/clanwarService.cpp
 		src/service/clanwarLeagueService.cpp
 		src/notifications/telegramNotifier.cpp
-		src/reports/RaidReportFormatter.cpp
+		src/reports/RaidsEndedFormatter.cpp
 		src/common/SyncResult.cpp
 		src/notifications/notificationService.cpp
-		src/reports/ClanwarReportFormatter.cpp
-		src/reports/ClanwarLeagueReportFormatter.cpp
+        src/reports/ClanwarEndedFormatter.cpp
+		src/reports/ClanwarsLeagueRoundEndedFormatter.cpp
 		src/database/migratorManager.cpp
 		src/common/TimeParser.cpp
-		src/reports/ClanInfoReportFormatter.cpp
-		include/database/repos/SubscriptionRepo.h
 		src/database/repos/SubscriptionRepo.cpp
+		src/events/EventDispatcher.cpp
+		src/reports/PlayerJoinedFormatter.cpp
+		src/reports/PlayerLeftFormatter.cpp
+		src/database/repos/NotificationsRepo.cpp
+		src/reports/PlayerRoleChangedFormatter.cpp
+		src/database/SQLiteHelpers.cpp
+		include/core/Exceptions.h
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

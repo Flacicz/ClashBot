@@ -8,6 +8,7 @@
 class SubscriptionRepo
 {
     sqlite3* db;
+    static constexpr std::string_view repoName = "SubscriptionRepo";
 
 public:
     explicit SubscriptionRepo(sqlite3* db);

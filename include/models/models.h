@@ -198,7 +198,8 @@ struct CompleteClanwarData
     std::pair<std::vector<ClanwarMember>, std::vector<ClanwarMember>> members;
 };
 
-struct InsertedWarResult {
+struct InsertedWarResult
+{
     long long warId;
     long long homeClanId;
     long long opponentClanId;
@@ -267,8 +268,9 @@ struct RaidSlacker
 
 struct RaidReportData
 {
-    long long raidId;
-    std::string state;
+    std::string clanTag;
+    std::string clanName;
+
     std::vector<RaidSlacker> raidSlackers;
 };
 
@@ -278,21 +280,88 @@ struct ClanwarSlacker
     std::string playerName;
 };
 
+struct ClanwarOverview
+{
+    std::string clanTag;
+    std::string clanName;
+
+    int stars;
+    double destructionPercentage;
+};
+
 struct ClanwarReportData
 {
-    long long clanwarId;
-    std::string state;
-    std::pair<ClanwarClan, ClanwarClan> clanwars;
+    ClanwarOverview home;
+    ClanwarOverview opponent;
 
     std::vector<ClanwarSlacker> missedAllAttacks;
     std::vector<ClanwarSlacker> missedOneAttack;
     std::vector<ClanwarSlacker> notMirror;
 };
 
-struct ClanwarsLeagueReportData
+struct WarRoundDetails
 {
-    long long seasonId;
+    ClanwarOverview home;
+    ClanwarOverview opponent;
+
+    std::vector<ClanwarSlacker> missedAttack;
+    std::vector<ClanwarSlacker> notMirror;
+};
+
+struct CWLRoundInfo
+{
+    std::string season;
+    int roundNumber;
+};
+
+struct ClanwarsLeagueRoundReportData
+{
+    CWLRoundInfo cwlRoundInfo;
+    WarRoundDetails warDetails;
+};
+
+struct MembershipChanges
+{
+    std::vector<Player> leftPlayers;
+    std::vector<Player> joinedPlayers;
+};
+
+enum class RaidStates
+{
+    Ended,
+    Ongoing,
+    Scheduled
+};
+
+struct LatestPlayerState
+{
+    std::string clanTag;
+    std::string playerTag;
+    std::string playerName;
+    std::string role;
+    int townHallLevel;
+    int expLevel;
+    int clanRank;
+    int leagueId;
+    int builderBaseLeagueId;
+    int trophies;
+    int builderBaseTrophies;
+    int donations;
+    int donationsReceived;
+};
+
+struct RoleChange
+{
     std::string clanTag;
 
-    std::vector<ClanwarReportData> reports;
+    std::string playerTag;
+    std::string playerName;
+
+    std::string oldRole;
+    std::string newRole;
+};
+
+struct RoleChanges
+{
+    std::vector<RoleChange> changes;
 };

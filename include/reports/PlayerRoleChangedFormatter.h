@@ -4,5 +4,14 @@
 
 #ifndef ACTIVITYTRACKING_PLAYERROLECHANGEDFORMATTER_H
 #define ACTIVITYTRACKING_PLAYERROLECHANGEDFORMATTER_H
+#include <string>
+
+#include "events/DomainEvents.h"
+
+class PlayerRoleChangedFormatter
+{
+public:
+    static [[nodiscard]] std::string format(const PlayerRoleChangedEvent& event);
+};
 
 #endif //ACTIVITYTRACKING_PLAYERROLECHANGEDFORMATTER_H

@@ -3,6 +3,7 @@
 #include <string>
 #include <variant>
 
+#include "events/DomainEvents.h"
 #include "models/models.h"
 
 struct SyncResult
@@ -12,32 +13,9 @@ struct SyncResult
     bool successFlag = false;
     std::string errorMsg;
 
-    std::variant<std::monostate,
-                 ClanReportData,
-                 RaidReportData,
-                 ClanwarReportData,
-                 ClanwarsLeagueReportData
-    > reportData;
+    std::vector<DomainEvent> events;
 
-    long long reportEntityId;
-
-    static SyncResult success(std::string service, std::string tag);
     static SyncResult error(std::string service, std::string tag, std::string msg);
-
-
-    static SyncResult successWithClanReport(std::string service, std::string tag, ClanReportData data);
-    static SyncResult successWithRaidReport(std::string service, std::string tag, RaidReportData data,
-                                            long long reportEntityId);
-    static SyncResult successWithClanwarReport(std::string service, std::string tag, ClanwarReportData data,
-                                               long long reportEntityId);
-    static SyncResult successWithClanwarsLeagueReport(std::string service, std::string tag,
-                                                      ClanwarsLeagueReportData data,
-                                                      long long reportEntityId);
-
-    [[nodiscard]] bool hasReportData() const
-    {
-        return !std::holds_alternative<std::monostate>(reportData);
-    }
 };
 
 #endif //ACTIVITYTRACKING_SYNCRESULT_H

@@ -4,14 +4,20 @@
 
 #ifndef ACTIVITYTRACKING_CLANWARREPORTFORMATTER_H
 #define ACTIVITYTRACKING_CLANWARREPORTFORMATTER_H
-#include "IReportFormatter.h"
+#include "database/repos/clanwarRepo.h"
+#include "events/DomainEvents.h"
 
-class ClanwarReportFormatter : public IReportFormatter
+class ClanwarEndedFormatter
 {
+    ClanwarRepo& clanwarRepo;
+
 public:
-    std::string format(const SyncResult& result) override;
-    [[nodiscard]] bool shouldNotify(const SyncResult& result, const Database& db, long long chatId) const override;
-    void onNotificationSent(const SyncResult& result, const Database& db, long long chatId) const override;
+    explicit ClanwarEndedFormatter(ClanwarRepo& repo);
+
+    [[nodiscard]] std::string format(const WarEndedEvent& event) const;
+    static std::string buildReport(const ClanwarReportData& reportData);
+    static std::string checkForWinner(int homeStars, int opponentStars,
+                                      double homeDestruction, double opponentDestruction);
 };
 
 #endif //ACTIVITYTRACKING_CLANWARREPORTFORMATTER_H

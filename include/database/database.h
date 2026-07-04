@@ -5,15 +5,14 @@
 #include <memory>
 #include <sqlite3.h>
 
-#include "tableManager.h"
 #include "repos/clansRepo.h"
 #include "repos/raidRepo.h"
-#include "repos/leagueClanwarRepo.h"
+#include "repos/ClanwarsLeagueRepo.h"
 #include "repos/clanwarRepo.h"
+#include "repos/NotificationsRepo.h"
 #include "repos/SubscriptionRepo.h"
 
 class SubscriptionRepo;
-class TableManager;
 class ClansRepo;
 class RaidRepo;
 class LeagueClanwarRepo;
@@ -24,13 +23,13 @@ class Database
     sqlite3* db = nullptr;
     std::string pathToDb;
 
-    std::unique_ptr<TableManager> tableManager;
-
     std::unique_ptr<ClansRepo> clansRepo;
     std::unique_ptr<RaidRepo> raidRepo;
     std::unique_ptr<ClanwarRepo> cwRepo;
     std::unique_ptr<LeagueClanwarRepo> cwlRepo;
     std::unique_ptr<SubscriptionRepo> subscriptionRepo;
+    std::unique_ptr<NotificationRepo> notificationRepo;
+
 public:
     struct QueryResult
     {
@@ -48,11 +47,8 @@ public:
     [[nodiscard]] ClanwarRepo& war() const { return *cwRepo; }
     [[nodiscard]] LeagueClanwarRepo& leagueWar() const { return *cwlRepo; }
     [[nodiscard]] SubscriptionRepo& subscriptions() const { return *subscriptionRepo; }
-    [[nodiscard]] TableManager& tables() const { return *tableManager; }
+    [[nodiscard]] NotificationRepo& notifications() const { return *notificationRepo; }
 
     [[nodiscard]] bool execute(std::string_view sql) const;
     [[nodiscard]] QueryResult query(std::string_view sql) const;
-
-    [[nodiscard]] bool isNotified(std::string_view entityType, long long entityId, long long chatId) const;
-    [[nodiscard]] bool markAsNotified(std::string_view entityType, long long entityId, long long chatId) const;
 };

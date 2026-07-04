@@ -2,16 +2,21 @@
 #define ACTIVITYTRACKING_RAIDREPORTFORMATTER_H
 #include <string>
 
-#include "IReportFormatter.h"
+#include "database/repos/clansRepo.h"
+#include "database/repos/raidRepo.h"
+#include "events/DomainEvents.h"
 #include "models/models.h"
 
-
-class RaidReportFormatter : public IReportFormatter
+class RaidsEndedFormatter
 {
+    ClansRepo& clansRepo;
+    RaidRepo& raidRepo;
+
 public:
-    std::string format(const SyncResult& result) override;
-    [[nodiscard]] bool shouldNotify(const SyncResult& result, const Database& db, long long chatId) const override;
-    void onNotificationSent(const SyncResult& result, const Database& db, long long chatId) const override;
+    explicit RaidsEndedFormatter(ClansRepo& clansRepo, RaidRepo& raidRepo);
+
+    [[nodiscard]] std::string format(const RaidsEndedEvent& event) const;
+    static std::string buildReport(const RaidReportData& reportData);
 };
 
 #endif //ACTIVITYTRACKING_RAIDREPORTFORMATTER_H
