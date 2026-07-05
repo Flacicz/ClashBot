@@ -11,7 +11,7 @@
 class PlayerRoleChangedFormatter
 {
 public:
-    static [[nodiscard]] std::string format(const PlayerRoleChangedEvent& event);
+    [[nodiscard]] static std::string format(const PlayerRoleChangedEvent& event);
 };
 
 #endif //ACTIVITYTRACKING_PLAYERROLECHANGEDFORMATTER_H

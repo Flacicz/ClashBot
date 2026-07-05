@@ -2,7 +2,6 @@
 
 #include <sstream>
 
-#include "common/SyncResult.h"
 #include "database/database.h"
 #include "events/DomainEvents.h"
 #include "spdlog/spdlog.h"
