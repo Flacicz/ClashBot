@@ -94,8 +94,7 @@ long long ClanwarRepo::saveClanwarDetails(const long long clanwarId, const Clanw
 }
 
 void ClanwarRepo::saveClanwarAttacks(const long long clanwarId,
-                                     const long long attackerClanId, const long long defenderClanId,
-                                     const std::vector<ClanwarAttack>& attacks) const
+                                     const std::vector<PreparedAttackData>& attacks) const
 {
     if (attacks.empty()) return;
 
@@ -116,11 +115,11 @@ void ClanwarRepo::saveClanwarAttacks(const long long clanwarId,
 
     const auto stmt = sqlite::prepare(db, sql);
 
-    for (const auto& attack : attacks)
+    for (const auto& [attackerWarClanId, defenderWarClanId, attack] : attacks)
     {
         sqlite::bind(stmt.get(), 1, clanwarId);
-        sqlite::bind(stmt.get(), 2, attackerClanId);
-        sqlite::bind(stmt.get(), 3, defenderClanId);
+        sqlite::bind(stmt.get(), 2, attackerWarClanId);
+        sqlite::bind(stmt.get(), 3, defenderWarClanId);
         sqlite::bind(stmt.get(), 4, attack.attackerTag);
         sqlite::bind(stmt.get(), 5, attack.defenderTag);
         sqlite::bind(stmt.get(), 6, attack.attackerPosition);
@@ -199,7 +198,17 @@ InsertedWarResult ClanwarRepo::saveCompleteClanwarData(const Clanwar& war,
     const long long homeId = saveClanwarDetails(warId, clans.first);
     const long long oppId = saveClanwarDetails(warId, clans.second);
 
-    saveClanwarAttacks(warId, homeId, oppId, attacks);
+    std::vector<PreparedAttackData> preparedAttacks;
+    preparedAttacks.reserve(attacks.size());
+
+    for (const auto& attack : attacks)
+    {
+        preparedAttacks.push_back(
+            PreparedAttackData::prepare(attack, homeId, war.clanTag, oppId)
+        );
+    }
+
+    saveClanwarAttacks(warId, preparedAttacks);
     saveClanwarMembers(warId, homeId, members.first);
     saveClanwarMembers(warId, oppId, members.second);
 
@@ -384,6 +393,11 @@ std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack(const lon
     }
 
     return slackers;
+}
+
+ClanwarRoundData ClanwarRepo::getRoundDataForMirrorAnalysis(long long clanwarId) const
+{
+    return {};
 }
 
 ClanwarReportData ClanwarRepo::getReportData(const long long clanwarId, const long long warClanId) const

@@ -13,7 +13,7 @@ public:
 
     [[nodiscard]] long long saveCWLSeason(const ClanwarsLeagueSeason& season) const;
     void saveCWLMembers(long long lastSeasonId,
-                                                      const std::vector<ClanwarsLeagueMember>& members) const;
+                        const std::vector<ClanwarsLeagueMember>& members) const;
     [[nodiscard]] long long saveCompleteCWLData(const ClanwarsLeagueSeason& season,
                                                 const std::vector<ClanwarsLeagueMember>& members) const;
 

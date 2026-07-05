@@ -29,7 +29,7 @@ nlohmann::json APIClient::fetchJson(std::string_view endpoint) const
             {"Accept", "Application/json"},
         },
         cpr::VerifySsl(!getIsTunnel()),
-        cpr::Timeout(std::chrono::milliseconds(10000))
+        cpr::Timeout(std::chrono::milliseconds(20000))
     );
 
     if (response.error)

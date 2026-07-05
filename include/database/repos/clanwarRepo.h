@@ -15,10 +15,9 @@ public:
     [[nodiscard]] long long saveClanwar(const Clanwar& clanwar) const;
     [[nodiscard]] long long saveClanwarDetails(long long clanwarId, const ClanwarClan& clanwarClan) const;
     void saveClanwarAttacks(long long clanwarId,
-                                    long long attackerClanId, long long defenderClanId,
-                                    const std::vector<ClanwarAttack>& attacks) const;
+                            const std::vector<PreparedAttackData>& attacks) const;
     void saveClanwarMembers(long long clanwarId, long long clanId,
-                                    const std::vector<ClanwarMember>& members) const;
+                            const std::vector<ClanwarMember>& members) const;
 
     [[nodiscard]] InsertedWarResult saveCompleteClanwarData(const Clanwar& war,
                                                             const std::pair<ClanwarClan, ClanwarClan>& clans,
@@ -35,6 +34,7 @@ public:
                                                                        long long warClanId) const;
     [[nodiscard]] std::vector<ClanwarSlacker> getPlayersWithNotMirrorAttack(long long clanwarId,
                                                                             long long warClanId) const;
+    [[nodiscard]] ClanwarRoundData getRoundDataForMirrorAnalysis(long long clanwarId) const;
 
     [[nodiscard]] ClanwarReportData getReportData(long long clanwarId, long long warClanId) const;
     [[nodiscard]] WarRoundDetails getWarRoundDetails(long long warId, long long homeClanId) const;

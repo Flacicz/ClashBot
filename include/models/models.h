@@ -180,6 +180,27 @@ struct ClanwarAttack
     static std::vector<ClanwarAttack> parseAttacksList(const nlohmann::json& j);
 };
 
+struct PreparedAttackData
+{
+    long long attackerWarClanId;
+    long long defenderWarClanId;
+    ClanwarAttack attack;
+
+    static PreparedAttackData prepare(const ClanwarAttack& attack,
+                                      const long long homeClanId,
+                                      const std::string_view homeClanTag,
+                                      const long long opponentClanId)
+    {
+        const bool isHomeAttack = attack.attackerClanTag == homeClanTag;
+
+        return PreparedAttackData{
+            .attackerWarClanId = isHomeAttack ? homeClanId : opponentClanId,
+            .defenderWarClanId = isHomeAttack ? opponentClanId : homeClanId,
+            .attack = attack
+        };
+    }
+};
+
 struct ClanwarMember
 {
     std::string clanTag;
@@ -365,4 +386,28 @@ struct RoleChange
 struct RoleChanges
 {
     std::vector<RoleChange> changes;
+};
+
+struct WarRoundMember
+{
+    std::string playerTag;
+    std::string playerName;
+    int dbMapPosition;
+};
+
+struct DBAttackOverview
+{
+    std::string attackerTag;
+    std::string defenderTag;
+};
+
+struct ClanwarRoundData
+{
+    std::string homeClanTag;
+    std::string opponentClanTag;
+
+    std::vector<WarRoundMember> homeMembers;
+    std::vector<WarRoundMember> opponentMembers;
+
+    std::vector<DBAttackOverview> homeAttacks;
 };
