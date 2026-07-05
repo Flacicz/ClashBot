@@ -19,6 +19,7 @@ public:
     static std::string buildReport(const ClanwarsLeagueRoundReportData& reportData);
     static std::string checkForWinner(int homeStars, int opponentStars,
                                       double homeDestruction, double opponentDestruction);
+    static std::string buildPartForNotMirrorAttacks(const ClanwarRoundData& data);
 };
 
 #endif //ACTIVITYTRACKING_CLANWARLEAGUEREPORTFORMATTER_H

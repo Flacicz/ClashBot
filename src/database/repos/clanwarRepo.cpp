@@ -334,6 +334,109 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack(const long lon
     return slackers;
 }
 
+std::string ClanwarRepo::getWarClanTag(const long long warId, const long long warClanId) const
+{
+    static constexpr std::string_view sql = R"(
+        SELECT clan_tag
+        FROM war_clans
+        WHERE war_id = ? AND war_clan_id = ?;
+    )";
+
+    const auto stmt = sqlite::prepare(db, sql);
+
+    sqlite::bind(stmt.get(), 1, warId);
+    sqlite::bind(stmt.get(), 2, warClanId);
+
+    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
+    {
+        throw DatabaseException(
+            fmt::format(
+                "[{}] Failed to load war clan tag (war_id = {}, war_clan_id = {}): {}",
+                repoName, warId,
+                warClanId,
+                sqlite3_errmsg(db)));
+    }
+
+    return sqlite::getString(stmt.get(), 0);
+}
+
+std::vector<WarRoundMember> ClanwarRepo::getWarMembers(const long long warId, const long long warClanId) const
+{
+    std::vector<WarRoundMember> members;
+
+    static constexpr std::string_view sql = R"(
+        SELECT player_tag, player_name, map_position
+        FROM war_members
+        WHERE war_id = ? AND war_clan_id = ?
+        ORDER BY map_position;
+    )";
+
+    const auto stmt = sqlite::prepare(db, sql);
+
+    sqlite::bind(stmt.get(), 1, warId);
+    sqlite::bind(stmt.get(), 2, warClanId);
+
+    int rc;
+    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
+    {
+        members.push_back(WarRoundMember{
+            .playerTag = sqlite::getString(stmt.get(), 0),
+            .playerName = sqlite::getString(stmt.get(), 1),
+            .dbMapPosition = sqlite::getInt(stmt.get(), 2),
+        });
+    }
+
+    if (rc != SQLITE_DONE)
+    {
+        throw DatabaseException(
+            fmt::format(
+                "[{}] Failed to load clanwar members (war_id = {}, war_clan_id = {}): {}",
+                repoName, warId,
+                warClanId,
+                sqlite3_errmsg(db)));
+    }
+
+    return members;
+}
+
+std::vector<DBAttackOverview> ClanwarRepo::getClanAttacks(const long long warId,
+                                                          const long long attackerWarClanId) const
+{
+    std::vector<DBAttackOverview> attacks;
+
+    static constexpr std::string_view sql = R"(
+        SELECT attacker_tag, defender_tag
+        FROM attacks
+        WHERE war_id = ? AND attacker_war_clan_id = ?;
+    )";
+
+    const auto stmt = sqlite::prepare(db, sql);
+
+    sqlite::bind(stmt.get(), 1, warId);
+    sqlite::bind(stmt.get(), 2, attackerWarClanId);
+
+    int rc;
+    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
+    {
+        attacks.push_back(DBAttackOverview{
+            .attackerTag = sqlite::getString(stmt.get(), 0),
+            .defenderTag = sqlite::getString(stmt.get(), 1),
+        });
+    }
+
+    if (rc != SQLITE_DONE)
+    {
+        throw DatabaseException(
+            fmt::format(
+                "[{}] Failed to load clanwar attacks (war_id = {}, attacker_war_clan_id = {}): {}",
+                repoName, warId,
+                attackerWarClanId,
+                sqlite3_errmsg(db)));
+    }
+
+    return attacks;
+}
+
 std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack(const long long clanwarId,
                                                                        const long long warClanId) const
 {
@@ -395,9 +498,15 @@ std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack(const lon
     return slackers;
 }
 
-ClanwarRoundData ClanwarRepo::getRoundDataForMirrorAnalysis(long long clanwarId) const
+ClanwarRoundData ClanwarRepo::getRoundDataForMirrorAnalysis(const InsertedWarResult& warResult) const
 {
-    return {};
+    return ClanwarRoundData{
+        .homeClanTag = getWarClanTag(warResult.warId, warResult.homeClanId),
+        .opponentClanTag = getWarClanTag(warResult.warId, warResult.opponentClanId),
+        .homeMembers = getWarMembers(warResult.warId, warResult.homeClanId),
+        .opponentMembers = getWarMembers(warResult.warId, warResult.opponentClanId),
+        .homeAttacks = getClanAttacks(warResult.warId, warResult.homeClanId)
+    };
 }
 
 ClanwarReportData ClanwarRepo::getReportData(const long long clanwarId, const long long warClanId) const
@@ -412,13 +521,13 @@ ClanwarReportData ClanwarRepo::getReportData(const long long clanwarId, const lo
     return {home, opponent, noAttacks, oneAttack, notMirror};
 }
 
-WarRoundDetails ClanwarRepo::getWarRoundDetails(const long long warId, const long long homeClanId) const
+WarRoundDetails ClanwarRepo::getWarRoundDetails(const InsertedWarResult& warResult) const
 {
-    const auto home = getClanwarOverview(warId, "home");
-    const auto opponent = getClanwarOverview(warId, "opponent");
+    const auto home = getClanwarOverview(warResult.warId, "home");
+    const auto opponent = getClanwarOverview(warResult.warId, "opponent");
 
-    const auto noAttack = getSlackersWithNoAttacks(warId, homeClanId);
-    const auto notMirror = getPlayersWithNotMirrorAttack(warId, homeClanId);
+    const auto noAttack = getSlackersWithNoAttacks(warResult.warId, warResult.homeClanId);
+    const auto dataForMirrorAnalysis = getRoundDataForMirrorAnalysis(warResult);
 
-    return {home, opponent, noAttack, notMirror};
+    return {home, opponent, noAttack, dataForMirrorAnalysis};
 }

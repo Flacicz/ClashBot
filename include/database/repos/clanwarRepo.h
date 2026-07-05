@@ -34,8 +34,12 @@ public:
                                                                        long long warClanId) const;
     [[nodiscard]] std::vector<ClanwarSlacker> getPlayersWithNotMirrorAttack(long long clanwarId,
                                                                             long long warClanId) const;
-    [[nodiscard]] ClanwarRoundData getRoundDataForMirrorAnalysis(long long clanwarId) const;
+
+    [[nodiscard]] std::string getWarClanTag(long long warId, long long warClanId) const;
+    [[nodiscard]] std::vector<WarRoundMember> getWarMembers(long long warId, long long warClanId) const;
+    [[nodiscard]] std::vector<DBAttackOverview> getClanAttacks(long long warId, long long attackerWarClanId) const;
+    [[nodiscard]] ClanwarRoundData getRoundDataForMirrorAnalysis(const InsertedWarResult& warResult) const;
 
     [[nodiscard]] ClanwarReportData getReportData(long long clanwarId, long long warClanId) const;
-    [[nodiscard]] WarRoundDetails getWarRoundDetails(long long warId, long long homeClanId) const;
+    [[nodiscard]] WarRoundDetails getWarRoundDetails(const InsertedWarResult& warResult) const;
 };

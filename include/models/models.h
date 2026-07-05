@@ -311,6 +311,30 @@ struct ClanwarOverview
     double destructionPercentage;
 };
 
+struct WarRoundMember
+{
+    std::string playerTag;
+    std::string playerName;
+    int dbMapPosition;
+};
+
+struct DBAttackOverview
+{
+    std::string attackerTag;
+    std::string defenderTag;
+};
+
+struct ClanwarRoundData
+{
+    std::string homeClanTag;
+    std::string opponentClanTag;
+
+    std::vector<WarRoundMember> homeMembers;
+    std::vector<WarRoundMember> opponentMembers;
+
+    std::vector<DBAttackOverview> homeAttacks;
+};
+
 struct ClanwarReportData
 {
     ClanwarOverview home;
@@ -327,7 +351,7 @@ struct WarRoundDetails
     ClanwarOverview opponent;
 
     std::vector<ClanwarSlacker> missedAttack;
-    std::vector<ClanwarSlacker> notMirror;
+    ClanwarRoundData dataForMirrorAnalysis;
 };
 
 struct CWLRoundInfo
@@ -386,28 +410,4 @@ struct RoleChange
 struct RoleChanges
 {
     std::vector<RoleChange> changes;
-};
-
-struct WarRoundMember
-{
-    std::string playerTag;
-    std::string playerName;
-    int dbMapPosition;
-};
-
-struct DBAttackOverview
-{
-    std::string attackerTag;
-    std::string defenderTag;
-};
-
-struct ClanwarRoundData
-{
-    std::string homeClanTag;
-    std::string opponentClanTag;
-
-    std::vector<WarRoundMember> homeMembers;
-    std::vector<WarRoundMember> opponentMembers;
-
-    std::vector<DBAttackOverview> homeAttacks;
 };

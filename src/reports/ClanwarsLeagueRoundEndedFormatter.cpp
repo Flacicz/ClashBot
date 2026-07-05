@@ -17,7 +17,7 @@ std::string ClanwarsLeagueRoundEndedFormatter::format(const ClanwarsLeagueRoundE
     const auto ids = event.insertedWarResult;
 
     auto cwlInfo = clanwarsLeagueRepo.getRoundInfo(ids.warId);
-    auto warRoundDetails = clanwarRepo.getWarRoundDetails(ids.warId, ids.homeClanId);
+    auto warRoundDetails = clanwarRepo.getWarRoundDetails(ids);
 
     ClanwarsLeagueRoundReportData reportData = {
         .cwlRoundInfo = cwlInfo,
@@ -43,7 +43,8 @@ std::string ClanwarsLeagueRoundEndedFormatter::buildReport(const ClanwarsLeagueR
     auto opponent = reportData.warDetails.opponent;
 
     auto noAttack = reportData.warDetails.missedAttack;
-    auto notMirror = reportData.warDetails.notMirror;
+
+    auto notMirrorAttacks = buildPartForNotMirrorAttacks(reportData.warDetails.dataForMirrorAnalysis);
 
     std::ostringstream report;
     report << "🏆 <b>ОТЧЕТ ПО " << rounds[reportData.cwlRoundInfo.roundNumber] << " РАУНДУ ЛВК</b>\n";
@@ -58,7 +59,7 @@ std::string ClanwarsLeagueRoundEndedFormatter::buildReport(const ClanwarsLeagueR
                                          home.destructionPercentage,
                                          opponent.destructionPercentage) << "\n\n";
 
-    if (noAttack.empty() && notMirror.empty())
+    if (noAttack.empty() && notMirrorAttacks.empty())
     {
         report << "✅ <b>Все участники раунда провели атаку без нарушений!</b>\n";
         report << "<i>Отличная работа в лиге!</i>";
@@ -73,11 +74,6 @@ std::string ClanwarsLeagueRoundEndedFormatter::buildReport(const ClanwarsLeagueR
         missedAttack << "• " << playerName << " [0/1]\n";
     }
 
-    for (const auto& [playerTag, playerName] : notMirror)
-    {
-        wrongTarget << "• " << playerName << "\n";
-    }
-
     report << "<b>НАРУШИТЕЛИ РАУНДА:</b>\n";
 
     if (!missedAttack.str().empty())
@@ -85,10 +81,8 @@ std::string ClanwarsLeagueRoundEndedFormatter::buildReport(const ClanwarsLeagueR
         report << "\n🔴 <b>Пропустили атаку в ЛВК:</b>\n" << missedAttack.str();
     }
 
-    // if (!wrongTarget.str().empty())
-    // {
-    //     report << "\n🎯 <b>Атаковали не по зеркалу:</b>\n" << wrongTarget.str();
-    // }
+    if (notMirrorAttacks.empty()) report << "\n🎯 <b>Атак не по зеркалу не обнаружено! Все молодцы!</b>\n";
+    else report << notMirrorAttacks;
 
     return report.str();
 }
@@ -104,4 +98,48 @@ std::string ClanwarsLeagueRoundEndedFormatter::checkForWinner(const int homeStar
     if (homeDestruction < opponentDestruction) return "Поражение";
 
     return "Ничья";
+}
+
+std::string ClanwarsLeagueRoundEndedFormatter::buildPartForNotMirrorAttacks(const ClanwarRoundData& data)
+{
+    std::unordered_map<std::string, int> indexedHomeMembers;
+    std::unordered_map<std::string, int> indexedOpponentMembers;
+
+    for (int index = 1; const auto& homePlayer : data.homeMembers)
+    {
+        indexedHomeMembers[homePlayer.playerTag] = index++;
+    }
+
+    for (int index = 1; const auto& opponentPlayer : data.opponentMembers)
+    {
+        indexedOpponentMembers[opponentPlayer.playerTag] = index++;
+    }
+
+    std::ostringstream violationsStream;
+    bool hasViolations = false;
+
+    for (const auto& attack : data.homeAttacks)
+    {
+        int homePos = indexedHomeMembers[attack.attackerTag];
+        int oppPos = indexedOpponentMembers[attack.defenderTag];
+
+        if (homePos != oppPos)
+        {
+            hasViolations = true;
+
+            // Достаем имя напрямую из отсортированного вектора за O(1)
+            std::string attackerName = data.homeMembers[homePos - 1].playerName;
+
+            violationsStream << "• " << attackerName << " (№" << homePos << " ➔ №" << oppPos << ")\n";
+        }
+    }
+
+    if (!hasViolations)
+    {
+        return "";
+    }
+
+    std::ostringstream result;
+    result << "\n🎯 <b>Атаковали не по зеркалу:</b>\n" << violationsStream.str();
+    return result.str();
 }
