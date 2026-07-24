@@ -67,7 +67,10 @@ add_executable(${PROJECT_NAME}
 		src/database/repos/NotificationsRepo.cpp
 		src/reports/PlayerRoleChangedFormatter.cpp
 		src/database/SQLiteHelpers.cpp
-		include/core/Exceptions.h
+		include/database/repos/BaseRepository.h
+		include/database/TransactionManager.h
+		include/reports/SystemAlertReportFormatter.h
+		src/reports/SystemAlertReportFormatter.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

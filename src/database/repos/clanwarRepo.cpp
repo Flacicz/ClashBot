@@ -1,12 +1,9 @@
 #include "database/repos/clanwarRepo.h"
 
-#include <stdexcept>
-#include <spdlog/spdlog.h>
-
-#include "core/Exceptions.h"
 #include "database/sqliteHelpers.h"
+#include "spdlog/fmt/bundled/format.h"
 
-ClanwarRepo::ClanwarRepo(sqlite3* db) : db(db)
+ClanwarRepo::ClanwarRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))
 {
 }
 
@@ -24,35 +21,20 @@ long long ClanwarRepo::saveClanwar(const Clanwar& clanwar) const
         RETURNING war_id;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, clanwar.warUID);
-    sqlite::bind(stmt.get(), 2, clanwar.clanTag);
-    sqlite::bind(stmt.get(), 3, clanwar.state);
-    sqlite::bind(stmt.get(), 4, clanwar.warType);
-    sqlite::bind(stmt.get(), 5, clanwar.teamSize);
-    sqlite::bind(stmt.get(), 6, clanwar.attacksPerMember);
-    sqlite::bind(stmt.get(), 7, clanwar.preparationStartTime);
-    sqlite::bind(stmt.get(), 8, clanwar.startTime);
-    sqlite::bind(stmt.get(), 9, clanwar.endTime);
-    clanwar.seasonId.has_value() // Если это не раунд ЛВК - поле остается NULL.
-        ? sqlite::bind(stmt.get(), 10, *clanwar.seasonId)
-        : sqlite::bind(stmt.get(), 10);
-    clanwar.roundNumber.has_value() // Если это не раунд ЛВК - поле остается NULL.
-        ? sqlite::bind(stmt.get(), 11, *clanwar.roundNumber)
-        : sqlite::bind(stmt.get(), 11);
-
-    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> long long
     {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to save general clanwar info (clan_tag = {}, war_uid = {}): {}",
-                repoName,
-                clanwar.clanTag, clanwar.warUID,
-                sqlite3_errmsg(db)));
-    }
+        return sqlite::getLong(stmt, 0);
+    };
 
-    return sqlite::getLong(stmt.get(), 0);
+    return queryOne<long long>(
+        sql,
+        "save general clanwar info",
+        fmt::format("clan_tag = {}, war_uid = {}", clanwar.clanTag, clanwar.warUID),
+        mapper,
+        clanwar.warUID, clanwar.clanTag, clanwar.state, clanwar.warType,
+        clanwar.teamSize, clanwar.attacksPerMember, clanwar.preparationStartTime,
+        clanwar.startTime, clanwar.endTime, clanwar.seasonId, clanwar.roundNumber
+    );
 }
 
 long long ClanwarRepo::saveClanwarDetails(const long long clanwarId, const ClanwarClan& clanwarClan) const
@@ -69,28 +51,20 @@ long long ClanwarRepo::saveClanwarDetails(const long long clanwarId, const Clanw
         RETURNING war_clan_id;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, clanwarId);
-    sqlite::bind(stmt.get(), 2, clanwarClan.side);
-    sqlite::bind(stmt.get(), 3, clanwarClan.clanTag);
-    sqlite::bind(stmt.get(), 4, clanwarClan.clanName);
-    sqlite::bind(stmt.get(), 5, clanwarClan.clanLevel);
-    sqlite::bind(stmt.get(), 6, clanwarClan.attacksCount);
-    sqlite::bind(stmt.get(), 7, clanwarClan.stars);
-    sqlite::bind(stmt.get(), 8, clanwarClan.destructionPercentage);
-
-    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> long long
     {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to save clanwar details (clan_tag = {}, war_id = {}): {}",
-                repoName,
-                clanwarClan.clanTag, clanwarId,
-                sqlite3_errmsg(db)));
-    }
+        return sqlite::getLong(stmt, 0);
+    };
 
-    return sqlite::getLong(stmt.get(), 0);
+    return queryOne<long long>(
+        sql,
+        "save clanwar details",
+        fmt::format("clan_tag = {}, war_id = {}", clanwarClan.clanTag, clanwarId),
+        mapper,
+        clanwarId, clanwarClan.side, clanwarClan.clanTag, clanwarClan.clanName,
+        clanwarClan.clanLevel, clanwarClan.attacksCount, clanwarClan.stars,
+        clanwarClan.destructionPercentage
+    );
 }
 
 void ClanwarRepo::saveClanwarAttacks(const long long clanwarId,
@@ -113,34 +87,19 @@ void ClanwarRepo::saveClanwarAttacks(const long long clanwarId,
             defender_position = excluded.defender_position;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
     for (const auto& [attackerWarClanId, defenderWarClanId, attack] : attacks)
     {
-        sqlite::bind(stmt.get(), 1, clanwarId);
-        sqlite::bind(stmt.get(), 2, attackerWarClanId);
-        sqlite::bind(stmt.get(), 3, defenderWarClanId);
-        sqlite::bind(stmt.get(), 4, attack.attackerTag);
-        sqlite::bind(stmt.get(), 5, attack.defenderTag);
-        sqlite::bind(stmt.get(), 6, attack.attackerPosition);
-        sqlite::bind(stmt.get(), 7, attack.defenderPosition);
-        sqlite::bind(stmt.get(), 8, attack.stars);
-        sqlite::bind(stmt.get(), 9, attack.destructionPercentage);
-        sqlite::bind(stmt.get(), 10, attack.orderNum);
-        sqlite::bind(stmt.get(), 11, attack.duration);
-
-        if (sqlite3_step(stmt.get()) != SQLITE_DONE)
-        {
-            throw DatabaseException(
-                fmt::format(
-                    "[{}] Failed to save clanwar attack (clan_tag = {}, attacker_tag = {}, war_id = {}): {}",
-                    repoName, attack.attackerClanTag,
-                    attack.attackerTag, clanwarId,
-                    sqlite3_errmsg(db)));
-        }
-
-        sqlite3_reset(stmt.get());
-        sqlite3_clear_bindings(stmt.get());
+        execute(
+            sql,
+            "save clanwar attack",
+            fmt::format("clan_tag = {}, attacker_tag = {}, war_id = {}",
+                        attack.attackerClanTag, attack.attackerTag, clanwarId),
+            clanwarId, attackerWarClanId, defenderWarClanId,
+            attack.attackerTag, attack.defenderTag,
+            attack.attackerPosition, attack.defenderPosition,
+            attack.stars, attack.destructionPercentage,
+            attack.orderNum, attack.duration
+        );
     }
 }
 
@@ -160,29 +119,15 @@ void ClanwarRepo::saveClanwarMembers(const long long clanwarId, const long long 
             map_position = excluded.map_position;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
     for (const auto& [clanTag, playerTag, playerName, townhallLevel, mapPosition] : members)
     {
-        sqlite::bind(stmt.get(), 1, clanwarId);
-        sqlite::bind(stmt.get(), 2, clanId);
-        sqlite::bind(stmt.get(), 3, playerTag);
-        sqlite::bind(stmt.get(), 4, playerName);
-        sqlite::bind(stmt.get(), 5, townhallLevel);
-        sqlite::bind(stmt.get(), 6, mapPosition);
-
-        if (sqlite3_step(stmt.get()) != SQLITE_DONE)
-        {
-            throw DatabaseException(
-                fmt::format(
-                    "[{}] Failed to save clanwar member (clan_tag = {}, player_tag = {}, war_id = {}): {}",
-                    repoName, clanTag,
-                    playerTag, clanwarId,
-                    sqlite3_errmsg(db)));
-        }
-
-        sqlite3_reset(stmt.get());
-        sqlite3_clear_bindings(stmt.get());
+        execute(
+            sql,
+            "save clanwar member",
+            fmt::format("clan_tag = {}, player_tag = {}, war_id = {}",
+                        clanTag, playerTag, clanwarId),
+            clanwarId, clanId, playerTag, playerName, townhallLevel, mapPosition
+        );
     }
 }
 
@@ -227,34 +172,28 @@ ClanwarOverview ClanwarRepo::getClanwarOverview(const long long clanwarId, const
         WHERE war_id = ? AND side = ?;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, clanwarId);
-    sqlite::bind(stmt.get(), 2, side);
-
-    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> ClanwarOverview
     {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to load clanwar overview (war_id = {}, side = {}): {}",
-                repoName, clanwarId,
-                side,
-                sqlite3_errmsg(db)));
-    }
-
-    return ClanwarOverview{
-        .clanTag = sqlite::getString(stmt.get(), 0),
-        .clanName = sqlite::getString(stmt.get(), 1),
-        .stars = sqlite::getInt(stmt.get(), 2),
-        .destructionPercentage = sqlite::getDouble(stmt.get(), 3),
+        return ClanwarOverview{
+            .clanTag = sqlite::getString(stmt, 0),
+            .clanName = sqlite::getString(stmt, 1),
+            .stars = sqlite::getInt(stmt, 2),
+            .destructionPercentage = sqlite::getDouble(stmt, 3),
+        };
     };
+
+    return queryOne<ClanwarOverview>(
+        sql,
+        "load clanwar overview",
+        fmt::format("war_id = {}, side = {}", clanwarId, side),
+        mapper,
+        clanwarId, side
+    );
 }
 
 std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithNoAttacks(const long long clanwarId,
                                                                   const long long warClanId) const
 {
-    std::vector<ClanwarSlacker> slackers;
-
     static constexpr std::string_view sql = R"(
         SELECT
             wm.player_tag,
@@ -264,38 +203,26 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithNoAttacks(const long lon
         WHERE wm.war_id = ? AND wm.war_clan_id = ? AND a.attack_id IS NULL;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, clanwarId);
-    sqlite::bind(stmt.get(), 2, warClanId);
-
-    int rc;
-    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> ClanwarSlacker
     {
-        slackers.push_back(ClanwarSlacker{
-            .playerTag = sqlite::getString(stmt.get(), 0),
-            .playerName = sqlite::getString(stmt.get(), 1),
-        });
-    }
+        return ClanwarSlacker{
+            .playerTag = sqlite::getString(stmt, 0),
+            .playerName = sqlite::getString(stmt, 1),
+        };
+    };
 
-    if (rc != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to load clanwar slackers with no attacks (war_id = {}, war_clan_id = {}): {}",
-                repoName, clanwarId,
-                warClanId,
-                sqlite3_errmsg(db)));
-    }
-
-    return slackers;
+    return query<ClanwarSlacker>(
+        sql,
+        "load clanwar slackers with no attacks",
+        fmt::format("war_id = {}, war_clan_id = {}", clanwarId, warClanId),
+        mapper,
+        clanwarId, warClanId
+    );
 }
 
 std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack(const long long clanwarId,
                                                                   const long long warClanId) const
 {
-    std::vector<ClanwarSlacker> slackers;
-
     static constexpr std::string_view sql = R"(
         SELECT
             wm.player_tag,
@@ -307,31 +234,21 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack(const long lon
         HAVING COUNT(a.attack_id) = 1;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, clanwarId);
-    sqlite::bind(stmt.get(), 2, warClanId);
-
-    int rc;
-    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> ClanwarSlacker
     {
-        slackers.push_back(ClanwarSlacker{
-            .playerTag = sqlite::getString(stmt.get(), 0),
-            .playerName = sqlite::getString(stmt.get(), 1),
-        });
-    }
+        return ClanwarSlacker{
+            .playerTag = sqlite::getString(stmt, 0),
+            .playerName = sqlite::getString(stmt, 1),
+        };
+    };
 
-    if (rc != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to load clanwar slackers with one attack (war_id = {}, war_clan_id = {}): {}",
-                repoName, clanwarId,
-                warClanId,
-                sqlite3_errmsg(db)));
-    }
-
-    return slackers;
+    return query<ClanwarSlacker>(
+        sql,
+        "load clanwar slackers with one attack",
+        fmt::format("war_id = {}, war_clan_id = {}", clanwarId, warClanId),
+        mapper,
+        clanwarId, warClanId
+    );
 }
 
 std::string ClanwarRepo::getWarClanTag(const long long warId, const long long warClanId) const
@@ -342,28 +259,22 @@ std::string ClanwarRepo::getWarClanTag(const long long warId, const long long wa
         WHERE war_id = ? AND war_clan_id = ?;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, warId);
-    sqlite::bind(stmt.get(), 2, warClanId);
-
-    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> std::string
     {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to load war clan tag (war_id = {}, war_clan_id = {}): {}",
-                repoName, warId,
-                warClanId,
-                sqlite3_errmsg(db)));
-    }
+        return sqlite::getString(stmt, 0);
+    };
 
-    return sqlite::getString(stmt.get(), 0);
+    return queryOne<std::string>(
+        sql,
+        "load war clan tag",
+        fmt::format("war_id = {}, war_clan_id = {}", warId, warClanId),
+        mapper,
+        warId, warClanId
+    );
 }
 
 std::vector<WarRoundMember> ClanwarRepo::getWarMembers(const long long warId, const long long warClanId) const
 {
-    std::vector<WarRoundMember> members;
-
     static constexpr std::string_view sql = R"(
         SELECT player_tag, player_name, map_position
         FROM war_members
@@ -371,77 +282,53 @@ std::vector<WarRoundMember> ClanwarRepo::getWarMembers(const long long warId, co
         ORDER BY map_position;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, warId);
-    sqlite::bind(stmt.get(), 2, warClanId);
-
-    int rc;
-    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> WarRoundMember
     {
-        members.push_back(WarRoundMember{
-            .playerTag = sqlite::getString(stmt.get(), 0),
-            .playerName = sqlite::getString(stmt.get(), 1),
-            .dbMapPosition = sqlite::getInt(stmt.get(), 2),
-        });
-    }
+        return WarRoundMember{
+            .playerTag = sqlite::getString(stmt, 0),
+            .playerName = sqlite::getString(stmt, 1),
+            .dbMapPosition = sqlite::getInt(stmt, 2),
+        };
+    };
 
-    if (rc != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to load clanwar members (war_id = {}, war_clan_id = {}): {}",
-                repoName, warId,
-                warClanId,
-                sqlite3_errmsg(db)));
-    }
-
-    return members;
+    return query<WarRoundMember>(
+        sql,
+        "load clanwar members",
+        fmt::format("war_id = {}, war_clan_id = {}", warId, warClanId),
+        mapper,
+        warId, warClanId
+    );
 }
 
 std::vector<DBAttackOverview> ClanwarRepo::getClanAttacks(const long long warId,
                                                           const long long attackerWarClanId) const
 {
-    std::vector<DBAttackOverview> attacks;
-
     static constexpr std::string_view sql = R"(
         SELECT attacker_tag, defender_tag
         FROM attacks
         WHERE war_id = ? AND attacker_war_clan_id = ?;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, warId);
-    sqlite::bind(stmt.get(), 2, attackerWarClanId);
-
-    int rc;
-    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> DBAttackOverview
     {
-        attacks.push_back(DBAttackOverview{
-            .attackerTag = sqlite::getString(stmt.get(), 0),
-            .defenderTag = sqlite::getString(stmt.get(), 1),
-        });
-    }
+        return DBAttackOverview{
+            .attackerTag = sqlite::getString(stmt, 0),
+            .defenderTag = sqlite::getString(stmt, 1),
+        };
+    };
 
-    if (rc != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to load clanwar attacks (war_id = {}, attacker_war_clan_id = {}): {}",
-                repoName, warId,
-                attackerWarClanId,
-                sqlite3_errmsg(db)));
-    }
-
-    return attacks;
+    return query<DBAttackOverview>(
+        sql,
+        "load clanwar attacks",
+        fmt::format("war_id = {}, attacker_war_clan_id = {}", warId, attackerWarClanId),
+        mapper,
+        warId, attackerWarClanId
+    );
 }
 
 std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack(const long long clanwarId,
                                                                        const long long warClanId) const
 {
-    std::vector<ClanwarSlacker> slackers;
-
     static constexpr std::string_view sql = R"(
         WITH ranked_attacks AS (
             SELECT
@@ -469,33 +356,21 @@ std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack(const lon
           AND ra.attacker_position != ra.defender_position;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, clanwarId);
-    sqlite::bind(stmt.get(), 2, warClanId);
-    sqlite::bind(stmt.get(), 3, clanwarId);
-    sqlite::bind(stmt.get(), 4, warClanId);
-
-    int rc;
-    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> ClanwarSlacker
     {
-        slackers.push_back(ClanwarSlacker{
-            .playerTag = sqlite::getString(stmt.get(), 0),
-            .playerName = sqlite::getString(stmt.get(), 1),
-        });
-    }
+        return ClanwarSlacker{
+            .playerTag = sqlite::getString(stmt, 0),
+            .playerName = sqlite::getString(stmt, 1),
+        };
+    };
 
-    if (rc != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to load clanwar slackers with not mirror attack (war_id = {}, war_clan_id = {}): {}",
-                repoName, clanwarId,
-                warClanId,
-                sqlite3_errmsg(db)));
-    }
-
-    return slackers;
+    return query<ClanwarSlacker>(
+        sql,
+        "load clanwar slackers with not mirror attack",
+        fmt::format("war_id = {}, war_clan_id = {}", clanwarId, warClanId),
+        mapper,
+        clanwarId, warClanId, clanwarId, warClanId
+    );
 }
 
 ClanwarRoundData ClanwarRepo::getRoundDataForMirrorAnalysis(const InsertedWarResult& warResult) const

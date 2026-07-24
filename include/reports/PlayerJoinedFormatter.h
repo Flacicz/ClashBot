@@ -7,7 +7,7 @@
 #include <string>
 
 #include "database/repos/clansRepo.h"
-#include "events/DomainEvents.h"
+#include "events/ApplicationEvents.h"
 
 class PlayerJoinedFormatter
 {

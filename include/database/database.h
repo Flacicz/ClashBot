@@ -33,14 +33,12 @@ class Database
     static constexpr std::string_view name = "DB";
 
 public:
-    struct QueryResult
-    {
-        std::vector<std::string> columns;
-        std::vector<std::vector<std::string>> rows;
-    };
-
-    explicit Database(const std::string& path);
+    explicit Database(std::string path);
     ~Database();
+    Database(const Database& db) = delete;
+    Database& operator=(const Database& db) = delete;
+    Database(Database&& other) noexcept;
+    Database& operator=(Database&& other) noexcept;
 
     [[nodiscard]] sqlite3* getDBInstance() const { return db; }
 
@@ -50,7 +48,4 @@ public:
     [[nodiscard]] ClanwarsLeagueRepo& leagueWar() const { return *cwlRepo; }
     [[nodiscard]] SubscriptionRepo& subscriptions() const { return *subscriptionRepo; }
     [[nodiscard]] NotificationRepo& notifications() const { return *notificationRepo; }
-
-    void execute(std::string_view sql) const;
-    [[nodiscard]] QueryResult query(std::string_view sql) const;
 };

@@ -5,7 +5,7 @@
 #ifndef ACTIVITYTRACKING_CLANWARREPORTFORMATTER_H
 #define ACTIVITYTRACKING_CLANWARREPORTFORMATTER_H
 #include "database/repos/clanwarRepo.h"
-#include "events/DomainEvents.h"
+#include "events/ApplicationEvents.h"
 
 class ClanwarEndedFormatter
 {

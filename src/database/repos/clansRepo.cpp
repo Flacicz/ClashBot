@@ -1,41 +1,28 @@
 ﻿#include "database/repos/clansRepo.h"
+
+#include <format>
+
 #include "core/Exceptions.h"
 #include "database/sqliteHelpers.h"
 #include "spdlog/fmt/bundled/format.h"
 
-ClansRepo::ClansRepo(sqlite3* db) : db(db)
+ClansRepo::ClansRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))
 {
 }
 
 std::vector<std::string> ClansRepo::getTrackedClans() const
 {
-    std::vector<std::string> trackedClans;
-
     static constexpr std::string_view sql = R"(
         SELECT tag
         FROM clans;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    int rc;
-    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> std::string
     {
-        const auto raw_tag = sqlite::getString(stmt.get(), 0);
+        return sqlite::getString(stmt, 0);
+    };
 
-        trackedClans.emplace_back(raw_tag);
-    }
-
-    if (rc != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to load tracked clans: {}",
-                repoName,
-                sqlite3_errmsg(db)));
-    }
-
-    return trackedClans;
+    return query<std::string>(sql, "load tracked clans", "", mapper);
 }
 
 void ClansRepo::saveClan(const Clan& clan) const
@@ -56,26 +43,10 @@ void ClansRepo::saveClan(const Clan& clan) const
             is_family_friendly = excluded.is_family_friendly
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, clan.tag);
-    sqlite::bind(stmt.get(), 2, clan.name);
-    sqlite::bind(stmt.get(), 3, clan.description);
-    sqlite::bind(stmt.get(), 4, clan.locationId);
-    sqlite::bind(stmt.get(), 5, clan.locationName);
-    sqlite::bind(stmt.get(), 6, clan.chatLanguageId);
-    sqlite::bind(stmt.get(), 7, clan.chatLanguage);
-    sqlite::bind(stmt.get(), 8, clan.isFamilyFriendly);
-
-    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to save clan (clan_tag = {}): {}",
-                repoName,
-                clan.tag,
-                sqlite3_errmsg(db)));
-    }
+    execute(sql, "save clan",
+            fmt::format("clan_tag = {}", clan.tag),
+            clan.tag, clan.name, clan.description, clan.locationId, clan.locationName,
+            clan.chatLanguageId, clan.chatLanguage, clan.isFamilyFriendly);
 }
 
 void ClansRepo::saveClanSnapshot(const ClanSnapshot& clanSnapshot) const
@@ -96,37 +67,14 @@ void ClansRepo::saveClanSnapshot(const ClanSnapshot& clanSnapshot) const
         )
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, clanSnapshot.clanTag);
-    sqlite::bind(stmt.get(), 2, clanSnapshot.type);
-    sqlite::bind(stmt.get(), 3, clanSnapshot.membersCount);
-    sqlite::bind(stmt.get(), 4, clanSnapshot.clanLevel);
-    sqlite::bind(stmt.get(), 5, clanSnapshot.clanPoints);
-    sqlite::bind(stmt.get(), 6, clanSnapshot.clanBuilderBasePoints);
-    sqlite::bind(stmt.get(), 7, clanSnapshot.clanCapitalPoints);
-    sqlite::bind(stmt.get(), 8, clanSnapshot.capitalHallLevel);
-    sqlite::bind(stmt.get(), 9, clanSnapshot.capitalLeagueId);
-    sqlite::bind(stmt.get(), 10, clanSnapshot.requiredTrophies);
-    sqlite::bind(stmt.get(), 11, clanSnapshot.requiredBuilderBaseTrophies);
-    sqlite::bind(stmt.get(), 12, clanSnapshot.requiredTownhallLevel);
-    sqlite::bind(stmt.get(), 13, clanSnapshot.warFrequency);
-    sqlite::bind(stmt.get(), 14, clanSnapshot.isWarLogPublic);
-    sqlite::bind(stmt.get(), 15, clanSnapshot.warWinStreak);
-    sqlite::bind(stmt.get(), 16, clanSnapshot.warWins);
-    sqlite::bind(stmt.get(), 17, clanSnapshot.warTies);
-    sqlite::bind(stmt.get(), 18, clanSnapshot.warLosses);
-    sqlite::bind(stmt.get(), 19, clanSnapshot.warLeagueId);
-
-    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to save clan snapshot (clan_tag = {}): {}",
-                repoName,
-                clanSnapshot.clanTag,
-                sqlite3_errmsg(db)));
-    }
+    execute(sql, "save clan snapshot",
+            fmt::format("clan_tag = {}", clanSnapshot.clanTag),
+            clanSnapshot.clanTag, clanSnapshot.type, clanSnapshot.membersCount, clanSnapshot.clanLevel,
+            clanSnapshot.clanPoints, clanSnapshot.clanBuilderBasePoints, clanSnapshot.clanCapitalPoints,
+            clanSnapshot.capitalHallLevel, clanSnapshot.capitalLeagueId, clanSnapshot.requiredTrophies,
+            clanSnapshot.requiredBuilderBaseTrophies, clanSnapshot.requiredTownhallLevel, clanSnapshot.warFrequency,
+            clanSnapshot.isWarLogPublic, clanSnapshot.warWinStreak, clanSnapshot.warWins, clanSnapshot.warTies,
+            clanSnapshot.warLosses, clanSnapshot.warLeagueId);
 }
 
 void ClansRepo::savePlayers(const std::vector<Player>& players) const
@@ -143,26 +91,12 @@ void ClansRepo::savePlayers(const std::vector<Player>& players) const
             clan_tag = excluded.clan_tag;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
     for (const auto& [tag, name, clanTag] : players)
     {
-        sqlite::bind(stmt.get(), 1, tag);
-        sqlite::bind(stmt.get(), 2, name);
-        sqlite::bind(stmt.get(), 3, clanTag);
-
-        if (sqlite3_step(stmt.get()) != SQLITE_DONE)
-        {
-            throw DatabaseException(
-                fmt::format(
-                    "[{}] Failed to save player (clan_tag = {}, player_tag = {}): {}",
-                    repoName,
-                    clanTag, tag,
-                    sqlite3_errmsg(db)));
-        }
-
-        sqlite3_reset(stmt.get());
-        sqlite3_clear_bindings(stmt.get());
+        execute(sql, "save player",
+                fmt::format("clan_tag = {}, player_tag = {}", clanTag, tag),
+                tag, name, clanTag
+        );
     }
 }
 
@@ -183,35 +117,17 @@ void ClansRepo::savePlayerSnapshots(const std::vector<PlayerSnapshot>& playerSna
         )
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    for (const auto& playerSnapshot : playerSnapshots)
+    for (const auto& [playerTag, clanTag, role, townHallLevel,
+             expLevel, clanRank, leagueId, builderBaseLeagueId,trophies,
+             builderBaseTrophies, donations, donationsReceived] : playerSnapshots)
     {
-        sqlite::bind(stmt.get(), 1, playerSnapshot.playerTag);
-        sqlite::bind(stmt.get(), 2, playerSnapshot.clanTag);
-        sqlite::bind(stmt.get(), 3, playerSnapshot.role);
-        sqlite::bind(stmt.get(), 4, playerSnapshot.townHallLevel);
-        sqlite::bind(stmt.get(), 5, playerSnapshot.expLevel);
-        sqlite::bind(stmt.get(), 6, playerSnapshot.clanRank);
-        sqlite::bind(stmt.get(), 7, playerSnapshot.leagueId);
-        sqlite::bind(stmt.get(), 8, playerSnapshot.builderBaseLeagueId);
-        sqlite::bind(stmt.get(), 9, playerSnapshot.trophies);
-        sqlite::bind(stmt.get(), 10, playerSnapshot.builderBaseTrophies);
-        sqlite::bind(stmt.get(), 11, playerSnapshot.donations);
-        sqlite::bind(stmt.get(), 12, playerSnapshot.donationsReceived);
-
-        if (sqlite3_step(stmt.get()) != SQLITE_DONE)
-        {
-            throw DatabaseException(
-                fmt::format(
-                    "[{}] Failed to save player snapshot (clan_tag = {}, player_tag = {}): {}",
-                    repoName,
-                    playerSnapshot.clanTag, playerSnapshot.playerTag,
-                    sqlite3_errmsg(db)));
-        }
-
-        sqlite3_reset(stmt.get());
-        sqlite3_clear_bindings(stmt.get());
+        execute(sql, "save player snapshot",
+                fmt::format("clan_tag = {}, player_tag = {}", clanTag, playerTag),
+                playerTag, clanTag, role, townHallLevel,
+                expLevel, clanRank, leagueId,
+                builderBaseLeagueId, trophies, builderBaseTrophies,
+                donations, donationsReceived
+        );
     }
 }
 
@@ -228,43 +144,25 @@ void ClansRepo::saveCompleteClanData(const Clan& clan,
 
 std::vector<Player> ClansRepo::getActiveMembers(const std::string_view clanTag) const
 {
-    std::vector<Player> players;
-
     static constexpr std::string_view sql = R"(
-        SELECT cm.player_tag, p.name
+        SELECT cm.player_tag, p.name, cm.clan_tag
         FROM clan_memberships cm
         JOIN players p ON cm.player_tag = p.tag
         WHERE cm.clan_tag = ? AND cm.left_at IS NULL;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, clanTag.data());
-
-    int rc;
-    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> Player
     {
-        const auto raw_tag = sqlite::getString(stmt.get(), 0);
-        const auto raw_name = sqlite::getString(stmt.get(), 1);
+        return Player{
+            .tag = sqlite::getString(stmt, 0),
+            .name = sqlite::getString(stmt, 1),
+            .clanTag = sqlite::getString(stmt, 2)
+        };
+    };
 
-        players.push_back(Player{
-            .tag = raw_tag,
-            .name = raw_name,
-            .clanTag = std::string(clanTag)
-        });
-    }
-
-    if (rc != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to load active members (clan_tag = {}): {}",
-                repoName,
-                clanTag,
-                sqlite3_errmsg(db)));
-    }
-
-    return players;
+    return query<Player>(sql, "load active members",
+                         fmt::format("clan_tag = {}", clanTag),
+                         mapper, clanTag);
 }
 
 void ClansRepo::registerPlayerLeave(const std::string_view playerTag, const std::string_view clanTag) const
@@ -275,20 +173,9 @@ void ClansRepo::registerPlayerLeave(const std::string_view playerTag, const std:
         WHERE clan_tag = ? AND player_tag = ? AND left_at IS NULL;
     )";
 
-    const auto stmt1 = sqlite::prepare(db, sql1);
-
-    sqlite::bind(stmt1.get(), 1, clanTag.data());
-    sqlite::bind(stmt1.get(), 2, playerTag.data());
-
-    if (sqlite3_step(stmt1.get()) != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to update clan membership (clan_tag = {}, player_tag = {}): {}",
-                repoName,
-                clanTag, playerTag,
-                sqlite3_errmsg(db)));
-    }
+    execute(sql1, "update clan membership",
+            fmt::format("clan_tag = {}, player_tag = {}", clanTag, playerTag),
+            clanTag, playerTag);
 
     static constexpr std::string_view sql2 = R"(
         UPDATE players
@@ -296,19 +183,9 @@ void ClansRepo::registerPlayerLeave(const std::string_view playerTag, const std:
         WHERE tag = ?;
     )";
 
-    const auto stmt2 = sqlite::prepare(db, sql2);
-
-    sqlite::bind(stmt2.get(), 1, playerTag.data());
-
-    if (sqlite3_step(stmt2.get()) != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to update player (clan_tag = {}, player_tag = {}): {}",
-                repoName,
-                clanTag, playerTag,
-                sqlite3_errmsg(db)));
-    }
+    execute(sql2, "update player",
+            fmt::format("clan_tag = {}, player_tag = {}", clanTag, playerTag),
+            playerTag);
 }
 
 void ClansRepo::registerPlayerJoin(const std::string_view playerTag, const std::string_view clanTag) const
@@ -318,20 +195,9 @@ void ClansRepo::registerPlayerJoin(const std::string_view playerTag, const std::
         VALUES (?, ?, strftime('%s', 'now'));
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, clanTag.data());
-    sqlite::bind(stmt.get(), 2, playerTag.data());
-
-    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to save joined player (clan_tag = {}, player_tag = {}): {}",
-                repoName,
-                playerTag, clanTag,
-                sqlite3_errmsg(db)));
-    }
+    execute(sql, "save joined player",
+            fmt::format("clan_tag = {}, player_tag = {}", clanTag, playerTag),
+            clanTag, playerTag);
 }
 
 void ClansRepo::saveMembershipChanges(const MembershipChanges& changes) const
@@ -350,29 +216,23 @@ std::string ClansRepo::getClanNameByTag(const std::string_view clanTag) const
         WHERE tag = ?;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, clanTag.data());
-
-    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> std::string
     {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to load clan name (clan_tag = {}): {}",
-                repoName,
-                clanTag,
-                sqlite3_errmsg(db)));
-    }
+        return sqlite::getString(stmt, 0);
+    };
 
-    return sqlite::getString(stmt.get(), 0);
+    return queryOne<std::string>(sql, "load clan name",
+                                 fmt::format("clan_tag = {}", clanTag),
+                                 mapper,
+                                 clanTag
+    );
 }
 
 std::vector<LatestPlayerState> ClansRepo::getLatestPlayerSnapshots(const std::string_view clanTag) const
 {
-    std::vector<LatestPlayerState> result;
-
     static constexpr std::string_view sql = R"(
         SELECT
+            ps.clan_tag,
             ps.player_tag,
             p.name AS player_name,
             ps.role,
@@ -400,55 +260,29 @@ std::vector<LatestPlayerState> ClansRepo::getLatestPlayerSnapshots(const std::st
         ORDER BY ps.clan_rank;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, clanTag.data());
-
-    int rc;
-    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> LatestPlayerState
     {
-        const auto raw_tag = sqlite::getString(stmt.get(), 0);
-        const auto raw_name = sqlite::getString(stmt.get(), 1);
-        const auto raw_role = sqlite::getString(stmt.get(), 2);
-        const int thLevel = sqlite::getInt(stmt.get(), 3);
-        const int expLevel = sqlite::getInt(stmt.get(), 4);
-        const int clanRank = sqlite::getInt(stmt.get(), 5);
-        const int trophies = sqlite::getInt(stmt.get(), 6);
-        const int builderBaseTrophies = sqlite::getInt(stmt.get(), 7);
-        const int donations = sqlite::getInt(stmt.get(), 8);
-        const int donationsReceived = sqlite::getInt(stmt.get(), 9);
-        const int leagueId = sqlite::getInt(stmt.get(), 10);
-        const int builderBaseLeagueId = sqlite::getInt(stmt.get(), 11);
+        return LatestPlayerState{
+            .clanTag = sqlite::getString(stmt, 0),
+            .playerTag = sqlite::getString(stmt, 1),
+            .playerName = sqlite::getString(stmt, 2),
+            .role = sqlite::getString(stmt, 3),
+            .townHallLevel = sqlite::getInt(stmt, 4),
+            .expLevel = sqlite::getInt(stmt, 5),
+            .clanRank = sqlite::getInt(stmt, 6),
+            .leagueId = sqlite::getInt(stmt, 11),
+            .builderBaseLeagueId = sqlite::getInt(stmt, 12),
+            .trophies = sqlite::getInt(stmt, 7),
+            .builderBaseTrophies = sqlite::getInt(stmt, 8),
+            .donations = sqlite::getInt(stmt, 9),
+            .donationsReceived = sqlite::getInt(stmt, 10)
+        };
+    };
 
-
-        result.emplace_back(LatestPlayerState{
-            .clanTag = std::string(clanTag),
-            .playerTag = raw_tag,
-            .playerName = raw_name,
-            .role = raw_role,
-            .townHallLevel = thLevel,
-            .expLevel = expLevel,
-            .clanRank = clanRank,
-            .leagueId = leagueId,
-            .builderBaseLeagueId = builderBaseLeagueId,
-            .trophies = trophies,
-            .builderBaseTrophies = builderBaseTrophies,
-            .donations = donations,
-            .donationsReceived = donationsReceived
-        });
-    }
-
-    if (rc != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to load latest player snapshots (clan_tag = {}): {}",
-                repoName,
-                clanTag,
-                sqlite3_errmsg(db)));
-    }
-
-    return result;
+    return query<LatestPlayerState>(sql, "load latest player snapshots",
+                                    fmt::format("clan_tag = {}", clanTag),
+                                    mapper,
+                                    clanTag);
 }
 
 void ClansRepo::insertMinimal(const std::string_view tag) const
@@ -458,17 +292,7 @@ void ClansRepo::insertMinimal(const std::string_view tag) const
         VALUES (?, 'Unknown Player');
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, tag);
-
-    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to save minimal info (player_tag = {}): {}",
-                repoName,
-                tag,
-                sqlite3_errmsg(db)));
-    }
+    execute(sql, "save minimal info",
+            fmt::format("player_tag = {}", tag),
+            tag);
 }

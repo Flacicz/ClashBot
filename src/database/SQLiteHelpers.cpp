@@ -77,7 +77,7 @@ void sqlite::bind(sqlite3_stmt* stmt, const int index, const std::string_view va
     {
         throw DatabaseException(
             fmt::format(
-                "sqlite3_bind_text failed: parameter {}, value {}: {}",
+                "sqlite3_bind_text(string_view) failed: parameter {}, value {}: {}",
                 index, value,
                 sqlite3_errmsg(
                     sqlite3_db_handle(stmt)
@@ -125,4 +125,20 @@ std::string sqlite::getString(sqlite3_stmt* stmt, const int index)
     return text
                ? std::string(reinterpret_cast<const char*>(text), size)
                : std::string{};
+}
+
+void sqlite::execute(sqlite3* db, const std::string_view sql)
+{
+    char* err = nullptr;
+    if (sqlite3_exec(db, sql.data(), nullptr, nullptr, &err) != SQLITE_OK)
+    {
+        std::unique_ptr<char, decltype(&sqlite3_free)> errGuard(err, sqlite3_free);
+
+        throw DatabaseException(
+            fmt::format(
+                "[{}] Failed to execute SQL (sql = {}): {}",
+                name,
+                sql,
+                errGuard ? errGuard.get() : "Unknown error"));
+    }
 }

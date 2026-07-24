@@ -9,7 +9,8 @@ class EventDispatcher
 public:
     explicit EventDispatcher(NotificationService& notifications);
 
-    void dispatch(const std::vector<DomainEvent>& events) const;
+    void dispatch(const ApplicationEvent& event) const;
+    void dispatch(const std::vector<ApplicationEvent>& events) const;
 };
 
 #endif //ACTIVITYTRACKING_EVENTDISPATCHER_H

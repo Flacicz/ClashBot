@@ -6,9 +6,12 @@
 #include <string_view>
 
 
-ClanwarService::ClanwarService(Database& db,
-                               APIClient& apiClient) :
-    db(db), apiClient(apiClient)
+ClanwarService::ClanwarService(ClanwarRepo& clanwar_repo,
+                               APIClient& api_client,
+                               TransactionManager& transaction_manager)
+    : clanwar_repo_(clanwar_repo)
+      , api_client_(api_client)
+      , transaction_manager_(transaction_manager)
 {
 }
 
@@ -17,10 +20,10 @@ std::string ClanwarService::getServiceName() const
     return "ClanwarService";
 }
 
-std::vector<DomainEvent> ClanwarService::generateEvents(const std::string_view clanTag, const std::string& state,
-                                                        const InsertedWarResult& insertedWarResult)
+std::vector<ApplicationEvent> ClanwarService::generateEvents(const std::string_view clanTag, const std::string& state,
+                                                             const InsertedWarResult& insertedWarResult)
 {
-    std::vector<DomainEvent> events;
+    std::vector<ApplicationEvent> events;
 
     if (state == "ended")
     {
@@ -40,7 +43,7 @@ SyncResult ClanwarService::updateData(std::string_view tag)
         svc,
         tag);
 
-    const auto [status, completeData, errorMsg] = apiClient.getCompleteClanwarData(tag);
+    const auto [status, completeData, errorMsg] = api_client_.getCompleteClanwarData(tag);
 
     if (status == ClanwarFetchStatus::Error)
     {
@@ -54,7 +57,7 @@ SyncResult ClanwarService::updateData(std::string_view tag)
     if (status == ClanwarFetchStatus::NoActiveWar)
     {
         spdlog::info("[Service: {}] No active Clan War for clan '{}'.", svc, tag);
-        syncResult.successFlag= true;
+        syncResult.successFlag = true;
         return syncResult;
     }
 
@@ -70,9 +73,9 @@ SyncResult ClanwarService::updateData(std::string_view tag)
 
     try
     {
-        TransactionGuard tx(db);
+        auto transaction = transaction_manager_.beginTransaction();
 
-        const auto warResult = db.war().saveCompleteClanwarData(clanwar, clans, attacks, members);
+        const auto warResult = clanwar_repo_.saveCompleteClanwarData(clanwar, clans, attacks, members);
         if (warResult.warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
 
         syncResult.events = generateEvents(tag, clanwar.state, warResult);
@@ -80,7 +83,7 @@ SyncResult ClanwarService::updateData(std::string_view tag)
         syncResult.serviceName = svc;
         syncResult.clanTag = tag;
 
-        tx.commit();
+        transaction.commit();
 
         spdlog::info(
             "[Service: {}] Successfully updated Clan War for clan '{}'. Members: {}, Attacks: {}, Events generated: {}.",

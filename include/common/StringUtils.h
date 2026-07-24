@@ -1,6 +1,5 @@
 #ifndef ACTIVITYTRACKING_STRINGUTILS_H
 #define ACTIVITYTRACKING_STRINGUTILS_H
-#include <algorithm>
 #include <string>
 
 #include "spdlog/fmt/bundled/chrono.h"

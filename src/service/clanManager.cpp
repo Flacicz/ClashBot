@@ -5,16 +5,13 @@
 #include <spdlog/spdlog.h>
 
 ClanManager::ClanManager(
-    Database& db,
-    APIClient& apiClient,
-    std::unique_ptr<EventDispatcher> eventDispatcher,
-    NotificationService& notificationService,
+    const EventDispatcher event_dispatcher,
     std::vector<std::unique_ptr<ISyncService>> services,
-    const std::vector<std::string>& targetClans
+    std::vector<std::string> targetClans
 )
-    : db(db), apiClient(apiClient), eventDispatcher(std::move(eventDispatcher)),
-      notificationService(notificationService),
-      services(std::move(services)), targetClans(targetClans)
+    : eventDispatcher(event_dispatcher),
+      services(std::move(services)),
+      targetClans(std::move(targetClans))
 {
 }
 
@@ -52,11 +49,16 @@ void ClanManager::handleSyncFailure(const SyncResult& syncResult)
 
     consecutiveFailures++;
 
-    if (!alertSent)
-    {
-        notificationService.sendFailureAlert(syncResult);
-        alertSent = true;
-    }
+    if (alertSent) return;
+
+    eventDispatcher.dispatch(SyncFailureEvent{
+        .clanTag = syncResult.clanTag,
+        .serviceName = syncResult.serviceName,
+        .errorMsg = syncResult.errorMsg,
+        .attempts = consecutiveFailures
+    });
+
+    alertSent = true;
 }
 
 void ClanManager::handleSyncRecovery(const SyncResult& syncResult)
@@ -66,7 +68,10 @@ void ClanManager::handleSyncRecovery(const SyncResult& syncResult)
 
     if (alertSent)
     {
-        notificationService.sendRecoveryAlert(syncResult);
+        eventDispatcher.dispatch(SyncRecoveryEvent{
+            .clanTag = syncResult.clanTag,
+            .serviceName = syncResult.serviceName
+        });
     }
 
     consecutiveFailures = 0;
@@ -107,7 +112,7 @@ void ClanManager::syncAll()
 
                     handleSyncRecovery(result);
 
-                    eventDispatcher->dispatch(result.events);
+                    eventDispatcher.dispatch(result.events);
                 }
                 catch (const std::exception& e)
                 {

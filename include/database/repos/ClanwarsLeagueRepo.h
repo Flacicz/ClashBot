@@ -3,9 +3,11 @@
 #include <sqlite3.h>
 #include "models/models.h"
 
-class ClanwarsLeagueRepo
+#include "BaseRepository.h"
+
+
+class ClanwarsLeagueRepo : public BaseRepository
 {
-    sqlite3* db;
     static constexpr std::string_view repoName = "ClanwarsLeagueRepo";
 
 public:

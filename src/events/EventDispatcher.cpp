@@ -5,7 +5,12 @@ EventDispatcher::EventDispatcher(NotificationService& notifications) :
 {
 }
 
-void EventDispatcher::dispatch(const std::vector<DomainEvent>& events) const
+void EventDispatcher::dispatch(const ApplicationEvent& event) const
+{
+    notifications.handle(event);
+}
+
+void EventDispatcher::dispatch(const std::vector<ApplicationEvent>& events) const
 {
     for (const auto& event : events)
     {

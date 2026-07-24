@@ -15,30 +15,28 @@
 
 class NotificationService
 {
-    Database& db;
-    std::unique_ptr<TelegramNotifier> telegramNotifier;
+    NotificationRepo& notification_repo_;
+    SubscriptionRepo& subscription_repo_;
+
+    TelegramNotifier telegramNotifier;
 
     PlayerJoinedFormatter playerJoinedFormatter;
     PlayerLeftFormatter playerLeftFormatter;
-    PlayerRoleChangedFormatter playerRoleChangedFormatter;
     RaidsEndedFormatter raidsEndedFormatter;
     ClanwarEndedFormatter clanwarEndedFormatter;
     ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter;
 
-
-    static std::string formatFailureAlert(const SyncResult& result);
-    static std::string formatRecoveryAlert(const std::string& serviceName, const std::string& clanTag);
-
 public:
-    NotificationService(Database& db, std::unique_ptr<TelegramNotifier> telegramNotifier,
-                        const PlayerJoinedFormatter& playerJoinedFormatter,
-                        const PlayerLeftFormatter& playerLeftFormatter,
-                        const PlayerRoleChangedFormatter& playerRoleChangedFormatter,
-                        const RaidsEndedFormatter& raidsEndedFormatter,
-                        const ClanwarEndedFormatter& clanwarEndedFormatter,
-                        const ClanwarsLeagueRoundEndedFormatter& clanwarLeagueRoundEndedFormatter);
+    NotificationService(NotificationRepo& notification_repo,
+                        SubscriptionRepo& subscription_repo,
+                        TelegramNotifier telegram_notifier,
+                        PlayerJoinedFormatter playerJoinedFormatter,
+                        PlayerLeftFormatter playerLeftFormatter,
+                        RaidsEndedFormatter raidsEndedFormatter,
+                        ClanwarEndedFormatter clanwarEndedFormatter,
+                        ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter);
 
-    void handle(const DomainEvent& domainEvent);
+    void handle(const ApplicationEvent& application_event);
 
     void handleEvent(const PlayerJoinedClanEvent& event) const;
     void handleEvent(const PlayerLeftClanEvent& event) const;
@@ -46,9 +44,8 @@ public:
     void handleEvent(const RaidsEndedEvent& event) const;
     void handleEvent(const WarEndedEvent& event) const;
     void handleEvent(const ClanwarsLeagueRoundEndedEvent& event) const;
-
-    void sendFailureAlert(const SyncResult& result) const;
-    void sendRecoveryAlert(const SyncResult& result) const;
+    void handleEvent(const SyncFailureEvent& event) const;
+    void handleEvent(const SyncRecoveryEvent& event) const;
 };
 
 

@@ -22,6 +22,7 @@
 
 #include "config/configLoader.h"
 #include "config/config.h"
+#include "database/TransactionManager.h"
 
 #include "service/ISyncService.h"
 #include "service/clanInfoService.h"
@@ -98,50 +99,62 @@ int main(const int argc, char* argv[])
 
         spdlog::info("[Main] Configuration loaded successfully.");
 
-        const auto apiClient = std::make_shared<APIClient>(config.supercellToken, config.useTunnel, config.baseUrl,
-                                                           config.tunnelBaseUrl);
-        const auto db = std::make_shared<Database>(config.databasePath);
+        auto apiClient = APIClient(
+            std::move(config.supercellToken),
+            config.useTunnel,
+            std::move(config.baseUrl),
+            std::move(config.tunnelBaseUrl)
+        );
 
-        const auto migratorManager = std::make_unique<MigratorManager>(*db);
-        if (!migratorManager->migrate(
-            config.migrationPath))
+        auto db = Database(
+            std::move(config.databasePath)
+        );
+
+        auto migratorManager = MigratorManager(db);
+        if (!migratorManager.migrate(config.migrationPath))
         {
             spdlog::critical("[DB] Failed to apply migrations. Startup aborted.");
             return EXIT_FAILURE;
         }
 
+        auto transactions = TransactionManager(db.getDBInstance());
+
         spdlog::info("[DB] Database migrations completed successfully.");
 
-        const auto targetClans = db->clans().getTrackedClans();
+        auto targetClans = db.clans().getTrackedClans();
 
         spdlog::info("[Main] Target clans: {}", targetClans.size());
 
-        auto telegramNotifier = std::make_unique<TelegramNotifier>(config.telegramToken);
 
-        PlayerJoinedFormatter playerJoinedFormatter(db->clans());
-        PlayerLeftFormatter playerLeftFormatter(db->clans());
-        PlayerRoleChangedFormatter playerRoleChangedFormatter;
+        auto telegramNotifier = TelegramNotifier(std::move(config.telegramToken));
+        PlayerJoinedFormatter playerJoinedFormatter(db.clans());
+        PlayerLeftFormatter playerLeftFormatter(db.clans());
+        RaidsEndedFormatter raidsEndedFormatter(db.clans(), db.raids());
+        ClanwarEndedFormatter clanwarEndedFormatter(db.war());
+        ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(db.leagueWar(), db.war());
 
-        RaidsEndedFormatter raidsEndedFormatter(db->clans(), db->raids());
-        ClanwarEndedFormatter clanwarEndedFormatter(db->war());
-        ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(db->leagueWar(), db->war());
+        auto notificationService = NotificationService(
+            db.notifications(),
+            db.subscriptions(),
+            std::move(telegramNotifier),
+            playerJoinedFormatter,
+            playerLeftFormatter,
+            raidsEndedFormatter,
+            clanwarEndedFormatter,
+            clanwarsLeagueRoundEndedFormatter
+        );
 
-        auto notificationService = std::make_shared<NotificationService>(
-            *db, std::move(telegramNotifier), playerJoinedFormatter, playerLeftFormatter, playerRoleChangedFormatter,
-            raidsEndedFormatter, clanwarEndedFormatter, clanwarsLeagueRoundEndedFormatter);
-
-        auto eventDispatcher = std::make_unique<EventDispatcher>(*notificationService);
+        auto eventDispatcher = EventDispatcher(notificationService);
 
         std::vector<std::unique_ptr<ISyncService>> services;
-        services.push_back(std::make_unique<ClanInfoService>(*db, *apiClient));
-        services.push_back(std::make_unique<ClanwarService>(*db, *apiClient));
-        services.push_back(std::make_unique<RaidService>(*db, *apiClient));
-        services.push_back(std::make_unique<ClanwarLeagueService>(*db, *apiClient));
+        services.push_back(std::make_unique<ClanInfoService>(db.clans(), apiClient, transactions));
+        services.push_back(std::make_unique<ClanwarService>(db.war(), apiClient, transactions));
+        services.push_back(std::make_unique<RaidService>(db.clans(), db.raids(), apiClient, transactions));
+        services.push_back(std::make_unique<ClanwarLeagueService>(db.war(), db.leagueWar(), apiClient, transactions));
+
+        ClanManager clanManager(eventDispatcher, std::move(services), std::move(targetClans));
 
         spdlog::info("[Main] All application services initialized successfully.");
-
-        ClanManager clanManager(*db, *apiClient, std::move(eventDispatcher), *notificationService,
-                                std::move(services), targetClans);
 
         spdlog::info("[Main] Application startup completed successfully.");
 

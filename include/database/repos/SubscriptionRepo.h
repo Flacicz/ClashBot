@@ -5,9 +5,11 @@
 #include <string_view>
 #include <vector>
 
-class SubscriptionRepo
+#include "BaseRepository.h"
+
+
+class SubscriptionRepo : public BaseRepository
 {
-    sqlite3* db;
     static constexpr std::string_view repoName = "SubscriptionRepo";
 
 public:

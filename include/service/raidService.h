@@ -2,18 +2,25 @@
 #include "ISyncService.h"
 #include "api/apiclient.h"
 #include "database/database.h"
+#include "database/TransactionManager.h"
 
 
 class RaidService : public ISyncService
 {
-    Database& db;
-    APIClient& apiClient;
+    ClansRepo& clans_repo_;
+    RaidRepo& raid_repo_;
+    APIClient& api_client_;
+    TransactionManager& transaction_manager_;
 
     void ensurePlayersExist(const std::vector<PlayerRaidSnapshot>& players) const;
-    static std::vector<DomainEvent> generateEvents(std::string_view clanTag, const std::string& state, long long raidId);
+    static std::vector<ApplicationEvent> generateEvents(std::string_view clanTag, const std::string& state,
+                                                        long long raidId);
 
 public:
-    RaidService(Database& db, APIClient& apiClient);
+    RaidService(ClansRepo& clans_repo,
+                RaidRepo& raid_repo,
+                APIClient& api_client,
+                TransactionManager& transaction_manager);
 
     SyncResult updateData(std::string_view tag) override;
     [[nodiscard]] std::string getServiceName() const override;

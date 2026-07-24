@@ -3,7 +3,7 @@
 #include <sstream>
 
 #include "database/database.h"
-#include "events/DomainEvents.h"
+#include "events/ApplicationEvents.h"
 #include "spdlog/spdlog.h"
 
 RaidsEndedFormatter::RaidsEndedFormatter(ClansRepo& clansRepo, RaidRepo& raidRepo) : clansRepo(clansRepo),

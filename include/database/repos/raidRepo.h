@@ -3,9 +3,11 @@
 #include "models/models.h"
 #include <sqlite3.h>
 
-class RaidRepo
+#include "BaseRepository.h"
+
+
+class RaidRepo : public BaseRepository
 {
-    sqlite3* db;
     static constexpr std::string_view repoName = "RaidRepo";
 
 public:

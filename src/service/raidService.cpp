@@ -5,8 +5,14 @@
 #include <string>
 #include <string_view>
 
-RaidService::RaidService(Database& db, APIClient& apiClient)
-    : db(db), apiClient(apiClient)
+RaidService::RaidService(ClansRepo& clans_repo,
+                         RaidRepo& raid_repo,
+                         APIClient& api_client,
+                         TransactionManager& transaction_manager)
+    : clans_repo_(clans_repo)
+      , raid_repo_(raid_repo)
+      , api_client_(api_client)
+      , transaction_manager_(transaction_manager)
 {
 }
 
@@ -19,14 +25,14 @@ void RaidService::ensurePlayersExist(const std::vector<PlayerRaidSnapshot>& play
 {
     for (const auto& player : players)
     {
-        db.clans().insertMinimal(player.playerTag);
+        clans_repo_.insertMinimal(player.playerTag);
     }
 }
 
-std::vector<DomainEvent> RaidService::generateEvents(const std::string_view clanTag, const std::string& state,
-                                                     const long long raidId)
+std::vector<ApplicationEvent> RaidService::generateEvents(const std::string_view clanTag, const std::string& state,
+                                                          const long long raidId)
 {
-    std::vector<DomainEvent> events;
+    std::vector<ApplicationEvent> events;
 
     if (state == "ended")
     {
@@ -43,7 +49,7 @@ SyncResult RaidService::updateData(std::string_view tag)
     auto svc = getServiceName();
     spdlog::info("[Service: {}] Starting Capital Raids data update for {}", svc, tag);
 
-    const auto optRaidData = apiClient.getCompleteRaidData(tag);
+    const auto optRaidData = api_client_.getCompleteRaidData(tag);
 
     if (!optRaidData.has_value())
     {
@@ -58,18 +64,18 @@ SyncResult RaidService::updateData(std::string_view tag)
     {
         SyncResult syncResult;
 
-        TransactionGuard tx(db);
+        auto transaction = transaction_manager_.beginTransaction();
 
         ensurePlayersExist(playerRaidSnapshots);
 
-        const long long lastRaidId = db.raids().saveCompleteRaidData(clanRaid, playerRaidSnapshots);
+        const long long lastRaidId = raid_repo_.saveCompleteRaidData(clanRaid, playerRaidSnapshots);
 
         syncResult.events = generateEvents(tag, clanRaid.state, lastRaidId);
         syncResult.successFlag = true;
         syncResult.serviceName = svc;
         syncResult.clanTag = tag;
 
-        tx.commit();
+        transaction.commit();
 
         spdlog::info(
             "[Service: {}] Successfully updated Capital Raid for clan '{}'. Participants: {}, Events generated: {}.",

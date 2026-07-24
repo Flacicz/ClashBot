@@ -3,24 +3,24 @@
 #include <api/apiclient.h>
 #include <database/database.h>
 
-class APIClient;
-class Database;
+#include "database/TransactionManager.h"
 
 class ClanInfoService : public ISyncService
 {
-    Database& db;
-    APIClient& apiClient;
+    ClansRepo& clans_repo_;
+    APIClient& api_client_;
+    TransactionManager& transaction_manager_;
 
     [[nodiscard]] MembershipChanges detectMembershipChanges(
-        std::string_view clanTag, std::vector<Player>& players) const;
+        std::string_view clanTag, std::vector<Player> players) const;
     [[nodiscard]] RoleChanges detectRoleChanges(const std::string& clanTag,
                                                 const std::vector<PlayerSnapshot>& currentPlayers) const;
 
-    static std::vector<DomainEvent> generateEvents(const MembershipChanges& changes,
+    static std::vector<ApplicationEvent> generateEvents(const MembershipChanges& changes,
                                                    const RoleChanges& roleChanges);
 
 public:
-    ClanInfoService(Database& db, APIClient& apiClient);
+    ClanInfoService(ClansRepo& clans_repo, APIClient& api_client, TransactionManager& transaction_manager);
 
     SyncResult updateData(std::string_view tag) override;
     [[nodiscard]] std::string getServiceName() const override;

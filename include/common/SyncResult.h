@@ -3,8 +3,7 @@
 #include <string>
 #include <variant>
 
-#include "events/DomainEvents.h"
-#include "models/models.h"
+#include "events/ApplicationEvents.h"
 
 struct SyncResult
 {
@@ -13,7 +12,7 @@ struct SyncResult
     bool successFlag = false;
     std::string errorMsg;
 
-    std::vector<DomainEvent> events;
+    std::vector<ApplicationEvent> events;
 
     static SyncResult error(std::string service, std::string tag, std::string msg);
 };

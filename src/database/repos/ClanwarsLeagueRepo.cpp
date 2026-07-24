@@ -1,10 +1,9 @@
 #include "database/repos/ClanwarsLeagueRepo.h"
 
-#include "core/Exceptions.h"
 #include "database/sqliteHelpers.h"
 #include "spdlog/fmt/bundled/format.h"
 
-ClanwarsLeagueRepo::ClanwarsLeagueRepo(sqlite3* db) : db(db)
+ClanwarsLeagueRepo::ClanwarsLeagueRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))
 {
 }
 
@@ -17,22 +16,18 @@ long long ClanwarsLeagueRepo::saveCWLSeason(const ClanwarsLeagueSeason& season) 
         RETURNING cwl_season_id;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, season.clanTag);
-    sqlite::bind(stmt.get(), 2, season.seasonId);
-
-    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> long long
     {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to save clanwars league season (clan_tag = {}, season_id = {}): {}",
-                repoName, season.clanTag,
-                season.seasonId,
-                sqlite3_errmsg(db)));
-    }
+        return sqlite::getLong(stmt, 0);
+    };
 
-    return sqlite::getLong(stmt.get(), 0);
+    return queryOne<long long>(
+        sql,
+        "save clanwars league season",
+        fmt::format("clan_tag = {}, season_id = {}", season.clanTag, season.seasonId),
+        mapper,
+        season.clanTag, season.seasonId
+    );
 }
 
 void ClanwarsLeagueRepo::saveCWLMembers(const long long lastSeasonId,
@@ -48,29 +43,15 @@ void ClanwarsLeagueRepo::saveCWLMembers(const long long lastSeasonId,
         VALUES (?, ?, ?, ?, ?, ?)
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
     for (const auto& [playerTag, playerName, townhallLevel, clanTag, seasonId] : members)
     {
-        sqlite::bind(stmt.get(), 1, lastSeasonId);
-        sqlite::bind(stmt.get(), 2, seasonId);
-        sqlite::bind(stmt.get(), 3, clanTag);
-        sqlite::bind(stmt.get(), 4, playerTag);
-        sqlite::bind(stmt.get(), 5, playerName);
-        sqlite::bind(stmt.get(), 6, townhallLevel);
-
-        if (sqlite3_step(stmt.get()) != SQLITE_DONE)
-        {
-            throw DatabaseException(
-                fmt::format(
-                    "[{}] Failed to save clanwars league member (clan_tag = {}, player_tag = {}, season_id = {}, cwl_id = {}): {}",
-                    repoName, clanTag, playerTag,
-                    seasonId, lastSeasonId,
-                    sqlite3_errmsg(db)));
-        }
-
-        sqlite3_reset(stmt.get());
-        sqlite3_clear_bindings(stmt.get());
+        execute(
+            sql,
+            "save clanwars league member",
+            fmt::format("clan_tag = {}, player_tag = {}, season_id = {}, cwl_id = {}",
+                        clanTag, playerTag, seasonId, lastSeasonId),
+            lastSeasonId, seasonId, clanTag, playerTag, playerName, townhallLevel
+        );
     }
 }
 
@@ -92,21 +73,19 @@ CWLRoundInfo ClanwarsLeagueRepo::getRoundInfo(const long long warId) const
         WHERE war_id = ?;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, warId);
-
-    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> CWLRoundInfo
     {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to load clanwars league round info (war_id = {}): {}",
-                repoName, warId,
-                sqlite3_errmsg(db)));
-    }
-
-    return CWLRoundInfo{
-        .season = sqlite::getString(stmt.get(), 0),
-        .roundNumber = sqlite::getInt(stmt.get(), 1)
+        return CWLRoundInfo{
+            .season = sqlite::getString(stmt, 0),
+            .roundNumber = sqlite::getInt(stmt, 1)
+        };
     };
+
+    return queryOne<CWLRoundInfo>(
+        sql,
+        "load clanwars league round info",
+        fmt::format("war_id = {}", warId),
+        mapper,
+        warId
+    );
 }

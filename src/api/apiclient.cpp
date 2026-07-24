@@ -10,7 +10,7 @@
 
 using json = nlohmann::json;
 
-APIClient::APIClient(std::string token, const bool tunnel, std::string baseUrl, std::string tunnelUrl)
+APIClient::APIClient(std::string token, bool tunnel, std::string baseUrl, std::string tunnelUrl)
     : apiToken(std::move(token)),
       baseUrl(std::move(baseUrl)),
       tunnelUrl(std::move(tunnelUrl)),

@@ -6,7 +6,7 @@
 #define ACTIVITYTRACKING_PLAYERROLECHANGEDFORMATTER_H
 #include <string>
 
-#include "events/DomainEvents.h"
+#include "events/ApplicationEvents.h"
 
 class PlayerRoleChangedFormatter
 {

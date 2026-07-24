@@ -3,10 +3,10 @@
 #include <spdlog/spdlog.h>
 
 #include "core/Exceptions.h"
-#include "database/sqliteHelpers.h"
 #include "database/repos/SubscriptionRepo.h"
+#include "spdlog/fmt/bundled/chrono.h"
 
-Database::Database(const std::string& path) : pathToDb(path)
+Database::Database(std::string path) : pathToDb(path)
 {
     if (sqlite3_open(path.c_str(), &db) != SQLITE_OK)
     {
@@ -17,9 +17,9 @@ Database::Database(const std::string& path) : pathToDb(path)
 
     spdlog::info("[{}] Database successfully opened (path = {})", name, path);
 
-    execute("PRAGMA foreign_keys = ON;");
-    execute("PRAGMA journal_mode = WAL;");
-    execute("PRAGMA synchronous = NORMAL;");
+    sqlite::execute(db, "PRAGMA foreign_keys = ON;");
+    sqlite::execute(db, "PRAGMA journal_mode = WAL;");
+    sqlite::execute(db, "PRAGMA synchronous = NORMAL;");
 
     clansRepo = std::make_unique<ClansRepo>(db);
     raidRepo = std::make_unique<RaidRepo>(db);
@@ -31,13 +31,6 @@ Database::Database(const std::string& path) : pathToDb(path)
 
 Database::~Database()
 {
-    clansRepo.reset();
-    raidRepo.reset();
-    cwRepo.reset();
-    cwlRepo.reset();
-    subscriptionRepo.reset();
-    notificationRepo.reset();
-
     if (db)
     {
         sqlite3_close(db);
@@ -45,57 +38,35 @@ Database::~Database()
     }
 }
 
-void Database::execute(const std::string_view sql) const
+Database::Database(Database&& other) noexcept
+    : db(std::exchange(other.db, nullptr))
+      , pathToDb(std::move(other.pathToDb))
+      , clansRepo(std::move(other.clansRepo))
+      , raidRepo(std::move(other.raidRepo))
+      , cwRepo(std::move(other.cwRepo))
+      , cwlRepo(std::move(other.cwlRepo))
+      , subscriptionRepo(std::move(other.subscriptionRepo))
+      , notificationRepo(std::move(other.notificationRepo))
 {
-    char* err = nullptr;
-    if (sqlite3_exec(db, sql.data(), nullptr, nullptr, &err) != SQLITE_OK)
-    {
-        std::unique_ptr<char, decltype(&sqlite3_free)> errGuard(err, sqlite3_free);
-
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to execute SQL (sql = {}): {}",
-                name,
-                sql,
-                errGuard ? errGuard.get() : "Unknown error"));
-    }
 }
 
-Database::QueryResult Database::query(const std::string_view sql) const
+Database& Database::operator=(Database&& other) noexcept
 {
-    QueryResult result;
-
-    const auto stmt = sqlite::prepare(db, sql);
-
-    const int cols = sqlite3_column_count(stmt.get());
-    for (int i = 0; i < cols; i++)
+    if (this != &other)
     {
-        result.columns.emplace_back(sqlite3_column_name(stmt.get(), i));
-    }
-
-    int rc;
-    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
-    {
-        std::vector<std::string> row;
-        row.reserve(cols);
-
-        for (int i = 0; i < cols; i++)
+        if (db)
         {
-            auto text = sqlite::getString(stmt.get(), i);
-            row.emplace_back(text);
+            sqlite3_close(db);
         }
-        result.rows.push_back(row);
-    }
 
-    if (rc != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to execute query\n{}\n: {}",
-                name,
-                sql,
-                sqlite3_errmsg(db)));
+        db = std::exchange(other.db, nullptr);
+        pathToDb = std::move(other.pathToDb);
+        clansRepo = std::move(other.clansRepo);
+        raidRepo = std::move(other.raidRepo);
+        cwRepo = std::move(other.cwRepo);
+        cwlRepo = std::move(other.cwlRepo);
+        subscriptionRepo = std::move(other.subscriptionRepo);
+        notificationRepo = std::move(other.notificationRepo);
     }
-
-    return result;
+    return *this;
 }

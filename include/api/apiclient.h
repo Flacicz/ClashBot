@@ -16,7 +16,6 @@ class APIClient
 
 public:
     APIClient(std::string token, bool tunnel, std::string baseUrl, std::string tunnelUrl);
-    ~APIClient() = default;
 
     [[nodiscard]] bool getIsTunnel() const { return isTunnel; }
     [[nodiscard]] const std::string& getApiToken() const { return apiToken; }

@@ -69,13 +69,29 @@ struct ClanwarsLeagueRoundEndedEvent
     }
 };
 
-using DomainEvent = std::variant<
+struct SyncFailureEvent
+{
+    std::string clanTag;
+    std::string serviceName;
+    std::string errorMsg;
+    int attempts;
+};
+
+struct SyncRecoveryEvent
+{
+    std::string clanTag;
+    std::string serviceName;
+};
+
+using ApplicationEvent = std::variant<
     PlayerJoinedClanEvent,
     PlayerLeftClanEvent,
     PlayerRoleChangedEvent,
     WarEndedEvent,
     RaidsEndedEvent,
-    ClanwarsLeagueRoundEndedEvent
+    ClanwarsLeagueRoundEndedEvent,
+    SyncFailureEvent,
+    SyncRecoveryEvent
 >;
 
 #endif //ACTIVITYTRACKING_DOMAINEVENTS_H

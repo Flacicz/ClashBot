@@ -4,26 +4,26 @@
 
 class TransactionGuard
 {
-    Database& db;
+    sqlite3* connection;
     bool committed = false;
 
 public:
-    explicit TransactionGuard(Database& db) : db(db)
+    explicit TransactionGuard(sqlite3* connection) : connection(connection)
     {
-        db.execute("BEGIN TRANSACTION;");
+        sqlite::execute(connection, "BEGIN TRANSACTION;");
     }
 
     ~TransactionGuard()
     {
         if (!committed)
         {
-            db.execute("ROLLBACK;");
+            sqlite::execute(connection, "ROLLBACK;");
         }
     }
 
     void commit()
     {
-        db.execute("COMMIT;");
+        sqlite::execute(connection, "COMMIT;");
         committed = true;
     }
 };

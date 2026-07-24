@@ -2,7 +2,7 @@
 #define ACTIVITYTRACKING_CLANWARLEAGUEREPORTFORMATTER_H
 #include "database/repos/clanwarRepo.h"
 #include "database/repos/ClanwarsLeagueRepo.h"
-#include "events/DomainEvents.h"
+#include "events/ApplicationEvents.h"
 
 class Database;
 

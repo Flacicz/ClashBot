@@ -4,7 +4,7 @@
 
 #include "database/repos/clansRepo.h"
 #include "database/repos/raidRepo.h"
-#include "events/DomainEvents.h"
+#include "events/ApplicationEvents.h"
 #include "models/models.h"
 
 class RaidsEndedFormatter

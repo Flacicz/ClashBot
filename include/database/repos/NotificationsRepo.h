@@ -7,9 +7,11 @@
 #include <sqlite3.h>
 #include <string_view>
 
-class NotificationRepo
+#include "BaseRepository.h"
+
+
+class NotificationRepo : public BaseRepository
 {
-    sqlite3* db;
     static constexpr std::string_view repoName = "NotificationsRepo";
 
 public:

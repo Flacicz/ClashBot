@@ -6,9 +6,14 @@
 #include "common/StringUtils.h"
 #include "database/TransactionGuard.h"
 
-ClanwarLeagueService::ClanwarLeagueService(Database& db,
-                                           APIClient& apiClient)
-    : db(db), apiClient(apiClient)
+ClanwarLeagueService::ClanwarLeagueService(ClanwarRepo& clanwar_repo_,
+                                           ClanwarsLeagueRepo& clanwars_league_repo_,
+                                           APIClient& api_client,
+                                           TransactionManager& transaction_manager)
+    : clanwar_repo_(clanwar_repo_)
+      , clanwars_league_repo_(clanwars_league_repo_)
+      , api_client_(api_client)
+      , transaction_manager_(transaction_manager)
 {
 }
 
@@ -22,7 +27,7 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
     auto svc = getServiceName();
     spdlog::info("[Service: {}] Starting Clan War League data update for {}", svc, tag);
 
-    auto [status, completeClanwarsLeagueData, errorMsg] = apiClient.getCompleteClanwarsLeagueData(tag);
+    auto [status, completeClanwarsLeagueData, errorMsg] = api_client_.getCompleteClanwarsLeagueData(tag);
 
     if (status == LeagueFetchStatus::Error)
     {
@@ -56,9 +61,10 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
 
     try
     {
-        TransactionGuard tx(db);
+        auto transaction = transaction_manager_.beginTransaction();
 
-        const long long lastCWLId = db.leagueWar().saveCompleteCWLData(clanwarsLeagueSeason, clanwarsLeagueMembers);
+        const long long lastCWLId = clanwars_league_repo_.saveCompleteCWLData(
+            clanwarsLeagueSeason, clanwarsLeagueMembers);
 
         int roundNumber = 1;
         for (auto& [war, clans, attacks, members] : warDetails)
@@ -68,7 +74,7 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
                 war.seasonId = lastCWLId;
                 war.roundNumber = roundNumber++;
 
-                auto warResult = db.war().saveCompleteClanwarData(war, clans, attacks, members);
+                auto warResult = clanwar_repo_.saveCompleteClanwarData(war, clans, attacks, members);
                 if (warResult.warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
 
                 if (war.state == "warEnded")
@@ -92,7 +98,7 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
         syncResult.serviceName = svc;
         syncResult.clanTag = tag;
 
-        tx.commit();
+        transaction.commit();
 
         spdlog::info(
             "[Service: {}] Successfully updated Clan War League for clan '{}'. "

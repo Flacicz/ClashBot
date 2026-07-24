@@ -9,8 +9,10 @@
 #include <api/apiclient.h>
 #include <spdlog/spdlog.h>
 
-ClanInfoService::ClanInfoService(Database& db, APIClient& apiClient)
-    : db(db), apiClient(apiClient)
+ClanInfoService::ClanInfoService(ClansRepo& clans_repo, APIClient& api_client, TransactionManager& transaction_manager)
+    : clans_repo_(clans_repo)
+      , api_client_(api_client)
+      , transaction_manager_(transaction_manager)
 {
 }
 
@@ -20,31 +22,34 @@ std::string ClanInfoService::getServiceName() const
 }
 
 MembershipChanges ClanInfoService::detectMembershipChanges(
-    const std::string_view clanTag, std::vector<Player>& players) const
+    const std::string_view clanTag, std::vector<Player> players) const
 {
-    std::vector<Player> activeClanPlayers = db.clans().getActiveMembers(clanTag);
-
-    std::ranges::sort(activeClanPlayers, [](const Player& p1, const Player& p2) { return p1.tag < p2.tag; });
-    std::ranges::sort(players, [](const Player& p1, const Player& p2) { return p1.tag < p2.tag; });
+    std::vector<Player> activeClanPlayers = clans_repo_.getActiveMembers(clanTag);
 
     auto compare_tags = [](const Player& a, const Player& b)
     {
         return a.tag < b.tag;
     };
 
-    std::vector<Player> left_players;
+    std::ranges::sort(activeClanPlayers, compare_tags);
+    std::ranges::sort(players, compare_tags);
+
+    std::vector<Player> leftPlayers;
     std::ranges::set_difference(activeClanPlayers, players,
-                                std::back_inserter(left_players),
+                                std::back_inserter(leftPlayers),
                                 compare_tags
     );
 
-    std::vector<Player> joined_players;
+    std::vector<Player> joinedPlayers;
     std::ranges::set_difference(players, activeClanPlayers,
-                                std::back_inserter(joined_players),
+                                std::back_inserter(joinedPlayers),
                                 compare_tags
     );
 
-    return {left_players, joined_players};
+    return MembershipChanges{
+        .leftPlayers = std::move(leftPlayers),
+        .joinedPlayers = std::move(joinedPlayers)
+    };;
 }
 
 RoleChanges ClanInfoService::detectRoleChanges(const std::string& clanTag,
@@ -52,7 +57,7 @@ RoleChanges ClanInfoService::detectRoleChanges(const std::string& clanTag,
 {
     RoleChanges roleChanges;
 
-    const std::vector<LatestPlayerState> latestPlayerStates = db.clans().getLatestPlayerSnapshots(clanTag);
+    const std::vector<LatestPlayerState> latestPlayerStates = clans_repo_.getLatestPlayerSnapshots(clanTag);
     std::unordered_map<std::string, LatestPlayerState> oldPlayers;
 
     for (const auto& player : latestPlayerStates)
@@ -60,7 +65,7 @@ RoleChanges ClanInfoService::detectRoleChanges(const std::string& clanTag,
         oldPlayers.emplace(player.playerTag, player);
     }
 
-    for (const auto& player : currentPlayers)
+    for (auto& player : currentPlayers)
     {
         auto it = oldPlayers.find(player.playerTag);
 
@@ -71,53 +76,53 @@ RoleChanges ClanInfoService::detectRoleChanges(const std::string& clanTag,
         {
             roleChanges.changes.emplace_back(RoleChange{
                 .clanTag = clanTag,
-                .playerTag = it->second.playerTag,
-                .playerName = it->second.playerName,
-                .oldRole = it->second.role,
+                .playerTag = std::move(it->second.playerTag),
+                .playerName = std::move(it->second.playerName),
+                .oldRole = std::move(it->second.role),
                 .newRole = player.role
             });
         }
     }
-    return roleChanges;
+    return roleChanges;     
 }
 
-std::vector<DomainEvent> ClanInfoService::generateEvents(const MembershipChanges& changes,
+std::vector<ApplicationEvent> ClanInfoService::generateEvents(const MembershipChanges& changes,
                                                          const RoleChanges& roleChanges)
 {
-    std::vector<DomainEvent> events;
+    std::vector<ApplicationEvent> events;
     events.reserve(changes.joinedPlayers.size() + changes.leftPlayers.size());
 
-    for (const auto& player : changes.leftPlayers)
+    for (const auto& [tag, name, clanTag] : changes.leftPlayers)
     {
         events.emplace_back(
             PlayerLeftClanEvent(
-                player.clanTag,
-                player.tag,
-                player.name
+                clanTag,
+                tag,
+                name
             )
         );
     }
 
-    for (const auto& player : changes.joinedPlayers)
+    for (const auto& [tag, name, clanTag] : changes.joinedPlayers)
     {
         events.emplace_back(
             PlayerJoinedClanEvent(
-                player.clanTag,
-                player.tag,
-                player.name
+                clanTag,
+                tag,
+                name
             )
         );
     }
 
-    for (const auto& roleChange : roleChanges.changes)
+    for (const auto& [clanTag, playerTag, playerName, oldRole, newRole] : roleChanges.changes)
     {
         events.emplace_back(
             PlayerRoleChangedEvent{
-                .clanTag = roleChange.clanTag,
-                .playerTag = roleChange.playerTag,
-                .playerName = roleChange.playerName,
-                .oldRole = roleChange.oldRole,
-                .newRole = roleChange.newRole
+                .clanTag = clanTag,
+                .playerTag = playerTag,
+                .playerName = playerName,
+                .oldRole = oldRole,
+                .newRole = newRole
             }
         );
     }
@@ -130,7 +135,7 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
     auto svc = getServiceName();
     spdlog::info("[Service: {}] Starting update for clan {}", svc, tag);
 
-    auto optClanData = apiClient.getCompleteClanData(tag);
+    auto optClanData = api_client_.getCompleteClanData(tag);
     if (!optClanData.has_value())
     {
         spdlog::warn("[Service: {}] Received empty API response for clan {}", svc, tag);
@@ -144,22 +149,22 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
     {
         SyncResult syncResult;
 
-        TransactionGuard tx(db);
+        auto transaction = transaction_manager_.beginTransaction();
 
         const auto roleChanges = detectRoleChanges(std::string(tag), playerSnapshots);
 
-        db.clans().saveCompleteClanData(clan, clanSnapshot, players, playerSnapshots);
+        clans_repo_.saveCompleteClanData(clan, clanSnapshot, players, playerSnapshots);
 
-        const auto changes = detectMembershipChanges(tag, players);
+        const auto changes = detectMembershipChanges(tag, std::move(players));
 
-        db.clans().saveMembershipChanges(changes);
+        clans_repo_.saveMembershipChanges(changes);
 
         syncResult.events = generateEvents(changes, roleChanges);
         syncResult.successFlag = true;
         syncResult.serviceName = svc;
         syncResult.clanTag = tag;
 
-        tx.commit();
+        transaction.commit();
 
         spdlog::info(
             "[Service: {}] Successfully updated clan '{}' ({}). Members: {}, Events generated: {}.",

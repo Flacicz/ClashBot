@@ -1,10 +1,9 @@
 ﻿#include "database/repos/raidRepo.h"
 
-#include "core/Exceptions.h"
 #include "database/sqliteHelpers.h"
 #include "spdlog/fmt/bundled/format.h"
 
-RaidRepo::RaidRepo(sqlite3* db) : db(db)
+RaidRepo::RaidRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))
 {
 }
 
@@ -25,29 +24,19 @@ long long RaidRepo::saveRaid(const ClanRaid& clanRaid) const
         RETURNING id;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, clanRaid.clanTag);
-    sqlite::bind(stmt.get(), 2, clanRaid.startTime);
-    sqlite::bind(stmt.get(), 3, clanRaid.endTime);
-    sqlite::bind(stmt.get(), 4, clanRaid.state);
-    sqlite::bind(stmt.get(), 5, clanRaid.totalLoot);
-    sqlite::bind(stmt.get(), 6, clanRaid.raidsCompleted);
-    sqlite::bind(stmt.get(), 7, clanRaid.totalAttacks);
-    sqlite::bind(stmt.get(), 8, clanRaid.enemyDistrictsDestroyed);
-    sqlite::bind(stmt.get(), 9, clanRaid.offensiveReward);
-    sqlite::bind(stmt.get(), 10, clanRaid.defensiveReward);
-
-    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> long long
     {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to save raid (clan_tag = {}): {}",
-                repoName, clanRaid.clanTag,
-                sqlite3_errmsg(db)));
-    }
+        return sqlite::getLong(stmt, 0);
+    };
 
-    return sqlite::getLong(stmt.get(), 0);
+    return queryOne<long long>(sql, "save raid",
+                               fmt::format("clan_tag = {}", clanRaid.clanTag),
+                               mapper,
+                               clanRaid.clanTag, clanRaid.startTime, clanRaid.endTime,
+                               clanRaid.state, clanRaid.totalLoot, clanRaid.raidsCompleted,
+                               clanRaid.totalAttacks, clanRaid.enemyDistrictsDestroyed,
+                               clanRaid.offensiveReward, clanRaid.defensiveReward
+    );
 }
 
 void RaidRepo::saveRaidPlayerSnapshots(const long long raidId,
@@ -66,27 +55,12 @@ void RaidRepo::saveRaidPlayerSnapshots(const long long raidId,
             total_loot = excluded.total_loot;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
     for (const auto& [playerTag, attacksCount, bonusAttack, totalLoot] : members)
     {
-        sqlite::bind(stmt.get(), 1, raidId);
-        sqlite::bind(stmt.get(), 2, playerTag);
-        sqlite::bind(stmt.get(), 3, attacksCount);
-        sqlite::bind(stmt.get(), 4, bonusAttack);
-        sqlite::bind(stmt.get(), 5, totalLoot);
-
-        if (sqlite3_step(stmt.get()) != SQLITE_DONE)
-        {
-            throw DatabaseException(
-                fmt::format(
-                    "[{}] Failed to save raid player snapshot (raid_id = {}, player_tag = {}): {}",
-                    repoName, raidId, playerTag,
-                    sqlite3_errmsg(db)));
-        }
-
-        sqlite3_reset(stmt.get());
-        sqlite3_clear_bindings(stmt.get());
+        execute(sql, "save raid player snapshot",
+                fmt::format("raid_id = {}, player_tag = {}", raidId, playerTag),
+                raidId, playerTag, attacksCount, bonusAttack, totalLoot
+        );
     }
 }
 
@@ -102,8 +76,6 @@ long long RaidRepo::saveCompleteRaidData(const ClanRaid& clanRaid,
 
 std::vector<RaidSlacker> RaidRepo::getRaidSlackers(const long long raidId, const std::string_view clanTag) const
 {
-    std::vector<RaidSlacker> slackers;
-
     static constexpr std::string_view sql = R"(
         SELECT
             p.tag,
@@ -115,29 +87,17 @@ std::vector<RaidSlacker> RaidRepo::getRaidSlackers(const long long raidId, const
         ORDER BY attacks_done ASC, p.name ASC;
     )";
 
-    const auto stmt = sqlite::prepare(db, sql);
-
-    sqlite::bind(stmt.get(), 1, raidId);
-    sqlite::bind(stmt.get(), 2, clanTag);
-
-    int rc;
-    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW)
+    auto mapper = [](sqlite3_stmt* stmt) -> RaidSlacker
     {
-        slackers.push_back(RaidSlacker{
-            .playerTag = sqlite::getString(stmt.get(), 0),
-            .playerName = sqlite::getString(stmt.get(), 1),
-            .attacksCount = sqlite::getInt(stmt.get(), 2),
-        });
-    }
+        return RaidSlacker{
+            .playerTag = sqlite::getString(stmt, 0),
+            .playerName = sqlite::getString(stmt, 1),
+            .attacksCount = sqlite::getInt(stmt, 2),
+        };
+    };
 
-    if (rc != SQLITE_DONE)
-    {
-        throw DatabaseException(
-            fmt::format(
-                "[{}] Failed to load raid slackers (clan_tag = {}, raid_id = {}): {}",
-                repoName, clanTag, raidId,
-                sqlite3_errmsg(db)));
-    }
-
-    return slackers;
+    return query<RaidSlacker>(sql, "load raid slackers",
+                              fmt::format("clan_tag = {}, raid_id = {}", clanTag, raidId),
+                              mapper,
+                              raidId, clanTag);
 }

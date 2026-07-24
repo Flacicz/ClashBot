@@ -19,7 +19,7 @@ void MigratorManager::createMigrationTable() const
         )
     )";
 
-    db.execute(sql);
+    sqlite::execute(db.getDBInstance(), sql);
 }
 
 bool MigratorManager::isMigrationApplied(const std::string& version) const
@@ -49,7 +49,7 @@ void MigratorManager::applyMigration(const std::string& version, const std::file
 
     const std::string migrationSQL = buffer.str();
 
-    db.execute(migrationSQL);
+    sqlite::execute(db.getDBInstance(), migrationSQL);
 
     static constexpr std::string_view sql = R"(
         INSERT INTO schema_migrations(version) VALUES (?);
