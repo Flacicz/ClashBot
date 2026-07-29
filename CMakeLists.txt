@@ -12,9 +12,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # --- Автоматическое скачивание CPR ---
 include(FetchContent)
 FetchContent_Declare(
-		cpr
-		GIT_REPOSITORY https://github.com/libcpr/cpr.git
-		GIT_TAG        1.10.5
+        cpr
+        GIT_REPOSITORY https://github.com/libcpr/cpr.git
+        GIT_TAG 1.10.5
 )
 set(CPR_BUILD_TESTS OFF CACHE INTERNAL "")
 set(CPR_BUILD_TESTS_SSL OFF CACHE INTERNAL "")
@@ -22,9 +22,9 @@ FetchContent_MakeAvailable(cpr)
 
 # --- Автоматическое скачивание spdlog (Решает проблему с libfmt.so.9) ---
 FetchContent_Declare(
-		spdlog
-		GIT_REPOSITORY https://github.com/gabime/spdlog.git
-		GIT_TAG        v1.12.0 # Стабильная версия со своим встроенным fmt
+        spdlog
+        GIT_REPOSITORY https://github.com/gabime/spdlog.git
+        GIT_TAG v1.12.0 # Стабильная версия со своим встроенным fmt
 )
 set(SPDLOG_BUILD_SHARED OFF CACHE INTERNAL "") # Гарантируем статику
 set(SPDLOG_BUILD_EXAMPLE OFF CACHE INTERNAL "")
@@ -38,49 +38,47 @@ find_package(SQLite3 REQUIRED)
 find_package(Threads REQUIRED)
 
 add_executable(${PROJECT_NAME}
-		src/main.cpp
-		src/api/apiclient.cpp
-		src/config/configLoader.cpp
-		src/database/database.cpp
+        src/main.cpp
+        src/api/apiclient.cpp
+        src/config/configLoader.cpp
+        src/database/database.cpp
         src/database/repos/clansRepo.cpp
-		src/database/repos/clanwarRepo.cpp
-		src/database/repos/raidRepo.cpp
-		src/database/repos/ClanwarsLeagueRepo.cpp
-		src/models/models.cpp
-		src/service/clanManager.cpp
-		src/service/clanInfoService.cpp
-		src/service/raidService.cpp
-		src/service/clanwarService.cpp
-		src/service/clanwarLeagueService.cpp
-		src/notifications/telegramNotifier.cpp
-		src/reports/RaidsEndedFormatter.cpp
-		src/common/SyncResult.cpp
-		src/notifications/notificationService.cpp
+        src/database/repos/clanwarRepo.cpp
+        src/database/repos/raidRepo.cpp
+        src/database/repos/ClanwarsLeagueRepo.cpp
+        src/models/models.cpp
+        src/service/clanManager.cpp
+        src/service/clanInfoService.cpp
+        src/service/raidService.cpp
+        src/service/clanwarService.cpp
+        src/service/clanwarLeagueService.cpp
+        src/notifications/telegramNotifier.cpp
+        src/reports/RaidsEndedFormatter.cpp
+        src/common/SyncResult.cpp
+        src/notifications/notificationService.cpp
         src/reports/ClanwarEndedFormatter.cpp
-		src/reports/ClanwarsLeagueRoundEndedFormatter.cpp
-		src/database/migratorManager.cpp
-		src/common/TimeParser.cpp
-		src/database/repos/SubscriptionRepo.cpp
-		src/events/EventDispatcher.cpp
-		src/reports/PlayerJoinedFormatter.cpp
-		src/reports/PlayerLeftFormatter.cpp
-		src/database/repos/NotificationsRepo.cpp
-		src/reports/PlayerRoleChangedFormatter.cpp
-		src/database/SQLiteHelpers.cpp
-		include/database/repos/BaseRepository.h
-		include/database/TransactionManager.h
-		include/reports/SystemAlertReportFormatter.h
-		src/reports/SystemAlertReportFormatter.cpp
+        src/reports/ClanwarsLeagueRoundEndedFormatter.cpp
+        src/database/migratorManager.cpp
+        src/common/TimeParser.cpp
+        src/database/repos/SubscriptionRepo.cpp
+        src/events/EventDispatcher.cpp
+        src/reports/PlayerJoinedFormatter.cpp
+        src/reports/PlayerLeftFormatter.cpp
+        src/database/repos/NotificationsRepo.cpp
+        src/reports/PlayerRoleChangedFormatter.cpp
+        src/database/SQLiteHelpers.cpp
+        include/database/repos/BaseRepository.h
+        src/reports/SystemAlertReportFormatter.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(${PROJECT_NAME} PRIVATE ${SQLite3_INCLUDE_DIRS})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
-		cpr::cpr
-		CURL::libcurl
-		nlohmann_json::nlohmann_json
-		${SQLite3_LIBRARIES}
-		spdlog::spdlog                  # Теперь это наш собственный статический таргет
-		Threads::Threads
+        cpr::cpr
+        CURL::libcurl
+        nlohmann_json::nlohmann_json
+        ${SQLite3_LIBRARIES}
+        spdlog::spdlog                  # Теперь это наш собственный статический таргет
+        Threads::Threads
 )

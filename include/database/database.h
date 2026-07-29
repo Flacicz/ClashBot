@@ -35,8 +35,10 @@ class Database
 public:
     explicit Database(std::string path);
     ~Database();
+
     Database(const Database& db) = delete;
     Database& operator=(const Database& db) = delete;
+
     Database(Database&& other) noexcept;
     Database& operator=(Database&& other) noexcept;
 

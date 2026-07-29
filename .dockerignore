@@ -1,0 +1,15 @@
+.git
+.github
+.idea
+.vs
+.vscode
+
+build
+cmake-build-*
+out
+
+data
+logs
+
+config.json
+*.tar

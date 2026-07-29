@@ -31,6 +31,13 @@ Database::Database(std::string path) : pathToDb(path)
 
 Database::~Database()
 {
+    notificationRepo.reset();
+    subscriptionRepo.reset();
+    cwlRepo.reset();
+    cwRepo.reset();
+    raidRepo.reset();
+    clansRepo.reset();
+
     if (db)
     {
         sqlite3_close(db);

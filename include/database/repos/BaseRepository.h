@@ -12,7 +12,6 @@
 
 #include "core/Exceptions.h"
 #include "database/sqliteHelpers.h"
-#include "spdlog/fmt/bundled/format.h"
 
 class BaseRepository
 {

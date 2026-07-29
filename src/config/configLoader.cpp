@@ -4,26 +4,31 @@
 
 #include "config/config.h"
 
-AppConfig loadConfig(const std::string& path) {
-	std::ifstream file(path);
+AppConfig loadConfig(const std::string& path)
+{
+    std::ifstream file(path);
 
-	if (!file.is_open()) {
-		throw std::runtime_error("Не удалось открыть файл конфигурации: " + path);
-	}
+    if (!file.is_open())
+    {
+        throw std::runtime_error("Не удалось открыть файл конфигурации: " + path);
+    }
 
-	nlohmann::json j;
-	try {
-		file >> j;
-	}
-	catch (const nlohmann::json::parse_error& e) {
-		throw std::runtime_error("Ошибка парсинга JSON в файле " + path + ": " + e.what());
-	}
+    nlohmann::json j;
+    try
+    {
+        file >> j;
+    }
+    catch (const nlohmann::json::parse_error& e)
+    {
+        throw std::runtime_error("Ошибка парсинга JSON в файле " + path + ": " + e.what());
+    }
 
-	AppConfig config;
-    if (j.contains("api")) {
+    AppConfig config;
+    if (j.contains("api"))
+    {
         config.supercellToken = j["api"].value("supercell_token", "");
         config.useTunnel = j["api"].value("use_tunnel", false);
-        config.tunnelBaseUrl = j["api"].value("tunnel_url", "https://localhost:8080/v1");
+        config.tunnelBaseUrl = j["api"].value("tunnel_base_url", "https://localhost:8080/v1");
         config.baseUrl = j["api"].value("base_url", "https://api.clashofclans.com/v1/");
     }
 
@@ -32,18 +37,18 @@ AppConfig loadConfig(const std::string& path) {
 
     if (j.contains("database"))
     {
-	    config.databasePath = j["database"].value("path", "../data/database.sqlite");
-    	config.migrationPath = j["database"].value("migrations_path", "../src/database/migrations");
+        config.databasePath = j["database"].value("path", "../data/database.sqlite");
+        config.migrationPath = j["database"].value("migrations_path", "../src/database/migrations");
     }
     else
     {
-	    config.databasePath = "../data/database.sqlite";
-    	config.migrationPath = "../src/database/migrations";
+        config.databasePath = "../data/database.sqlite";
+        config.migrationPath = "../src/database/migrations";
     }
 
     if (j.contains("bot"))
     {
-    	config.telegramToken = j["bot"].value("telegram_token", "");
+        config.telegramToken = j["bot"].value("telegram_token", "");
     }
 
     return config;

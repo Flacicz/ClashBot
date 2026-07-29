@@ -41,7 +41,11 @@ public:
 
     void stop()
     {
-        isRunning.store(false);
+        {
+            std::lock_guard lock(mtx);
+            isRunning.store(false);
+        }
+
         cv.notify_all();
     }
 };

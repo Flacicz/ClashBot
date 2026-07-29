@@ -37,6 +37,9 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 COPY --from=builder /app/build/ActivityTracking .
+COPY --from=builder /app/src/database/migrations ./migrations
+
+RUN mkdir -p /app/data /app/logs
 
 ENTRYPOINT ["./ActivityTracking"]
 CMD ["config.json"]
