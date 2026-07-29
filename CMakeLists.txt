@@ -67,7 +67,6 @@ add_executable(${PROJECT_NAME}
         src/database/repos/NotificationsRepo.cpp
         src/reports/PlayerRoleChangedFormatter.cpp
         src/database/SQLiteHelpers.cpp
-        include/database/repos/BaseRepository.h
         src/reports/SystemAlertReportFormatter.cpp
 )
 
