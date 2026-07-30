@@ -183,13 +183,13 @@ cmake --build build --config Release
 При использовании генератора Visual Studio запустите приложение командой:
 
 ```powershell
-.\build\Release\ActivityTracking.exe .\config.json
+.\build\Release\ClashBot.exe .\config.json
 ```
 
 При использовании Ninja исполняемый файл может находиться непосредственно в каталоге `build`:
 
 ```powershell
-.\build\ActivityTracking.exe .\config.json
+.\build\ClashBot.exe .\config.json
 ```
 
 Для остановки приложения нажмите `Ctrl+C`.
