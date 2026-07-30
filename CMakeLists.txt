@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.11)
+cmake_minimum_required(VERSION 3.24)
 
-set(PROJECT_NAME ActivityTracking)
-project(${PROJECT_NAME})
+set(PROJECT_NAME ClashBot)
+project(${PROJECT_NAME} VERSION 0.1.0 LANGUAGES CXX)
 
 # Принудительно отключаем динамические библиотеки
 set(BUILD_SHARED_LIBS OFF)
