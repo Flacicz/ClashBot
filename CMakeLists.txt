@@ -37,6 +37,10 @@ find_package(nlohmann_json 3.10.5 REQUIRED)
 find_package(SQLite3 REQUIRED)
 find_package(Threads REQUIRED)
 
+if(NOT TARGET SQLite3::SQLite3)
+    add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
+endif()
+
 add_executable(${PROJECT_NAME}
         src/main.cpp
         src/api/apiclient.cpp
@@ -71,13 +75,12 @@ add_executable(${PROJECT_NAME}
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_include_directories(${PROJECT_NAME} PRIVATE ${SQLite3_INCLUDE_DIRS})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
         cpr::cpr
         CURL::libcurl
         nlohmann_json::nlohmann_json
-        ${SQLite3_LIBRARIES}
+        SQLite3::SQLite3
         spdlog::spdlog                  # Теперь это наш собственный статический таргет
         Threads::Threads
 )
