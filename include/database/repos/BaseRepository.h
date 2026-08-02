@@ -9,10 +9,10 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <fmt/format.h>
 
 #include "core/Exceptions.h"
 #include "database/sqliteHelpers.h"
-#include "spdlog/fmt/bundled/format.h"
 
 class BaseRepository
 {

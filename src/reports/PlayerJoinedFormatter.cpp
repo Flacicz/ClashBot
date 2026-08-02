@@ -3,8 +3,7 @@
 //
 
 #include "reports/PlayerJoinedFormatter.h"
-
-#include "spdlog/fmt/bundled/format.h"
+#include <fmt/format.h>
 
 PlayerJoinedFormatter::PlayerJoinedFormatter(ClansRepo& clansRepo) : clansRepo(clansRepo)
 {

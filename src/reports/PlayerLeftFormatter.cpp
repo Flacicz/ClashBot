@@ -3,7 +3,7 @@
 //
 
 #include "reports/PlayerLeftFormatter.h"
-#include "spdlog/fmt/bundled/format.h"
+#include <fmt/format.h>
 
 PlayerLeftFormatter::PlayerLeftFormatter(ClansRepo& clansRepo) : clansRepo(clansRepo)
 {

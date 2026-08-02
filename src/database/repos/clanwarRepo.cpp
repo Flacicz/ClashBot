@@ -1,7 +1,6 @@
 #include "database/repos/clanwarRepo.h"
-
 #include "database/sqliteHelpers.h"
-#include "spdlog/fmt/bundled/format.h"
+#include <fmt/format.h>
 
 ClanwarRepo::ClanwarRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))
 {

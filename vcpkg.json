@@ -1,0 +1,11 @@
+{
+  "name": "clash-bot",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "cpr",
+    "fmt",
+    "spdlog",
+    "nlohmann-json",
+    "sqlite3"
+  ]
+}

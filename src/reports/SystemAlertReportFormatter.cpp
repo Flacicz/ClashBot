@@ -3,8 +3,7 @@
 //
 
 #include <reports/SystemAlertReportFormatter.h>
-
-#include "spdlog/fmt/bundled/format.h"
+#include <fmt/format.h>
 
 std::string SystemAlertReportFormatter::formatFailureAlert(const SyncFailureEvent& event)
 {

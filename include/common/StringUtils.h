@@ -1,8 +1,8 @@
 #ifndef CLASHBOT_STRINGUTILS_H
 #define CLASHBOT_STRINGUTILS_H
 #include <string>
-
-#include "spdlog/fmt/bundled/chrono.h"
+#include <chrono>
+#include <fmt/chrono.h>
 
 namespace utils
 {
@@ -12,9 +12,10 @@ namespace utils
         return tag.front() == '#' ? "%23" + std::string(tag.substr(1)) : "%23" + std::string(tag);
     }
 
-    inline std::string getCurrentDateString() {
-        const auto now = std::chrono::system_clock::now();
-        return fmt::format("{:%Y-%m-%d}", fmt::localtime(now));
+    inline std::string getCurrentDateString()
+    {
+        auto now = std::chrono::system_clock::now();
+        return fmt::format("{:%Y-%m-%d}", now);
     }
 }
 

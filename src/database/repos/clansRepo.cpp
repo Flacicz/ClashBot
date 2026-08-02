@@ -1,10 +1,6 @@
 ﻿#include "database/repos/clansRepo.h"
-
-#include <format>
-
-#include "core/Exceptions.h"
 #include "database/sqliteHelpers.h"
-#include "spdlog/fmt/bundled/format.h"
+#include <fmt/format.h>
 
 ClansRepo::ClansRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))
 {

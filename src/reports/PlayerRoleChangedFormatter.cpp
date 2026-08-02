@@ -3,10 +3,8 @@
 //
 
 #include "reports/PlayerRoleChangedFormatter.h"
-
 #include <unordered_map>
-
-#include "spdlog/fmt/bundled/format.h"
+#include <fmt/format.h>
 
 std::string PlayerRoleChangedFormatter::format(const PlayerRoleChangedEvent& event)
 {

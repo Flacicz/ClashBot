@@ -2,13 +2,12 @@
 // Created by zuevm on 30.06.2026.
 //
 
-#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <fmt/format.h>
 
 #include "core/Exceptions.h"
 #include "database/sqliteHelpers.h"
-#include "spdlog/fmt/bundled/format.h"
 
 sqlite::SQLiteStmt sqlite::prepare(sqlite3* db, const std::string_view sql)
 {

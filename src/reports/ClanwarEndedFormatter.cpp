@@ -1,8 +1,6 @@
 #include "reports/ClanwarEndedFormatter.h"
-
 #include <sstream>
-
-#include "spdlog/fmt/bundled/format.h"
+#include <fmt/format.h>
 
 ClanwarEndedFormatter::ClanwarEndedFormatter(ClanwarRepo& repo) : clanwarRepo(repo)
 {

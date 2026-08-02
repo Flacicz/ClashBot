@@ -4,7 +4,6 @@
 
 #include "core/Exceptions.h"
 #include "database/repos/SubscriptionRepo.h"
-#include "spdlog/fmt/bundled/chrono.h"
 
 Database::Database(std::string path) : pathToDb(path)
 {
