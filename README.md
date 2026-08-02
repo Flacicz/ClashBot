@@ -48,27 +48,33 @@ ClashBot можно запускать локально на Windows для ра
 
 ### Требования
 
-Для работы ClashBot потребуются:
+#### Проверенный Windows build/test baseline
 
-- токен официального API Clash of Clans;
-- Telegram-бот и его токен;
-- Linux-сервер со статическим публичным IP;
-- тег отслеживаемого клана;
-- идентификатор Telegram-чата.
+- Windows 10 x64;
+- MSVC 19.50 x64;
+- подготовленный `x64 Native Tools` terminal;
+- Ninja 1.12.1;
+- CMake 3.24 — объявленная проектом минимальная версия; текущий baseline проверен с CMake 4.4.1;
+- Git для клонирования репозитория;
+- vcpkg toolchain с библиотеками для triplet `x64-windows`.
 
-Для локальной разработки на Windows также потребуются:
+#### Получение build-зависимостей
 
-- Git;
-- CMake;
-- компилятор с поддержкой C++23;
-- vcpkg;
-- WSL;
-- настроенный SSH-доступ к Linux-серверу.
+- `cpr` и `spdlog` загружаются CMake через `FetchContent`; при первом configure чистого build tree нужен доступ к их Git-репозиториям;
+- `curl:x64-windows`, `nlohmann-json:x64-windows` и `sqlite3:x64-windows` должны быть установлены в vcpkg и доступны через переданный toolchain file.
 
-Для серверного запуска потребуются:
+#### Runtime requirements
 
-- Docker;
-- клиент SQLite для первоначальной настройки базы данных.
+- для запуска нужен файл `config.json`;
+- пути из конфигурации и каталоги для runtime-файлов, включая `data` и `logs`, должны быть доступны для записи;
+- заранее созданная SQLite-база не требуется: ClashBot создаёт файл базы и применяет миграции при запуске;
+- для реальной работы с внешними сервисами нужны Supercell API token и Telegram bot token.
+
+#### Условные инструменты
+
+- при `"use_tunnel": true` нужны WSL, SSH-клиент, доступ к Linux-серверу и настроенный туннель;
+- Docker нужен только для сценария развёртывания в контейнере;
+- SQLite client нужен только для ручного администрирования базы и не требуется для запуска приложения или автоматического применения миграций.
 
 ### Клонирование репозитория
 
@@ -146,30 +152,16 @@ vcpkg install curl:x64-windows sqlite3:x64-windows nlohmann-json:x64-windows
 $env:VCPKG_ROOT = "C:\path\to\vcpkg"
 ```
 
-Перед первым локальным запуском создайте каталоги для базы данных и журналов:
+Перед первым локальным запуском из корня проекта создайте каталоги для базы данных и журналов:
 
 ```powershell
 New-Item -ItemType Directory -Force data, logs
 ```
 
-Настройте `scripts/startTunnel.sh`, указав адрес Linux-сервера и пользователя для SSH-подключения.
-
-Запустите SSH-туннель через WSL:
+Канонические команды сборки выполняются из корня проекта в подготовленном `x64 Native Tools` terminal. Для clean configure используйте новый пустой каталог `cmake-build-release`.
 
 ```powershell
-wsl bash ./scripts/startTunnel.sh
-```
-
-Для локального запуска в `config.json` должен быть включён туннель:
-
-```json
-"use_tunnel": true
-```
-
-Сконфигурируйте проект, передав CMake файл интеграции vcpkg:
-
-```powershell
-cmake -S . -B build `
+cmake -S . -B cmake-build-release -G Ninja `
   -DCMAKE_BUILD_TYPE=Release `
   -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 ```
@@ -177,22 +169,72 @@ cmake -S . -B build `
 Соберите проект:
 
 ```powershell
-cmake --build build --config Release
+cmake --build cmake-build-release
 ```
 
-При использовании генератора Visual Studio запустите приложение командой:
+CLion можно использовать как необязательную альтернативу с отдельным CMake profile, но terminal-команды выше являются канонической проверкой и не зависят от cache или скрытых настроек IDE.
+
+#### Тесты
+
+Соберите test target и запустите зарегистрированные CTest tests из того же build tree:
 
 ```powershell
-.\build\Release\ClashBot.exe .\config.json
+cmake --build cmake-build-release --target ClashBotTests
+ctest --test-dir cmake-build-release --output-on-failure
 ```
 
-При использовании Ninja исполняемый файл может находиться непосредственно в каталоге `build`:
+Ожидается один тест `ClashBot.StringUtils.TransformTag`. При успешном запуске CTest сообщает `100% tests passed`; при ошибке `--output-on-failure` показывает вывод упавшего теста.
+
+#### Диагностика
+
+При сборке MSVC targets `ClashBot` и `ClashBotTests` получают target-scoped warning level `/W4`. Предупреждения не настроены как ошибки: `/WX` не включён.
+
+Для отладочной сборки используйте отдельный build tree, не переиспользуя Release cache:
 
 ```powershell
-.\build\ClashBot.exe .\config.json
+cmake -S . -B cmake-build-debug -G Ninja `
+  -DCMAKE_BUILD_TYPE=Debug `
+  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+cmake --build cmake-build-debug
 ```
 
-Для остановки приложения нажмите `Ctrl+C`.
+#### Безопасный локальный smoke run
+
+Для проверки startup без настоящих секретов используйте новую пустую базу без отслеживаемых кланов и локальный `config.json` с фиктивными непустыми токенами и loopback URL:
+
+```json
+{
+  "api": {
+    "supercell_token": "DUMMY_SUPERCELL_TOKEN",
+    "use_tunnel": false,
+    "tunnel_base_url": "http://127.0.0.1:1/v1",
+    "base_url": "http://127.0.0.1:1/v1"
+  },
+  "database": {
+    "path": "data/smoke.sqlite",
+    "migrations_path": "src/database/migrations"
+  },
+  "bot": {
+    "telegram_token": "DUMMY_TELEGRAM_TOKEN"
+  }
+}
+```
+
+Не добавляйте локальный `config.json`, настоящие токены или созданную базу в Git. Запускайте приложение из корня проекта, чтобы относительные пути к конфигурации, базе, миграциям и журналу разрешались от одного working directory:
+
+```powershell
+.\cmake-build-release\ClashBot.exe .\config.json
+```
+
+Успешный smoke startup должен сообщить о загрузке конфигурации, применении миграций, нуле отслеживаемых кланов, инициализации сервисов и завершении startup. Это не проверяет рабочий цикл с внешними API. Для остановки нажмите `Ctrl+C` и убедитесь, что приложение сообщило о штатном завершении работы.
+
+#### Опциональный SSH-туннель
+
+Туннель требуется только при `"use_tunnel": true`. Настройте `scripts/startTunnel.sh`, указав адрес Linux-сервера и пользователя для SSH-подключения, затем запустите его через WSL:
+
+```powershell
+wsl bash ./scripts/startTunnel.sh
+```
 
 ### Развёртывание на Linux-сервере
 

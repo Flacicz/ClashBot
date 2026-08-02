@@ -1,5 +1,5 @@
-#ifndef ACTIVITYTRACKING_RAIDREPORTFORMATTER_H
-#define ACTIVITYTRACKING_RAIDREPORTFORMATTER_H
+#ifndef CLASHBOT_RAIDREPORTFORMATTER_H
+#define CLASHBOT_RAIDREPORTFORMATTER_H
 #include <string>
 
 #include "database/repos/clansRepo.h"
@@ -19,4 +19,4 @@ public:
     static std::string buildReport(const RaidReportData& reportData);
 };
 
-#endif //ACTIVITYTRACKING_RAIDREPORTFORMATTER_H
+#endif //CLASHBOT_RAIDREPORTFORMATTER_H

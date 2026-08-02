@@ -11,6 +11,7 @@ config.json
 .idea/
 .ai/
 *.tar
+cmake-build-*/
 
 # User-specific files
 *.rsuser

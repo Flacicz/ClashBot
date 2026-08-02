@@ -2,8 +2,8 @@
 // Created by zuevm on 21.07.2026.
 //
 
-#ifndef ACTIVITYTRACKING_TRANSACTIONMANAGER_H
-#define ACTIVITYTRACKING_TRANSACTIONMANAGER_H
+#ifndef CLASHBOT_TRANSACTIONMANAGER_H
+#define CLASHBOT_TRANSACTIONMANAGER_H
 #include <sqlite3.h>
 
 #include "TransactionGuard.h"
@@ -24,4 +24,4 @@ private:
     sqlite3* connection;
 };
 
-#endif //ACTIVITYTRACKING_TRANSACTIONMANAGER_H
+#endif //CLASHBOT_TRANSACTIONMANAGER_H

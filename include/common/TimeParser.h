@@ -1,5 +1,5 @@
-#ifndef ACTIVITYTRACKING_TIMEPARSER_H
-#define ACTIVITYTRACKING_TIMEPARSER_H
+#ifndef CLASHBOT_TIMEPARSER_H
+#define CLASHBOT_TIMEPARSER_H
 #include <string>
 #include <string_view>
 #include <nlohmann/json_fwd.hpp>
@@ -11,4 +11,4 @@ namespace utils
 }
 
 
-#endif //ACTIVITYTRACKING_TIMEPARSER_H
+#endif //CLASHBOT_TIMEPARSER_H

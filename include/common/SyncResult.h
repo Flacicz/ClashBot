@@ -1,5 +1,5 @@
-#ifndef ACTIVITYTRACKING_SYNCRESULT_H
-#define ACTIVITYTRACKING_SYNCRESULT_H
+#ifndef CLASHBOT_SYNCRESULT_H
+#define CLASHBOT_SYNCRESULT_H
 #include <string>
 #include <variant>
 
@@ -17,4 +17,4 @@ struct SyncResult
     static SyncResult error(std::string service, std::string tag, std::string msg);
 };
 
-#endif //ACTIVITYTRACKING_SYNCRESULT_H
+#endif //CLASHBOT_SYNCRESULT_H

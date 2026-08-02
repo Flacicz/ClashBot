@@ -2,8 +2,8 @@
 // Created by zuevm on 28.06.2026.
 //
 
-#ifndef ACTIVITYTRACKING_PLAYERLEFTFORMATTER_H
-#define ACTIVITYTRACKING_PLAYERLEFTFORMATTER_H
+#ifndef CLASHBOT_PLAYERLEFTFORMATTER_H
+#define CLASHBOT_PLAYERLEFTFORMATTER_H
 #include "database/repos/clansRepo.h"
 #include "events/ApplicationEvents.h"
 
@@ -17,4 +17,4 @@ public:
     [[nodiscard]] std::string format(const PlayerLeftClanEvent& event) const;
 };
 
-#endif //ACTIVITYTRACKING_PLAYERLEFTFORMATTER_H
+#endif //CLASHBOT_PLAYERLEFTFORMATTER_H

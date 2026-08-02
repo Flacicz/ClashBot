@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.24)
 set(PROJECT_NAME ClashBot)
 project(${PROJECT_NAME} VERSION 0.1.0 LANGUAGES CXX)
 
+enable_testing()
+
 # Принудительно отключаем динамические библиотеки
 set(BUILD_SHARED_LIBS OFF)
 
@@ -37,7 +39,7 @@ find_package(nlohmann_json 3.10.5 REQUIRED)
 find_package(SQLite3 REQUIRED)
 find_package(Threads REQUIRED)
 
-if(NOT TARGET SQLite3::SQLite3)
+if (NOT TARGET SQLite3::SQLite3)
     add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
 endif()
 
@@ -76,6 +78,10 @@ add_executable(${PROJECT_NAME}
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+if (MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE /W4)
+endif()
+
 target_link_libraries(${PROJECT_NAME} PRIVATE
         cpr::cpr
         CURL::libcurl
@@ -83,4 +89,23 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         SQLite3::SQLite3
         spdlog::spdlog                  # Теперь это наш собственный статический таргет
         Threads::Threads
+)
+
+add_executable(ClashBotTests
+        tests/StringUtilsTests.cpp
+)
+
+add_test(
+        NAME ClashBot.StringUtils.TransformTag
+        COMMAND ClashBotTests
+)
+
+target_include_directories(ClashBotTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+if (MSVC)
+    target_compile_options(ClashBotTests PRIVATE /W4)
+endif()
+
+target_link_libraries(ClashBotTests PRIVATE
+        spdlog::spdlog
 )

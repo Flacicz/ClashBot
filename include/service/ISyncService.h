@@ -1,5 +1,5 @@
-#ifndef ACTIVITYTRACKING_ISERVICE_H
-#define ACTIVITYTRACKING_ISERVICE_H
+#ifndef CLASHBOT_ISERVICE_H
+#define CLASHBOT_ISERVICE_H
 #include "common/SyncResult.h"
 
 
@@ -11,4 +11,4 @@ public:
     virtual ~ISyncService() = default;
 };
 
-#endif //ACTIVITYTRACKING_ISERVICE_H
+#endif //CLASHBOT_ISERVICE_H

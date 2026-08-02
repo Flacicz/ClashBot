@@ -2,8 +2,8 @@
 // Created by zuevm on 10.07.2026.
 //
 
-#ifndef ACTIVITYTRACKING_BASEREPOSITORY_H
-#define ACTIVITYTRACKING_BASEREPOSITORY_H
+#ifndef CLASHBOT_BASEREPOSITORY_H
+#define CLASHBOT_BASEREPOSITORY_H
 #include <sqlite3.h>
 #include <string>
 #include <string_view>
@@ -118,4 +118,4 @@ private:
     }
 };
 
-#endif //ACTIVITYTRACKING_BASEREPOSITORY_H
+#endif //CLASHBOT_BASEREPOSITORY_H

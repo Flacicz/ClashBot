@@ -1,5 +1,5 @@
-#ifndef ACTIVITYTRACKING_EVENTDISPATCHER_H
-#define ACTIVITYTRACKING_EVENTDISPATCHER_H
+#ifndef CLASHBOT_EVENTDISPATCHER_H
+#define CLASHBOT_EVENTDISPATCHER_H
 #include "notifications/notificationService.h"
 
 class EventDispatcher
@@ -13,4 +13,4 @@ public:
     void dispatch(const std::vector<ApplicationEvent>& events) const;
 };
 
-#endif //ACTIVITYTRACKING_EVENTDISPATCHER_H
+#endif //CLASHBOT_EVENTDISPATCHER_H

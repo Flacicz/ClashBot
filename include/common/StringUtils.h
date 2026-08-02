@@ -1,5 +1,5 @@
-#ifndef ACTIVITYTRACKING_STRINGUTILS_H
-#define ACTIVITYTRACKING_STRINGUTILS_H
+#ifndef CLASHBOT_STRINGUTILS_H
+#define CLASHBOT_STRINGUTILS_H
 #include <string>
 
 #include "spdlog/fmt/bundled/chrono.h"
@@ -18,4 +18,4 @@ namespace utils
     }
 }
 
-#endif //ACTIVITYTRACKING_STRINGUTILS_H
+#endif //CLASHBOT_STRINGUTILS_H

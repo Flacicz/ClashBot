@@ -1,5 +1,5 @@
-#ifndef ACTIVITYTRACKING_MIGRATORMANAGER_H
-#define ACTIVITYTRACKING_MIGRATORMANAGER_H
+#ifndef CLASHBOT_MIGRATORMANAGER_H
+#define CLASHBOT_MIGRATORMANAGER_H
 #include <filesystem>
 #include "database.h"
 
@@ -21,4 +21,4 @@ public:
     [[nodiscard]] bool migrate(const std::string& migrationsPath) const;
 };
 
-#endif //ACTIVITYTRACKING_MIGRATORMANAGER_H
+#endif //CLASHBOT_MIGRATORMANAGER_H

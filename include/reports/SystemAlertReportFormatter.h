@@ -2,8 +2,8 @@
 // Created by zuevm on 21.07.2026.
 //
 
-#ifndef ACTIVITYTRACKING_SYSTEMALERTREPORTFORMATTER_H
-#define ACTIVITYTRACKING_SYSTEMALERTREPORTFORMATTER_H
+#ifndef CLASHBOT_SYSTEMALERTREPORTFORMATTER_H
+#define CLASHBOT_SYSTEMALERTREPORTFORMATTER_H
 #include "events/ApplicationEvents.h"
 
 class SystemAlertReportFormatter
@@ -13,4 +13,4 @@ public:
     [[nodiscard]] static std::string formatRecoveryAlert(const SyncRecoveryEvent& event);
 };
 
-#endif //ACTIVITYTRACKING_SYSTEMALERTREPORTFORMATTER_H
+#endif //CLASHBOT_SYSTEMALERTREPORTFORMATTER_H

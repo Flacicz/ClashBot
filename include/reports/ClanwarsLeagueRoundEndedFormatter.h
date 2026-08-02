@@ -1,5 +1,5 @@
-#ifndef ACTIVITYTRACKING_CLANWARLEAGUEREPORTFORMATTER_H
-#define ACTIVITYTRACKING_CLANWARLEAGUEREPORTFORMATTER_H
+#ifndef CLASHBOT_CLANWARLEAGUEREPORTFORMATTER_H
+#define CLASHBOT_CLANWARLEAGUEREPORTFORMATTER_H
 #include "database/repos/clanwarRepo.h"
 #include "database/repos/ClanwarsLeagueRepo.h"
 #include "events/ApplicationEvents.h"
@@ -22,4 +22,4 @@ public:
     static std::string buildPartForNotMirrorAttacks(const ClanwarRoundData& data);
 };
 
-#endif //ACTIVITYTRACKING_CLANWARLEAGUEREPORTFORMATTER_H
+#endif //CLASHBOT_CLANWARLEAGUEREPORTFORMATTER_H

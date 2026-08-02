@@ -2,8 +2,8 @@
 // Created by zuevm on 29.06.2026.
 //
 
-#ifndef ACTIVITYTRACKING_PLAYERROLECHANGEDFORMATTER_H
-#define ACTIVITYTRACKING_PLAYERROLECHANGEDFORMATTER_H
+#ifndef CLASHBOT_PLAYERROLECHANGEDFORMATTER_H
+#define CLASHBOT_PLAYERROLECHANGEDFORMATTER_H
 #include <string>
 
 #include "events/ApplicationEvents.h"
@@ -14,4 +14,4 @@ public:
     [[nodiscard]] static std::string format(const PlayerRoleChangedEvent& event);
 };
 
-#endif //ACTIVITYTRACKING_PLAYERROLECHANGEDFORMATTER_H
+#endif //CLASHBOT_PLAYERROLECHANGEDFORMATTER_H

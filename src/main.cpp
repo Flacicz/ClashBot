@@ -40,7 +40,7 @@
 
 std::atomic g_shutdown_requested{false};
 
-void signalHandler(int signum)
+void signalHandler(int)
 {
     g_shutdown_requested.store(true);
 }

@@ -2,8 +2,8 @@
 // Created by zuevm on 28.06.2026.
 //
 
-#ifndef ACTIVITYTRACKING_NOTIFICATIONSREPO_H
-#define ACTIVITYTRACKING_NOTIFICATIONSREPO_H
+#ifndef CLASHBOT_NOTIFICATIONSREPO_H
+#define CLASHBOT_NOTIFICATIONSREPO_H
 #include <sqlite3.h>
 #include <string_view>
 
@@ -21,4 +21,4 @@ public:
     void markAsSent(std::string_view eventType, std::string_view eventId, long long chatId) const;
 };
 
-#endif //ACTIVITYTRACKING_NOTIFICATIONSREPO_H
+#endif //CLASHBOT_NOTIFICATIONSREPO_H

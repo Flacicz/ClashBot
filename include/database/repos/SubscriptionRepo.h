@@ -1,5 +1,5 @@
-#ifndef ACTIVITYTRACKING_SUBSCRIPTIONREPO_H
-#define ACTIVITYTRACKING_SUBSCRIPTIONREPO_H
+#ifndef CLASHBOT_SUBSCRIPTIONREPO_H
+#define CLASHBOT_SUBSCRIPTIONREPO_H
 #include <sqlite3.h>
 #include <string>
 #include <string_view>
@@ -21,4 +21,4 @@ public:
     void unsubscribeFromChat(long long chatId, std::string_view clanTag) const;
 };
 
-#endif //ACTIVITYTRACKING_SUBSCRIPTIONREPO_H
+#endif //CLASHBOT_SUBSCRIPTIONREPO_H

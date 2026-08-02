@@ -1,5 +1,5 @@
-#ifndef ACTIVITYTRACKING_DOMAINEVENTS_H
-#define ACTIVITYTRACKING_DOMAINEVENTS_H
+#ifndef CLASHBOT_DOMAINEVENTS_H
+#define CLASHBOT_DOMAINEVENTS_H
 
 #include <string>
 #include <variant>
@@ -94,4 +94,4 @@ using ApplicationEvent = std::variant<
     SyncRecoveryEvent
 >;
 
-#endif //ACTIVITYTRACKING_DOMAINEVENTS_H
+#endif //CLASHBOT_DOMAINEVENTS_H

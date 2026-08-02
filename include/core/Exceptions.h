@@ -2,8 +2,8 @@
 // Created by zuevm on 03.07.2026.
 //
 
-#ifndef ACTIVITYTRACKING_EXCEPTIONS_H
-#define ACTIVITYTRACKING_EXCEPTIONS_H
+#ifndef CLASHBOT_EXCEPTIONS_H
+#define CLASHBOT_EXCEPTIONS_H
 #include <stdexcept>
 
 class ClashBotException : public std::runtime_error
@@ -45,4 +45,4 @@ public:
     }
 };
 
-#endif //ACTIVITYTRACKING_EXCEPTIONS_H
+#endif //CLASHBOT_EXCEPTIONS_H

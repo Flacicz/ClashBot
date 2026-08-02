@@ -2,8 +2,8 @@
 // Created by zuevm on 13.05.2026.
 //
 
-#ifndef ACTIVITYTRACKING_CLANWARREPORTFORMATTER_H
-#define ACTIVITYTRACKING_CLANWARREPORTFORMATTER_H
+#ifndef CLASHBOT_CLANWARREPORTFORMATTER_H
+#define CLASHBOT_CLANWARREPORTFORMATTER_H
 #include "database/repos/clanwarRepo.h"
 #include "events/ApplicationEvents.h"
 
@@ -20,4 +20,4 @@ public:
                                       double homeDestruction, double opponentDestruction);
 };
 
-#endif //ACTIVITYTRACKING_CLANWARREPORTFORMATTER_H
+#endif //CLASHBOT_CLANWARREPORTFORMATTER_H
