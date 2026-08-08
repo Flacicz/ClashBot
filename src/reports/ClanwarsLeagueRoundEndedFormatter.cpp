@@ -1,4 +1,5 @@
 #include "reports/ClanwarsLeagueRoundEndedFormatter.h"
+#include "common/StringUtils.h"
 
 #include <sstream>
 #include <algorithm>
@@ -48,8 +49,10 @@ std::string ClanwarsLeagueRoundEndedFormatter::buildReport(const ClanwarsLeagueR
 
     std::ostringstream report;
     report << "🏆 <b>ОТЧЕТ ПО " << rounds[reportData.cwlRoundInfo.roundNumber] << " РАУНДУ ЛВК</b>\n";
-    report << "Клан: " << home.clanName << " (<code>" << home.clanTag << "</code>)\n";
-    report << "Соперник: " << opponent.clanName << " (<code>" << opponent.clanTag << "</code>)\n\n";
+    report << "Клан: " << utils::escapeHTML(home.clanName) << " (<code>"
+           << utils::escapeHTML(home.clanTag) << "</code>)\n";
+    report << "Соперник: " << utils::escapeHTML(opponent.clanName) << " (<code>"
+           << utils::escapeHTML(opponent.clanTag) << "</code>)\n\n";
 
     report << "Счет: ⭐️ " << home.stars << " - " << opponent.stars << " ⭐️\n";
     report << "Разрушение: 💥 " << fmt::format("{:.2f}%", home.destructionPercentage)
@@ -71,7 +74,7 @@ std::string ClanwarsLeagueRoundEndedFormatter::buildReport(const ClanwarsLeagueR
 
     for (const auto& [playerTag, playerName] : noAttack)
     {
-        missedAttack << "• " << playerName << " [0/1]\n";
+        missedAttack << "• " << utils::escapeHTML(playerName) << " [0/1]\n";
     }
 
     report << "<b>НАРУШИТЕЛИ РАУНДА:</b>\n";
@@ -130,7 +133,8 @@ std::string ClanwarsLeagueRoundEndedFormatter::buildPartForNotMirrorAttacks(cons
             // Достаем имя напрямую из отсортированного вектора за O(1)
             std::string attackerName = data.homeMembers[homePos - 1].playerName;
 
-            violationsStream << "• " << attackerName << " (№" << homePos << " ➔ №" << oppPos << ")\n";
+            violationsStream << "• " << utils::escapeHTML(attackerName)
+                             << " (№" << homePos << " ➔ №" << oppPos << ")\n";
         }
     }
 

@@ -1,4 +1,5 @@
 #include "reports/ClanwarEndedFormatter.h"
+#include "common/StringUtils.h"
 #include <sstream>
 #include <fmt/format.h>
 
@@ -25,8 +26,10 @@ std::string ClanwarEndedFormatter::buildReport(const ClanwarReportData& reportDa
 
     std::ostringstream report;
     report << "⚔️ <b>ОТЧЕТ ПО КВ</b>\n";
-    report << "Клан: " << home.clanName << " (<code>" << home.clanTag << "</code>)\n";
-    report << "Соперник: " << opponent.clanName << " (<code>" << opponent.clanTag << "</code>)\n\n";
+    report << "Клан: " << utils::escapeHTML(home.clanName) << " (<code>"
+           << utils::escapeHTML(home.clanTag) << "</code>)\n";
+    report << "Соперник: " << utils::escapeHTML(opponent.clanName) << " (<code>"
+           << utils::escapeHTML(opponent.clanTag) << "</code>)\n\n";
 
     report << "Счет: ⭐️ " << home.stars << " - " << opponent.stars << " ⭐️\n";
     report << "Разрушение: 💥 " << fmt::format("{:.2f}%", home.destructionPercentage)
@@ -49,17 +52,17 @@ std::string ClanwarEndedFormatter::buildReport(const ClanwarReportData& reportDa
 
     for (const auto& [playerTag, playerName] : slackersWithNoAttacks)
     {
-        missedAll << "• " << playerName << " [0/2]\n";
+        missedAll << "• " << utils::escapeHTML(playerName) << " [0/2]\n";
     }
 
     for (const auto& [playerTag, playerName] : slackersWithOneAttack)
     {
-        missedOne << "• " << playerName << " [1/2]\n";
+        missedOne << "• " << utils::escapeHTML(playerName) << " [1/2]\n";
     }
 
     for (const auto& [playerTag, playerName] : notMirror)
     {
-        wrongTarget << "• " << playerName << "\n";
+        wrongTarget << "• " << utils::escapeHTML(playerName) << "\n";
     }
 
     report << "<b>Нарушители по итогам войны:</b>\n";

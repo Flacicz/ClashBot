@@ -3,6 +3,7 @@
 //
 
 #include "reports/PlayerRoleChangedFormatter.h"
+#include "common/StringUtils.h"
 #include <unordered_map>
 #include <fmt/format.h>
 
@@ -29,7 +30,7 @@ std::string PlayerRoleChangedFormatter::format(const PlayerRoleChangedEvent& eve
         message = fmt::format(
             "⬆️ Игрок <b>{}</b> получил повышение.\n\n"
             "👤 <b>{}</b> → <b>{}</b>",
-            event.playerName,
+            utils::escapeHTML(event.playerName),
             roleNames.at(event.oldRole),
             roleNames.at(event.newRole)
         );
@@ -39,7 +40,7 @@ std::string PlayerRoleChangedFormatter::format(const PlayerRoleChangedEvent& eve
         message = fmt::format(
             "⬇️ Игрок <b>{}</b> был понижен.\n\n"
             "👤 <b>{}</b> → <b>{}</b>",
-            event.playerName,
+            utils::escapeHTML(event.playerName),
             roleNames.at(event.oldRole),
             roleNames.at(event.newRole)
         );

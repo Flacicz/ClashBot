@@ -3,36 +3,56 @@
 # ==========================================
 FROM ubuntu:24.04 AS builder
 
-ENV DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_FRONTEND=noninteractive
+ARG VCPKG_COMMIT=cc73782a88db48af17f8bfb8328d4cab3d4c246f
 
-# Убираем libspdlog-dev, оставляем только базу
-RUN apt-get update && apt-get install -y \
+# Системные инструменты для сборки проекта и зависимостей vcpkg
+RUN apt-get update && apt-get install --no-install-recommends -y \
     build-essential \
+    ca-certificates \
     cmake \
+    curl \
     git \
-    libcurl4-openssl-dev \
-    libsqlite3-dev \
-    libssl-dev \
-    nlohmann-json3-dev \
+    pkg-config \
+    tar \
+    unzip \
+    zip \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-COPY . .
+RUN git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg && \
+    git -C /opt/vcpkg checkout "$VCPKG_COMMIT" && \
+    /opt/vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
-RUN mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release .. && \
-    make -j$(nproc)
+WORKDIR /app
+
+COPY vcpkg.json ./
+RUN /opt/vcpkg/vcpkg install \
+        --triplet=x64-linux \
+        --x-manifest-root=/app \
+        --x-install-root=/opt/vcpkg_installed
+
+COPY CMakeLists.txt ./
+COPY include ./include
+COPY src ./src
+COPY tests ./tests
+
+RUN cmake -S . -B build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
+        -DVCPKG_INSTALLED_DIR=/opt/vcpkg_installed && \
+    cmake --build build --parallel && \
+    ctest --test-dir build --output-on-failure
 
 # ==========================================
 # ЭТАП 2: Запуск
 # ==========================================
-FROM ubuntu:24.04
+FROM ubuntu:24.04 AS runtime
 
-RUN apt-get update && apt-get install -y \
-    libcurl4 \
-    libsqlite3-0 \
-    libssl3 \
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install --no-install-recommends -y \
     ca-certificates \
+    libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

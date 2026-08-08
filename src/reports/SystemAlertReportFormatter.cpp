@@ -3,6 +3,7 @@
 //
 
 #include <reports/SystemAlertReportFormatter.h>
+#include "common/StringUtils.h"
 #include <fmt/format.h>
 
 std::string SystemAlertReportFormatter::formatFailureAlert(const SyncFailureEvent& event)
@@ -13,10 +14,10 @@ std::string SystemAlertReportFormatter::formatFailureAlert(const SyncFailureEven
         "<b>Clan:</b> <code>{}</code>\n"
         "<b>Attempts:</b> {}\n"
         "<b>Error:</b> <code>{}</code>",
-        event.serviceName,
-        event.clanTag,
+        utils::escapeHTML(event.serviceName),
+        utils::escapeHTML(event.clanTag),
         event.attempts,
-        event.errorMsg
+        utils::escapeHTML(event.errorMsg)
     );
 }
 
@@ -27,7 +28,7 @@ std::string SystemAlertReportFormatter::formatRecoveryAlert(const SyncRecoveryEv
         "<b>Service:</b> <code>{}</code>\n"
         "<b>Clan:</b> <code>{}</code>\n"
         "Synchronization has been restored.",
-        event.serviceName,
-        event.clanTag
+        utils::escapeHTML(event.serviceName),
+        utils::escapeHTML(event.clanTag)
     );
 }

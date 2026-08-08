@@ -23,6 +23,23 @@ int helper(const std::string_view input, const std::string_view expected, const 
     return 0;
 }
 
+int escapeHelper(const std::string_view input, const std::string_view expected,
+                 const std::string_view caseName)
+{
+    const auto escaped = utils::escapeHTML(input);
+
+    if (escaped != expected)
+    {
+        std::cerr << "FAILED: " << caseName
+            << "\nexpected: " << expected
+            << "\nactual:   " << escaped << '\n';
+
+        return 1;
+    }
+
+    return 0;
+}
+
 int main()
 {
     int failures = 0;
@@ -35,6 +52,17 @@ int main()
     failures += helper("A", "%23A", "transformTag_without_prefix");
     failures += helper("", "", "transformTag_empty_string");
     failures += helper("#", "%23", "transformTag_prefix_only");
+
+    failures += escapeHelper(
+        "A&B <player>",
+        "A&amp;B &lt;player&gt;",
+        "escape_html_ascii_symbols"
+    );
+    failures += escapeHelper(
+        "\xE3\x80\x8A" "ТУРАН" "\xE3\x80\x8B",
+        "&lt;ТУРАН&gt;",
+        "escape_html_decorative_brackets"
+    );
 
     return failures == 0 ? 0 : 1;
 }

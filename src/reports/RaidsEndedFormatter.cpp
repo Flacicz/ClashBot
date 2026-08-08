@@ -1,4 +1,5 @@
 #include "reports/RaidsEndedFormatter.h"
+#include "common/StringUtils.h"
 
 #include <sstream>
 
@@ -26,7 +27,8 @@ std::string RaidsEndedFormatter::buildReport(const RaidReportData& reportData)
 {
     std::ostringstream report;
     report << "🏰 <b>ОТЧЕТ ПО РЕЙДАМ</b>\n";
-    report << "Клан: " << reportData.clanName << " (<code>" << reportData.clanTag << "</code>)\n\n";
+    report << "Клан: " << utils::escapeHTML(reportData.clanName) << " (<code>"
+           << utils::escapeHTML(reportData.clanTag) << "</code>)\n\n";
 
     bool hasAnyProblems = false;
     auto slackers = reportData.raidSlackers;
@@ -38,12 +40,13 @@ std::string RaidsEndedFormatter::buildReport(const RaidReportData& reportData)
     {
         if (constexpr int MAX_ATTACKS = 6; slacker.attacksCount > 0 && slacker.attacksCount < MAX_ATTACKS)
         {
-            incompleteAttacks << "• " << slacker.playerName << " [" << slacker.attacksCount << "/6]\n";
+            incompleteAttacks << "• " << utils::escapeHTML(slacker.playerName)
+                              << " [" << slacker.attacksCount << "/6]\n";
             hasAnyProblems = true;
         }
         else if (slacker.attacksCount == 0)
         {
-            noAttacks << "• " << slacker.playerName << "\n";
+            noAttacks << "• " << utils::escapeHTML(slacker.playerName) << "\n";
             hasAnyProblems = true;
         }
     }
