@@ -8,7 +8,7 @@
 #include "repos/clansRepo.h"
 #include "repos/raidRepo.h"
 #include "repos/ClanwarsLeagueRepo.h"
-#include "repos/clanwarRepo.h"
+#include "repos/ClanwarRepo.h"
 #include "repos/NotificationsRepo.h"
 #include "repos/SubscriptionRepo.h"
 

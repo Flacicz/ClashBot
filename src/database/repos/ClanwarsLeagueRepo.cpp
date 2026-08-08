@@ -1,11 +1,24 @@
 #include "database/repos/ClanwarsLeagueRepo.h"
 
-#include "database/sqliteHelpers.h"
+#include <string>
+#include <string_view>
 
 #include <fmt/format.h>
 
+#include "database/sqliteHelpers.h"
+
 ClanwarsLeagueRepo::ClanwarsLeagueRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))
 {
+}
+
+long long ClanwarsLeagueRepo::saveCompleteCWLData(const ClanwarsLeagueSeason& season,
+                                                  const std::vector<ClanwarsLeagueMember>& members) const
+{
+    const long long cwlSeasonId = saveCWLSeason(season);
+
+    saveCWLMembers(cwlSeasonId, members);
+
+    return cwlSeasonId;
 }
 
 long long ClanwarsLeagueRepo::saveCWLSeason(const ClanwarsLeagueSeason& season) const
@@ -31,7 +44,7 @@ long long ClanwarsLeagueRepo::saveCWLSeason(const ClanwarsLeagueSeason& season) 
     );
 }
 
-void ClanwarsLeagueRepo::saveCWLMembers(const long long lastSeasonId,
+void ClanwarsLeagueRepo::saveCWLMembers(long long lastSeasonId,
                                         const std::vector<ClanwarsLeagueMember>& members) const
 {
     if (members.empty()) return;
@@ -56,17 +69,7 @@ void ClanwarsLeagueRepo::saveCWLMembers(const long long lastSeasonId,
     }
 }
 
-long long ClanwarsLeagueRepo::saveCompleteCWLData(const ClanwarsLeagueSeason& season,
-                                                  const std::vector<ClanwarsLeagueMember>& members) const
-{
-    const long long cwlSeasonId = saveCWLSeason(season);
-
-    saveCWLMembers(cwlSeasonId, members);
-
-    return cwlSeasonId;
-}
-
-CWLRoundInfo ClanwarsLeagueRepo::getRoundInfo(const long long warId) const
+CWLRoundInfo ClanwarsLeagueRepo::getRoundInfo(long long warId) const
 {
     static constexpr std::string_view sql = R"(
         SELECT season_id, round_number

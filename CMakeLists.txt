@@ -25,7 +25,7 @@ add_executable(${PROJECT_NAME}
         src/config/configLoader.cpp
         src/database/database.cpp
         src/database/repos/clansRepo.cpp
-        src/database/repos/clanwarRepo.cpp
+        src/database/repos/ClanwarRepo.cpp
         src/database/repos/raidRepo.cpp
         src/database/repos/ClanwarsLeagueRepo.cpp
         src/models/models.cpp

@@ -5,6 +5,7 @@
 #include <vector>
 #include <nlohmann/json_fwd.hpp>
 #include <string_view>
+#include <unordered_map>
 
 namespace WarType
 {
@@ -180,6 +181,20 @@ struct ClanwarAttack
     static std::vector<ClanwarAttack> parseAttacksList(const nlohmann::json& j);
 };
 
+
+struct ClanwarAttackStats
+{
+    int attacksUsed;
+    int maxAttacks;
+    double averageStars;
+    double averageDestruction;
+    int threeStarAttacks;
+    int twoStarAttacks;
+    int oneStarAttacks;
+    int zeroStarAttacks;
+};
+
+
 struct PreparedAttackData
 {
     long long attackerWarClanId;
@@ -239,6 +254,20 @@ struct ClanwarsFetchResult
     ClanwarFetchStatus status;
     std::optional<CompleteClanwarData> clanwarData;
     std::string errorMsg;
+};
+
+struct BestAttack
+{
+    std::string attackerTag;
+    std::string attackerName;
+
+    std::string defenderTag;
+
+    int stars;
+    double destructionPercentage;
+
+    int attackerPosition;
+    int defenderPosition;
 };
 
 struct ClanwarsLeagueSeason
@@ -340,9 +369,12 @@ struct ClanwarReportData
     ClanwarOverview home;
     ClanwarOverview opponent;
 
+    ClanwarAttackStats attack_stats;
+    std::vector<BestAttack> best_attacks;
+
     std::vector<ClanwarSlacker> missedAllAttacks;
     std::vector<ClanwarSlacker> missedOneAttack;
-    std::vector<ClanwarSlacker> notMirror;
+    ClanwarRoundData dataForMirrorAnalysis;
 };
 
 struct WarRoundDetails
@@ -350,6 +382,8 @@ struct WarRoundDetails
     ClanwarOverview home;
     ClanwarOverview opponent;
 
+    ClanwarAttackStats attack_stats;
+    std::vector<BestAttack> best_attacks;
     std::vector<ClanwarSlacker> missedAttack;
     ClanwarRoundData dataForMirrorAnalysis;
 };
@@ -410,4 +444,10 @@ struct RoleChange
 struct RoleChanges
 {
     std::vector<RoleChange> changes;
+};
+
+struct NormalizePositions
+{
+    std::unordered_map<std::string, int> indexedHomeMembers;
+    std::unordered_map<std::string, int> indexedOpponentMembers;
 };
