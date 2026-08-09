@@ -251,7 +251,7 @@ std::vector<LatestPlayerState> ClansRepo::getLatestPlayerSnapshots(const std::st
             GROUP BY player_tag
         ) latest
         ON ps.id = latest.last_snapshot_id
-        LEFT JOIN players p
+        JOIN players p
         ON p.tag = ps.player_tag
         ORDER BY ps.clan_rank;
     )";

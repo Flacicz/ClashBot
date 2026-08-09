@@ -25,5 +25,5 @@ public:
 
     [[nodiscard]] RaidStats getRaidStats(long long raidId) const;
     [[nodiscard]] std::vector<RaidMemberStats> getBestRaidMembers(long long raidId) const;
-    [[nodiscard]] std::vector<RaidSlacker> getRaidSlackers(long long raidId, std::string_view clanTag) const;
+    [[nodiscard]] std::vector<RaidSlacker> getRaidSlackers(long long raidId) const;
 };

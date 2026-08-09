@@ -5,7 +5,6 @@
 #include <vector>
 #include <nlohmann/json_fwd.hpp>
 #include <string_view>
-#include <unordered_map>
 
 namespace WarType
 {
@@ -260,9 +259,6 @@ struct BestAttack
 {
     std::string attackerTag;
     std::string attackerName;
-
-    std::string defenderTag;
-
     int stars;
     double destructionPercentage;
 
@@ -362,28 +358,12 @@ struct ClanwarOverview
     double destructionPercentage;
 };
 
-struct WarRoundMember
-{
-    std::string playerTag;
-    std::string playerName;
-    int dbMapPosition;
-};
-
-struct DBAttackOverview
+struct NotMirrorAttack
 {
     std::string attackerTag;
-    std::string defenderTag;
-};
-
-struct ClanwarRoundData
-{
-    std::string homeClanTag;
-    std::string opponentClanTag;
-
-    std::vector<WarRoundMember> homeMembers;
-    std::vector<WarRoundMember> opponentMembers;
-
-    std::vector<DBAttackOverview> homeAttacks;
+    std::string attackerName;
+    int attackerPosition;
+    int defenderPosition;
 };
 
 struct ClanwarReportData
@@ -396,7 +376,7 @@ struct ClanwarReportData
 
     std::vector<ClanwarSlacker> missedAllAttacks;
     std::vector<ClanwarSlacker> missedOneAttack;
-    ClanwarRoundData dataForMirrorAnalysis;
+    std::vector<NotMirrorAttack> notMirrorAttacks;
 };
 
 struct WarRoundDetails
@@ -407,7 +387,7 @@ struct WarRoundDetails
     ClanwarAttackStats attack_stats;
     std::vector<BestAttack> best_attacks;
     std::vector<ClanwarSlacker> missedAttack;
-    ClanwarRoundData dataForMirrorAnalysis;
+    std::vector<NotMirrorAttack> notMirrorAttacks;
 };
 
 struct CWLRoundInfo
@@ -466,10 +446,4 @@ struct RoleChange
 struct RoleChanges
 {
     std::vector<RoleChange> changes;
-};
-
-struct NormalizePositions
-{
-    std::unordered_map<std::string, int> indexedHomeMembers;
-    std::unordered_map<std::string, int> indexedOpponentMembers;
 };

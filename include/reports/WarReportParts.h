@@ -2,7 +2,6 @@
 #define CLASHBOT_WARREPORTPARTS_H
 
 #include <iosfwd>
-#include <string>
 #include <vector>
 
 #include "models/Models.h"
@@ -17,10 +16,10 @@ namespace war_report
                                 const ClanwarAttackStats& attackStats);
 
     void appendBestAttacks(std::ostream& report,
-                           const std::vector<BestAttack>& bestAttacks,
-                           const ClanwarRoundData& data);
+                           const std::vector<BestAttack>& bestAttacks);
 
-    std::string buildPartForNotMirrorAttacks(const ClanwarRoundData& data);
+    void appendNotMirrorAttacks(std::ostream& report,
+                                const std::vector<NotMirrorAttack>& attacks);
 }
 
 #endif //CLASHBOT_WARREPORTPARTS_H

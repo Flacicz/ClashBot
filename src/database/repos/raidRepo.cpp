@@ -25,8 +25,8 @@ long long RaidRepo::saveRaid(const ClanRaid& clanRaid) const
 {
     static constexpr std::string_view sql = R"(
         INSERT INTO clan_raids(clan_tag, start_time, end_time, state,
-                                 total_loot, raids_completed, total_attacks,
-                                 enemy_districts_destroyed, offensive_reward, defensive_reward)
+                               total_loot, raids_completed, total_attacks,
+                               enemy_districts_destroyed, offensive_reward, defensive_reward)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(clan_tag, start_time) DO UPDATE SET
             total_loot = excluded.total_loot,
@@ -141,19 +141,29 @@ std::vector<RaidMemberStats> RaidRepo::getBestRaidMembers(long long raidId) cons
                                   raidId);
 }
 
-std::vector<RaidSlacker> RaidRepo::getRaidSlackers(long long raidId, std::string_view clanTag) const
+std::vector<RaidSlacker> RaidRepo::getRaidSlackers(long long raidId) const
 {
+    // Players who left during the raid are excluded from the slacker report.
+    // Revisit this edge case if partial raid participation should be reported separately.
     static constexpr std::string_view sql = R"(
         SELECT
             p.tag,
             p.name,
             COALESCE(s.attacks_count, 0) AS attacks_done,
             COALESCE(s.bonus_attacks, 0) AS bonus_attacks
-        FROM players AS p
+        FROM clan_raids AS r
+        JOIN clan_memberships AS cm
+            ON cm.clan_tag = r.clan_tag
+           AND cm.joined_at <= r.end_time
+           AND (cm.left_at IS NULL OR cm.left_at >= r.end_time)
+        JOIN players AS p
+            ON p.tag = cm.player_tag
         LEFT JOIN player_raid_snapshots AS s
-            ON p.tag = s.player_tag
-           AND s.raid_id = ?
-        WHERE p.clan_tag = ?
+            ON s.player_tag = cm.player_tag
+           AND s.raid_id = r.id
+        WHERE r.id = ?
+          AND COALESCE(s.attacks_count, 0)
+              < 5 + COALESCE(s.bonus_attacks, 0)
         ORDER BY attacks_done ASC, p.name ASC;
     )";
 
@@ -168,7 +178,7 @@ std::vector<RaidSlacker> RaidRepo::getRaidSlackers(long long raidId, std::string
     };
 
     return query<RaidSlacker>(sql, "load raid slackers",
-                              fmt::format("clan_tag = {}, raid_id = {}", clanTag, raidId),
+                              fmt::format("raid_id = {}", raidId),
                               mapper,
-                              raidId, clanTag);
+                              raidId);
 }

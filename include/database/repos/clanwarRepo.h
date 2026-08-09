@@ -32,10 +32,7 @@ public:
     void saveClanwarMembers(long long clanwarId, long long warClanId,
                             const std::vector<ClanwarMember>& members) const;
 
-    [[nodiscard]] ClanwarOverview getClanwarOverview(long long clanwarId, std::string_view side) const;
-    [[nodiscard]] std::string getWarClanTag(long long warId, long long warClanId) const;
-    [[nodiscard]] std::vector<WarRoundMember> getWarMembers(long long warId, long long warClanId) const;
-    [[nodiscard]] std::vector<DBAttackOverview> getClanAttacks(long long warId, long long attackerWarClanId) const;
+    [[nodiscard]] ClanwarOverview getClanwarOverview(long long warId, long long warClanId) const;
     [[nodiscard]] ClanwarAttackStats getClanwarAttackStats(long long warId, long long warClanId) const;
     [[nodiscard]] std::vector<BestAttack> getBestAttacks(long long warId, long long warClanId) const;
 
@@ -43,10 +40,9 @@ public:
                                                                        long long warClanId) const;
     [[nodiscard]] std::vector<ClanwarSlacker> getSlackersWithOneAttack(long long clanwarId,
                                                                        long long warClanId) const;
-    [[nodiscard]] std::vector<ClanwarSlacker> getPlayersWithNotMirrorAttack(long long clanwarId,
-                                                                            long long warClanId) const;
+    [[nodiscard]] std::vector<NotMirrorAttack> getPlayersWithFirstAttackNotOnMirror(
+        long long warId, long long warClanId) const;
 
-    [[nodiscard]] ClanwarRoundData getRoundDataForMirrorAnalysis(const InsertedWarResult& warResult) const;
     [[nodiscard]] ClanwarReportData getReportData(const InsertedWarResult& warResult) const;
     [[nodiscard]] WarRoundDetails getWarRoundDetails(const InsertedWarResult& warResult) const;
 };

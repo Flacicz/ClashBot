@@ -38,15 +38,13 @@ std::string ClanwarsLeagueRoundEndedFormatter::buildReport(const ClanwarsLeagueR
 
     const auto& missedAttacks = reportData.warDetails.missedAttack;
     const auto& bestAttacks = reportData.warDetails.best_attacks;
-    const auto notMirrorAttacks = war_report::buildPartForNotMirrorAttacks(
-        reportData.warDetails.dataForMirrorAnalysis);
+    const auto& notMirrorAttacks = reportData.warDetails.notMirrorAttacks;
 
     std::ostringstream report;
     report << "🏆 <b>ОТЧЕТ ПО " << rounds.at(reportData.cwlRoundInfo.roundNumber) << " РАУНДУ ЛВК</b>\n";
     war_report::appendWarOverview(report, reportData.warDetails.home, reportData.warDetails.opponent);
     war_report::appendAttackStatistics(report, reportData.warDetails.attack_stats);
-    war_report::appendBestAttacks(report, bestAttacks,
-                                  reportData.warDetails.dataForMirrorAnalysis);
+    war_report::appendBestAttacks(report, bestAttacks);
 
     if (missedAttacks.empty() && notMirrorAttacks.empty())
     {
@@ -70,7 +68,7 @@ std::string ClanwarsLeagueRoundEndedFormatter::buildReport(const ClanwarsLeagueR
     }
 
     if (notMirrorAttacks.empty()) report << "\n🎯 <b>Атак не по зеркалу не обнаружено! Все молодцы!</b>\n";
-    else report << notMirrorAttacks;
+    else war_report::appendNotMirrorAttacks(report, notMirrorAttacks);
 
     return report.str();
 }

@@ -1,9 +1,6 @@
 #include "reports/WarReportParts.h"
 
 #include <fmt/format.h>
-#include <sstream>
-#include <unordered_map>
-#include <utility>
 
 #include "common/StringUtils.h"
 
@@ -30,28 +27,6 @@ namespace
         report << "Итог: Ничья\n\n";
     }
 
-    NormalizePositions normalizePositions(
-        const std::vector<WarRoundMember>& homeMembers,
-        const std::vector<WarRoundMember>& opponentMembers)
-    {
-        std::unordered_map<std::string, int> indexedHomeMembers;
-        std::unordered_map<std::string, int> indexedOpponentMembers;
-
-        for (int index = 1; const auto& homePlayer : homeMembers)
-        {
-            indexedHomeMembers[homePlayer.playerTag] = index++;
-        }
-
-        for (int index = 1; const auto& opponentPlayer : opponentMembers)
-        {
-            indexedOpponentMembers[opponentPlayer.playerTag] = index++;
-        }
-
-        return NormalizePositions{
-            .indexedHomeMembers = std::move(indexedHomeMembers),
-            .indexedOpponentMembers = std::move(indexedOpponentMembers)
-        };
-    }
 }
 
 namespace war_report
@@ -92,12 +67,9 @@ namespace war_report
     }
 
     void appendBestAttacks(std::ostream& report,
-                           const std::vector<BestAttack>& bestAttacks,
-                           const ClanwarRoundData& data)
+                           const std::vector<BestAttack>& bestAttacks)
     {
         if (bestAttacks.empty()) return;
-
-        const auto [indexedHomeMembers, indexedOpponentMembers] = normalizePositions(data.homeMembers, data.opponentMembers);
 
         report << "🏅 <b>ЛУЧШИЕ АТАКИ</b>\n";
 
@@ -108,41 +80,26 @@ namespace war_report
                 << utils::escapeHTML(attack.attackerName)
                 << " — " << attack.stars << "⭐, "
                 << fmt::format("{:.2f}%", attack.destructionPercentage)
-                << " (№" << indexedHomeMembers.at(attack.attackerTag)
-                << " ➜ №" << indexedOpponentMembers.at(attack.defenderTag) << ")\n";
+                << " (№" << attack.attackerPosition
+                << " ➜ №" << attack.defenderPosition << ")\n";
         }
 
         report << "\n";
     }
 
-    std::string buildPartForNotMirrorAttacks(const ClanwarRoundData& data)
+    void appendNotMirrorAttacks(std::ostream& report,
+                                const std::vector<NotMirrorAttack>& attacks)
     {
-        const auto [indexedHomeMembers, indexedOpponentMembers] = normalizePositions(data.homeMembers, data.opponentMembers);
+        if (attacks.empty()) return;
 
-        std::ostringstream violationsStream;
-        bool hasViolations = false;
+        report << "\n🎯 <b>Атаковали не по зеркалу:</b>\n";
 
-        for (const auto& [attackerTag, defenderTag] : data.homeAttacks)
+        for (const auto& attack : attacks)
         {
-            const int homePosition = indexedHomeMembers.at(attackerTag);
-            const int opponentPosition = indexedOpponentMembers.at(defenderTag);
-
-            if (homePosition != opponentPosition)
-            {
-                hasViolations = true;
-
-                const auto& attackerName = data.homeMembers.at(homePosition - 1).playerName;
-
-                violationsStream << "• " << utils::escapeHTML(attackerName)
-                    << " (№" << homePosition
-                    << " ➔ №" << opponentPosition << ")\n";
-            }
+            report << "• " << utils::escapeHTML(attack.attackerName)
+                << " (№" << attack.attackerPosition
+                << " ➜ №" << attack.defenderPosition << ")\n";
         }
-
-        if (!hasViolations) return "";
-
-        std::ostringstream result;
-        result << "\n🎯 <b>Атаковали не по зеркалу:</b>\n" << violationsStream.str();
-        return result.str();
     }
+
 }

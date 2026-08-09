@@ -1,6 +1,7 @@
 #include "models/Models.h"
 
 #include <nlohmann/json.hpp>
+#include <unordered_map>
 
 #include "common/StringUtils.h"
 #include "common/TimeParser.h"

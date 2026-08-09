@@ -16,7 +16,7 @@ std::string RaidsEndedFormatter::format(const RaidsEndedEvent& event) const
         .clanName = clansRepo.getClanNameByTag(event.clanTag),
         .stats = raidRepo.getRaidStats(event.raidsId),
         .bestMembers = raidRepo.getBestRaidMembers(event.raidsId),
-        .slackers = raidRepo.getRaidSlackers(event.raidsId, event.clanTag)
+        .slackers = raidRepo.getRaidSlackers(event.raidsId)
     };
 
     return buildReport(reportData);

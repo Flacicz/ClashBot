@@ -22,14 +22,13 @@ std::string ClanwarEndedFormatter::buildReport(const ClanwarReportData& reportDa
     const auto& slackersWithNoAttacks = reportData.missedAllAttacks;
     const auto& slackersWithOneAttack = reportData.missedOneAttack;
     const auto& bestAttacks = reportData.best_attacks;
-    const auto notMirrorAttacks = war_report::buildPartForNotMirrorAttacks(
-        reportData.dataForMirrorAnalysis);
+    const auto& notMirrorAttacks = reportData.notMirrorAttacks;
 
     std::ostringstream report;
     report << "⚔️ <b>ОТЧЕТ ПО КВ</b>\n";
     war_report::appendWarOverview(report, reportData.home, reportData.opponent);
     war_report::appendAttackStatistics(report, reportData.attack_stats);
-    war_report::appendBestAttacks(report, bestAttacks, reportData.dataForMirrorAnalysis);
+    war_report::appendBestAttacks(report, bestAttacks);
 
     if (slackersWithNoAttacks.empty() && slackersWithOneAttack.empty() && notMirrorAttacks.empty())
     {
@@ -63,7 +62,7 @@ std::string ClanwarEndedFormatter::buildReport(const ClanwarReportData& reportDa
         report << "\n🟡 <b>Не использовали вторую атаку:</b>\n" << missedOne.str();
     }
 
-    if (!notMirrorAttacks.empty()) report << notMirrorAttacks;
+    war_report::appendNotMirrorAttacks(report, notMirrorAttacks);
 
     return report.str();
 }

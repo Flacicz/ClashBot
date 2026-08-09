@@ -163,7 +163,7 @@ void ClanwarRepo::saveClanwarMembers(long long clanwarId, long long warClanId,
     }
 }
 
-ClanwarOverview ClanwarRepo::getClanwarOverview(long long clanwarId, std::string_view side) const
+ClanwarOverview ClanwarRepo::getClanwarOverview(long long warId, long long warClanId) const
 {
     static constexpr std::string_view sql = R"(
         SELECT
@@ -172,7 +172,7 @@ ClanwarOverview ClanwarRepo::getClanwarOverview(long long clanwarId, std::string
             stars,
             destruction_percentage
         FROM war_clans
-        WHERE war_id = ? AND side = ?;
+        WHERE war_id = ? AND war_clan_id = ?;
     )";
 
     auto mapper = [](sqlite3_stmt* stmt) -> ClanwarOverview
@@ -188,84 +188,9 @@ ClanwarOverview ClanwarRepo::getClanwarOverview(long long clanwarId, std::string
     return queryOne<ClanwarOverview>(
         sql,
         "load clanwar overview",
-        fmt::format("war_id = {}, side = {}", clanwarId, side),
-        mapper,
-        clanwarId, side
-    );
-}
-
-std::string ClanwarRepo::getWarClanTag(long long warId, long long warClanId) const
-{
-    static constexpr std::string_view sql = R"(
-        SELECT clan_tag
-        FROM war_clans
-        WHERE war_id = ? AND war_clan_id = ?;
-    )";
-
-    auto mapper = [](sqlite3_stmt* stmt) -> std::string
-    {
-        return sqlite::getString(stmt, 0);
-    };
-
-    return queryOne<std::string>(
-        sql,
-        "load war clan tag",
         fmt::format("war_id = {}, war_clan_id = {}", warId, warClanId),
         mapper,
         warId, warClanId
-    );
-}
-
-std::vector<WarRoundMember> ClanwarRepo::getWarMembers(long long warId, long long warClanId) const
-{
-    static constexpr std::string_view sql = R"(
-        SELECT player_tag, player_name, map_position
-        FROM war_members
-        WHERE war_id = ? AND war_clan_id = ?
-        ORDER BY map_position;
-    )";
-
-    auto mapper = [](sqlite3_stmt* stmt) -> WarRoundMember
-    {
-        return WarRoundMember{
-            .playerTag = sqlite::getString(stmt, 0),
-            .playerName = sqlite::getString(stmt, 1),
-            .dbMapPosition = sqlite::getInt(stmt, 2),
-        };
-    };
-
-    return query<WarRoundMember>(
-        sql,
-        "load clanwar members",
-        fmt::format("war_id = {}, war_clan_id = {}", warId, warClanId),
-        mapper,
-        warId, warClanId
-    );
-}
-
-std::vector<DBAttackOverview> ClanwarRepo::getClanAttacks(long long warId,
-                                                          long long attackerWarClanId) const
-{
-    static constexpr std::string_view sql = R"(
-        SELECT attacker_tag, defender_tag
-        FROM attacks
-        WHERE war_id = ? AND attacker_war_clan_id = ?;
-    )";
-
-    auto mapper = [](sqlite3_stmt* stmt) -> DBAttackOverview
-    {
-        return DBAttackOverview{
-            .attackerTag = sqlite::getString(stmt, 0),
-            .defenderTag = sqlite::getString(stmt, 1),
-        };
-    };
-
-    return query<DBAttackOverview>(
-        sql,
-        "load clanwar attacks",
-        fmt::format("war_id = {}, attacker_war_clan_id = {}", warId, attackerWarClanId),
-        mapper,
-        warId, attackerWarClanId
     );
 }
 
@@ -285,15 +210,11 @@ ClanwarAttackStats ClanwarRepo::getClanwarAttackStats(long long warId, long long
             COALESCE(SUM(a.stars = 2), 0) AS two_stars,
             COALESCE(SUM(a.stars = 1), 0) AS one_star,
             COALESCE(SUM(a.stars = 0), 0) AS zero_stars
-
         FROM wars AS w
-
         LEFT JOIN attacks AS a
             ON a.war_id = w.war_id
            AND a.attacker_war_clan_id = ?
-
         WHERE w.war_id = ?
-
         GROUP BY
             w.war_id,
             w.team_size,
@@ -323,28 +244,61 @@ ClanwarAttackStats ClanwarRepo::getClanwarAttackStats(long long warId, long long
     );
 }
 
+// TODO: При выборе лучших атак учитывать правила войны, а не только звёзды и разрушение.
 std::vector<BestAttack> ClanwarRepo::getBestAttacks(long long warId, long long warClanId) const
 {
     static constexpr std::string_view sql = R"(
+        WITH normalized_members AS (
+            SELECT
+                wm.war_id,
+                wm.war_clan_id,
+                wm.player_tag,
+                ROW_NUMBER() OVER (
+                    PARTITION BY wm.war_id, wm.war_clan_id
+                    ORDER BY wm.map_position
+                ) AS normalized_position
+            FROM war_members AS wm
+            WHERE wm.war_id = ?
+        ),
+        filtered_attacks AS (
+            SELECT
+                a.war_id,
+                a.attacker_war_clan_id,
+                a.defender_war_clan_id,
+                a.attacker_tag,
+                wm.player_name,
+                a.defender_tag,
+                a.order_num,
+                a.stars,
+                a.destruction_percentage
+            FROM attacks AS a
+            JOIN war_members AS wm
+                ON wm.player_tag = a.attacker_tag
+               AND wm.war_id = a.war_id
+               AND wm.war_clan_id = a.attacker_war_clan_id
+            WHERE a.war_id = ?
+              AND a.attacker_war_clan_id = ?
+        )
         SELECT
-            a.attacker_tag,
-            wm.player_name,
-            a.defender_tag,
-            a.stars,
-            a.destruction_percentage,
-            a.attacker_position,
-            a.defender_position
-        FROM attacks AS a
-        JOIN war_members AS wm
-            ON a.attacker_tag = wm.player_tag
-           AND a.war_id = wm.war_id
-           AND a.attacker_war_clan_id = wm.war_clan_id
-        WHERE a.war_id = ?
-          AND a.attacker_war_clan_id = ?
+            fa.attacker_tag,
+            fa.player_name,
+            fa.stars,
+            fa.destruction_percentage,
+            attacker_members.normalized_position AS attacker_position,
+            defender_members.normalized_position AS defender_position
+        FROM filtered_attacks AS fa
+        JOIN normalized_members AS attacker_members
+            ON attacker_members.war_id = fa.war_id
+           AND attacker_members.war_clan_id = fa.attacker_war_clan_id
+           AND attacker_members.player_tag = fa.attacker_tag
+        JOIN normalized_members AS defender_members
+            ON defender_members.war_id = fa.war_id
+           AND defender_members.war_clan_id = fa.defender_war_clan_id
+           AND defender_members.player_tag = fa.defender_tag
         ORDER BY
-            a.stars DESC,
-            a.destruction_percentage DESC,
-            a.order_num ASC
+            fa.stars DESC,
+            fa.destruction_percentage DESC,
+            fa.order_num ASC
         LIMIT 3;
     )";
 
@@ -353,11 +307,10 @@ std::vector<BestAttack> ClanwarRepo::getBestAttacks(long long warId, long long w
         return BestAttack{
             .attackerTag = sqlite::getString(stmt, 0),
             .attackerName = sqlite::getString(stmt, 1),
-            .defenderTag = sqlite::getString(stmt, 2),
-            .stars = sqlite::getInt(stmt, 3),
-            .destructionPercentage = sqlite::getDouble(stmt, 4),
-            .attackerPosition = sqlite::getInt(stmt, 5),
-            .defenderPosition = sqlite::getInt(stmt, 6)
+            .stars = sqlite::getInt(stmt, 2),
+            .destructionPercentage = sqlite::getDouble(stmt, 3),
+            .attackerPosition = sqlite::getInt(stmt, 4),
+            .defenderPosition = sqlite::getInt(stmt, 5)
         };
     };
 
@@ -366,7 +319,7 @@ std::vector<BestAttack> ClanwarRepo::getBestAttacks(long long warId, long long w
         "load clanwar best attacks",
         fmt::format("war_id = {}, war_clan_id = {}", warId, warClanId),
         mapper,
-        warId, warClanId
+        warId, warId, warClanId
     );
 }
 
@@ -378,7 +331,10 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithNoAttacks(long long clan
             wm.player_tag,
             wm.player_name
         FROM war_members wm
-        LEFT JOIN attacks a ON a.attacker_tag = wm.player_tag AND a.war_id = wm.war_id
+        LEFT JOIN attacks a
+            ON a.attacker_tag = wm.player_tag
+           AND a.war_id = wm.war_id
+           AND a.attacker_war_clan_id = wm.war_clan_id
         WHERE wm.war_id = ? AND wm.war_clan_id = ? AND a.attack_id IS NULL;
     )";
 
@@ -407,7 +363,10 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack(long long clan
             wm.player_tag,
             wm.player_name
         FROM war_members wm
-        JOIN attacks a ON a.attacker_tag = wm.player_tag AND a.war_id = wm.war_id
+        JOIN attacks a
+            ON a.attacker_tag = wm.player_tag
+           AND a.war_id = wm.war_id
+           AND a.attacker_war_clan_id = wm.war_clan_id
         WHERE wm.war_id = ? AND wm.war_clan_id = ?
         GROUP BY wm.player_tag
         HAVING COUNT(a.attack_id) = 1;
@@ -430,62 +389,89 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack(long long clan
     );
 }
 
-std::vector<ClanwarSlacker> ClanwarRepo::getPlayersWithNotMirrorAttack(long long clanwarId,
-                                                                       long long warClanId) const
+std::vector<NotMirrorAttack> ClanwarRepo::getPlayersWithFirstAttackNotOnMirror(long long warId,
+                                                                                long long warClanId) const
 {
     static constexpr std::string_view sql = R"(
-        WITH ranked_attacks AS (
+        WITH normalized_members AS (
             SELECT
-                war_id,
-                attacker_tag,
-                attacker_position,
-                defender_position,
+                wm.war_id,
+                wm.war_clan_id,
+                wm.player_tag,
                 ROW_NUMBER() OVER (
-                    PARTITION BY war_id, attacker_tag
-                    ORDER BY order_num ASC
-                ) as player_attack_index
-            FROM attacks
-            WHERE war_id = ? AND attacker_war_clan_id = ?
+                    PARTITION BY wm.war_id, wm.war_clan_id
+                    ORDER BY wm.map_position
+                ) AS normalized_position
+            FROM war_members AS wm
+            WHERE wm.war_id = ?
+        ),
+        filtered_attacks AS (
+            SELECT
+                a.war_id,
+                a.attacker_war_clan_id,
+                a.defender_war_clan_id,
+                a.attacker_tag,
+                wm.player_name,
+                a.defender_tag,
+                a.order_num
+            FROM attacks AS a
+            JOIN war_members AS wm
+                ON wm.player_tag = a.attacker_tag
+               AND wm.war_id = a.war_id
+               AND wm.war_clan_id = a.attacker_war_clan_id
+            WHERE a.war_id = ?
+              AND a.attacker_war_clan_id = ?
+        ),
+        ranked_attacks AS (
+            SELECT
+                filtered_attacks.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY attacker_tag
+                    ORDER BY order_num
+                ) AS attack_number
+            FROM filtered_attacks
+        ),
+        first_attacks AS (
+            SELECT *
+            FROM ranked_attacks
+            WHERE attack_number = 1
         )
         SELECT
-            wm.player_tag,
-            wm.player_name
-        FROM war_members wm
-        JOIN ranked_attacks ra
-            ON wm.war_id = ra.war_id
-           AND wm.player_tag = ra.attacker_tag
-        WHERE wm.war_id = ?
-          AND wm.war_clan_id = ?
-          AND ra.player_attack_index = 1
-          AND ra.attacker_position != ra.defender_position;
+            fa.attacker_tag,
+            fa.player_name,
+            fa.defender_tag,
+            attacker_members.normalized_position AS attacker_position,
+            defender_members.normalized_position AS defender_position
+        FROM first_attacks AS fa
+        JOIN normalized_members AS attacker_members
+            ON attacker_members.war_id = fa.war_id
+           AND attacker_members.war_clan_id = fa.attacker_war_clan_id
+           AND attacker_members.player_tag = fa.attacker_tag
+        JOIN normalized_members AS defender_members
+            ON defender_members.war_id = fa.war_id
+           AND defender_members.war_clan_id = fa.defender_war_clan_id
+           AND defender_members.player_tag = fa.defender_tag
+        WHERE attacker_members.normalized_position
+           <> defender_members.normalized_position;
     )";
 
-    auto mapper = [](sqlite3_stmt* stmt) -> ClanwarSlacker
+    auto mapper = [](sqlite3_stmt* stmt) -> NotMirrorAttack
     {
-        return ClanwarSlacker{
-            .playerTag = sqlite::getString(stmt, 0),
-            .playerName = sqlite::getString(stmt, 1),
+        return NotMirrorAttack{
+            .attackerTag = sqlite::getString(stmt, 0),
+            .attackerName = sqlite::getString(stmt, 1),
+            .attackerPosition = sqlite::getInt(stmt, 3),
+            .defenderPosition = sqlite::getInt(stmt, 4),
         };
     };
 
-    return query<ClanwarSlacker>(
+    return query<NotMirrorAttack>(
         sql,
-        "load clanwar slackers with not mirror attack",
-        fmt::format("war_id = {}, war_clan_id = {}", clanwarId, warClanId),
+        "load clanwar first attacks not on mirror",
+        fmt::format("war_id = {}, war_clan_id = {}", warId, warClanId),
         mapper,
-        clanwarId, warClanId, clanwarId, warClanId
+        warId, warId, warClanId
     );
-}
-
-ClanwarRoundData ClanwarRepo::getRoundDataForMirrorAnalysis(const InsertedWarResult& warResult) const
-{
-    return ClanwarRoundData{
-        .homeClanTag = getWarClanTag(warResult.warId, warResult.homeClanId),
-        .opponentClanTag = getWarClanTag(warResult.warId, warResult.opponentClanId),
-        .homeMembers = getWarMembers(warResult.warId, warResult.homeClanId),
-        .opponentMembers = getWarMembers(warResult.warId, warResult.opponentClanId),
-        .homeAttacks = getClanAttacks(warResult.warId, warResult.homeClanId)
-    };
 }
 
 ClanwarReportData ClanwarRepo::getReportData(const InsertedWarResult& warResult) const
@@ -493,15 +479,15 @@ ClanwarReportData ClanwarRepo::getReportData(const InsertedWarResult& warResult)
     const auto clanwarId = warResult.warId;
     const auto warClanId = warResult.homeClanId;
 
-    auto home = getClanwarOverview(clanwarId, "home");
-    auto opponent = getClanwarOverview(clanwarId, "opponent");
+    auto home = getClanwarOverview(clanwarId, warResult.homeClanId);
+    auto opponent = getClanwarOverview(clanwarId, warResult.opponentClanId);
 
     auto clanwarAttackStats = getClanwarAttackStats(clanwarId, warClanId);
     auto bestAttacks = getBestAttacks(clanwarId, warClanId);
 
     auto noAttacks = getSlackersWithNoAttacks(clanwarId, warClanId);
     auto oneAttack = getSlackersWithOneAttack(clanwarId, warClanId);
-    auto dataForMirrorAnalysis = getRoundDataForMirrorAnalysis(warResult);
+    auto notMirrorAttacks = getPlayersWithFirstAttackNotOnMirror(clanwarId, warClanId);
 
     return ClanwarReportData{
         .home = std::move(home),
@@ -510,19 +496,19 @@ ClanwarReportData ClanwarRepo::getReportData(const InsertedWarResult& warResult)
         .best_attacks = std::move(bestAttacks),
         .missedAllAttacks = std::move(noAttacks),
         .missedOneAttack = std::move(oneAttack),
-        .dataForMirrorAnalysis = std::move(dataForMirrorAnalysis)
+        .notMirrorAttacks = std::move(notMirrorAttacks)
     };
 }
 
 WarRoundDetails ClanwarRepo::getWarRoundDetails(const InsertedWarResult& warResult) const
 {
-    auto home = getClanwarOverview(warResult.warId, "home");
-    auto opponent = getClanwarOverview(warResult.warId, "opponent");
+    auto home = getClanwarOverview(warResult.warId, warResult.homeClanId);
+    auto opponent = getClanwarOverview(warResult.warId, warResult.opponentClanId);
     auto attackStats = getClanwarAttackStats(warResult.warId, warResult.homeClanId);
     auto bestAttacks = getBestAttacks(warResult.warId, warResult.homeClanId);
 
     auto noAttack = getSlackersWithNoAttacks(warResult.warId, warResult.homeClanId);
-    auto dataForMirrorAnalysis = getRoundDataForMirrorAnalysis(warResult);
+    auto notMirrorAttacks = getPlayersWithFirstAttackNotOnMirror(warResult.warId, warResult.homeClanId);
 
     return WarRoundDetails{
         .home = std::move(home),
@@ -530,6 +516,6 @@ WarRoundDetails ClanwarRepo::getWarRoundDetails(const InsertedWarResult& warResu
         .attack_stats = std::move(attackStats),
         .best_attacks = std::move(bestAttacks),
         .missedAttack = std::move(noAttack),
-        .dataForMirrorAnalysis = std::move(dataForMirrorAnalysis)
+        .notMirrorAttacks = std::move(notMirrorAttacks)
     };
 }
