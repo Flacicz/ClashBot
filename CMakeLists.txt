@@ -40,6 +40,7 @@ add_executable(${PROJECT_NAME}
         src/notifications/notificationService.cpp
         src/reports/ClanwarEndedFormatter.cpp
         src/reports/ClanwarsLeagueRoundEndedFormatter.cpp
+        src/reports/WarReportParts.cpp
         src/database/migratorManager.cpp
         src/common/TimeParser.cpp
         src/database/repos/SubscriptionRepo.cpp
