@@ -4,9 +4,10 @@
 
 #ifndef CLASHBOT_PLAYERJOINEDFORMATTER_H
 #define CLASHBOT_PLAYERJOINEDFORMATTER_H
+
 #include <string>
 
-#include "database/repos/clansRepo.h"
+#include "database/repos/ClansRepo.h"
 #include "events/ApplicationEvents.h"
 
 class PlayerJoinedFormatter

@@ -8,7 +8,7 @@
 #include <sqlite3.h>
 
 #include "BaseRepository.h"
-#include "models/models.h"
+#include "models/Models.h"
 
 
 class ClanwarRepo : public BaseRepository

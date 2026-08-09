@@ -1,4 +1,4 @@
-#include "service/clanManager.h"
+#include "service/ClanManager.h"
 
 #include <mutex>
 #include <condition_variable>

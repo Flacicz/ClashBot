@@ -3,11 +3,17 @@
 //
 
 #include "reports/PlayerRoleChangedFormatter.h"
-#include "common/StringUtils.h"
-#include <unordered_map>
-#include <fmt/format.h>
 
-std::string PlayerRoleChangedFormatter::format(const PlayerRoleChangedEvent& event)
+#include <fmt/format.h>
+#include <unordered_map>
+
+#include "common/StringUtils.h"
+
+PlayerRoleChangedFormatter::PlayerRoleChangedFormatter(ClansRepo& clansRepo) : clansRepo(clansRepo)
+{
+}
+
+std::string PlayerRoleChangedFormatter::format(const PlayerRoleChangedEvent& event) const
 {
     const std::unordered_map<std::string, int> playerRoles = {
         {"member", 1},
@@ -23,28 +29,31 @@ std::string PlayerRoleChangedFormatter::format(const PlayerRoleChangedEvent& eve
         {"leader", "Глава"}
     };
 
-    std::string message;
+    const auto clanName = clansRepo.getClanNameByTag(event.clanTag);
+    const auto roleChange = fmt::format(
+        "👤 <b>{}</b> (<code>{}</code>)\n"
+        "Роль: <b>{}</b> → <b>{}</b>",
+        utils::escapeHTML(event.playerName),
+        utils::escapeHTML(event.playerTag),
+        roleNames.at(event.oldRole),
+        roleNames.at(event.newRole));
 
     if (playerRoles.at(event.newRole) > playerRoles.at(event.oldRole))
     {
-        message = fmt::format(
-            "⬆️ Игрок <b>{}</b> получил повышение.\n\n"
-            "👤 <b>{}</b> → <b>{}</b>",
-            utils::escapeHTML(event.playerName),
-            roleNames.at(event.oldRole),
-            roleNames.at(event.newRole)
-        );
-    }
-    else
-    {
-        message = fmt::format(
-            "⬇️ Игрок <b>{}</b> был понижен.\n\n"
-            "👤 <b>{}</b> → <b>{}</b>",
-            utils::escapeHTML(event.playerName),
-            roleNames.at(event.oldRole),
-            roleNames.at(event.newRole)
-        );
+        return fmt::format(
+            "⬆️ <b>Изменение роли игрока</b>\n\n"
+            "Клан: {} (<code>{}</code>)\n{}\n"
+            "Игрок получил повышение.",
+            utils::escapeHTML(clanName),
+            utils::escapeHTML(event.clanTag),
+            roleChange);
     }
 
-    return message;
+    return fmt::format(
+        "⬇️ <b>Изменение роли игрока</b>\n\n"
+        "Клан: {} (<code>{}</code>)\n{}\n"
+        "Игрок был понижен.",
+        utils::escapeHTML(clanName),
+        utils::escapeHTML(event.clanTag),
+        roleChange);
 }

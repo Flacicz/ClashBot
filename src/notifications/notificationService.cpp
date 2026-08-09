@@ -1,4 +1,4 @@
-#include "notifications/notificationService.h"
+#include "notifications/NotificationService.h"
 #include <spdlog/spdlog.h>
 
 #include "reports/PlayerJoinedFormatter.h"
@@ -10,6 +10,7 @@ NotificationService::NotificationService(NotificationRepo& notification_repo,
                                          TelegramNotifier telegram_notifier,
                                          const PlayerJoinedFormatter playerJoinedFormatter,
                                          const PlayerLeftFormatter playerLeftFormatter,
+                                         const PlayerRoleChangedFormatter playerRoleChangedFormatter,
                                          const RaidsEndedFormatter raidsEndedFormatter,
                                          const ClanwarEndedFormatter clanwarEndedFormatter,
                                          const ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter) :
@@ -18,6 +19,7 @@ NotificationService::NotificationService(NotificationRepo& notification_repo,
     telegramNotifier(std::move(telegram_notifier)),
     playerJoinedFormatter(playerJoinedFormatter),
     playerLeftFormatter(playerLeftFormatter),
+    playerRoleChangedFormatter(playerRoleChangedFormatter),
     raidsEndedFormatter(raidsEndedFormatter),
     clanwarEndedFormatter(clanwarEndedFormatter),
     clanwarLeagueRoundEndedFormatter(clanwarLeagueRoundEndedFormatter)
@@ -71,7 +73,7 @@ void NotificationService::handleEvent(const PlayerLeftClanEvent& event) const
 
 void NotificationService::handleEvent(const PlayerRoleChangedEvent& event) const
 {
-    const auto& message = PlayerRoleChangedFormatter::format(event);
+    const auto& message = playerRoleChangedFormatter.format(event);
 
     const auto chatIds = subscription_repo_.getChatIdsForClan(event.clanTag);
 

@@ -4,7 +4,7 @@
 
 #include "ISyncService.h"
 #include "events/EventDispatcher.h"
-#include "notifications/notificationService.h"
+#include "notifications/NotificationService.h"
 
 
 class ClanManager

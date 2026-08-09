@@ -1,4 +1,4 @@
-﻿#include "service/clanInfoService.h"
+#include "service/ClanInfoService.h"
 
 #include <algorithm>
 
@@ -6,7 +6,7 @@
 
 #include <string_view>
 #include <string>
-#include <api/apiclient.h>
+#include <api/APIClient.h>
 #include <spdlog/spdlog.h>
 
 ClanInfoService::ClanInfoService(ClansRepo& clans_repo, APIClient& api_client, TransactionManager& transaction_manager)

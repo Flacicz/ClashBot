@@ -5,8 +5,8 @@
 #include <memory>
 #include <sqlite3.h>
 
-#include "repos/clansRepo.h"
-#include "repos/raidRepo.h"
+#include "repos/ClansRepo.h"
+#include "repos/RaidRepo.h"
 #include "repos/ClanwarsLeagueRepo.h"
 #include "repos/ClanwarRepo.h"
 #include "repos/NotificationsRepo.h"

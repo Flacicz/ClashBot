@@ -3,7 +3,7 @@
 //
 
 #include "database/repos/NotificationsRepo.h"
-#include "database/sqliteHelpers.h"
+#include "database/SQLiteHelpers.h"
 #include <fmt/format.h>
 
 NotificationRepo::NotificationRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))

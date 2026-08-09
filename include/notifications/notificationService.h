@@ -2,9 +2,9 @@
 #define CLASHBOT_NOTIFICATIONSERVICE_H
 #include <memory>
 
-#include "telegramNotifier.h"
+#include "TelegramNotifier.h"
 #include "common/SyncResult.h"
-#include "database/database.h"
+#include "database/Database.h"
 #include "reports/ClanwarEndedFormatter.h"
 #include "reports/ClanwarsLeagueRoundEndedFormatter.h"
 #include "reports/PlayerJoinedFormatter.h"
@@ -22,6 +22,7 @@ class NotificationService
 
     PlayerJoinedFormatter playerJoinedFormatter;
     PlayerLeftFormatter playerLeftFormatter;
+    PlayerRoleChangedFormatter playerRoleChangedFormatter;
     RaidsEndedFormatter raidsEndedFormatter;
     ClanwarEndedFormatter clanwarEndedFormatter;
     ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter;
@@ -32,6 +33,7 @@ public:
                         TelegramNotifier telegram_notifier,
                         PlayerJoinedFormatter playerJoinedFormatter,
                         PlayerLeftFormatter playerLeftFormatter,
+                        PlayerRoleChangedFormatter playerRoleChangedFormatter,
                         RaidsEndedFormatter raidsEndedFormatter,
                         ClanwarEndedFormatter clanwarEndedFormatter,
                         ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter);

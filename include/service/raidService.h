@@ -1,7 +1,7 @@
 #pragma once
 #include "ISyncService.h"
-#include "api/apiclient.h"
-#include "database/database.h"
+#include "api/APIClient.h"
+#include "database/Database.h"
 #include "database/TransactionManager.h"
 
 

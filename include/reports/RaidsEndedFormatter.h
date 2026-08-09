@@ -1,11 +1,12 @@
 #ifndef CLASHBOT_RAIDREPORTFORMATTER_H
 #define CLASHBOT_RAIDREPORTFORMATTER_H
+
 #include <string>
 
-#include "database/repos/clansRepo.h"
-#include "database/repos/raidRepo.h"
+#include "database/repos/ClansRepo.h"
+#include "database/repos/RaidRepo.h"
 #include "events/ApplicationEvents.h"
-#include "models/models.h"
+#include "models/Models.h"
 
 class RaidsEndedFormatter
 {

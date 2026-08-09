@@ -4,6 +4,9 @@
 
 #ifndef CLASHBOT_SYSTEMALERTREPORTFORMATTER_H
 #define CLASHBOT_SYSTEMALERTREPORTFORMATTER_H
+
+#include <string>
+
 #include "events/ApplicationEvents.h"
 
 class SystemAlertReportFormatter

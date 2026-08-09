@@ -1,4 +1,4 @@
-﻿#include <iostream>
+#include <iostream>
 #include <exception>
 #include <thread>
 #include <string>
@@ -15,28 +15,28 @@
 #include <windows.h>
 #endif
 
-#include "database/database.h"
-#include "database/migratorManager.h"
+#include "database/Database.h"
+#include "database/MigratorManager.h"
 
-#include "api/apiclient.h"
+#include "api/APIClient.h"
 
-#include "config/configLoader.h"
-#include "config/config.h"
+#include "config/ConfigLoader.h"
+#include "config/Config.h"
 #include "database/TransactionManager.h"
 
 #include "service/ISyncService.h"
-#include "service/clanInfoService.h"
-#include "service/clanwarService.h"
-#include "service/raidService.h"
-#include "service/clanwarLeagueService.h"
-#include "service/clanManager.h"
+#include "service/ClanInfoService.h"
+#include "service/ClanwarService.h"
+#include "service/RaidService.h"
+#include "service/ClanwarLeagueService.h"
+#include "service/ClanManager.h"
 
 #include "reports/RaidsEndedFormatter.h"
 #include "reports/ClanwarsLeagueRoundEndedFormatter.h"
 #include "reports/ClanwarEndedFormatter.h"
 
-#include "notifications/telegramNotifier.h"
-#include "notifications/notificationService.h"
+#include "notifications/TelegramNotifier.h"
+#include "notifications/NotificationService.h"
 
 std::atomic g_shutdown_requested{false};
 
@@ -129,6 +129,7 @@ int main(const int argc, char* argv[])
         auto telegramNotifier = TelegramNotifier(std::move(config.telegramToken));
         PlayerJoinedFormatter playerJoinedFormatter(db.clans());
         PlayerLeftFormatter playerLeftFormatter(db.clans());
+        PlayerRoleChangedFormatter playerRoleChangedFormatter(db.clans());
         RaidsEndedFormatter raidsEndedFormatter(db.clans(), db.raids());
         ClanwarEndedFormatter clanwarEndedFormatter(db.war());
         ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(db.leagueWar(), db.war());
@@ -139,6 +140,7 @@ int main(const int argc, char* argv[])
             std::move(telegramNotifier),
             playerJoinedFormatter,
             playerLeftFormatter,
+            playerRoleChangedFormatter,
             raidsEndedFormatter,
             clanwarEndedFormatter,
             clanwarsLeagueRoundEndedFormatter

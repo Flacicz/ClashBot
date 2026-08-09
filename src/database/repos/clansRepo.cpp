@@ -1,5 +1,5 @@
-﻿#include "database/repos/clansRepo.h"
-#include "database/sqliteHelpers.h"
+#include "database/repos/ClansRepo.h"
+#include "database/SQLiteHelpers.h"
 #include <fmt/format.h>
 
 ClansRepo::ClansRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))

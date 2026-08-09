@@ -1,6 +1,6 @@
 #ifndef CLASHBOT_TRANSACTIONGUARD_H
 #define CLASHBOT_TRANSACTIONGUARD_H
-#include "database.h"
+#include "Database.h"
 
 class TransactionGuard
 {

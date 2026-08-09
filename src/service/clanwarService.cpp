@@ -1,4 +1,4 @@
-﻿#include "service/clanwarService.h"
+#include "service/ClanwarService.h"
 #include "database/TransactionGuard.h"
 
 #include <spdlog/spdlog.h>

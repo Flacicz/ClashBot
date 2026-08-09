@@ -315,6 +315,26 @@ struct RaidSlacker
     std::string playerTag;
     std::string playerName;
     int attacksCount;
+    int bonusAttacks;
+};
+
+struct RaidStats
+{
+    int totalLoot;
+    int raidsCompleted;
+    int totalAttacks;
+    int enemyDistrictsDestroyed;
+    int offensiveReward;
+    int defensiveReward;
+};
+
+struct RaidMemberStats
+{
+    std::string playerTag;
+    std::string playerName;
+    int attacksCount;
+    int bonusAttacks;
+    int totalLoot;
 };
 
 struct RaidReportData
@@ -322,7 +342,9 @@ struct RaidReportData
     std::string clanTag;
     std::string clanName;
 
-    std::vector<RaidSlacker> raidSlackers;
+    RaidStats stats;
+    std::vector<RaidMemberStats> bestMembers;
+    std::vector<RaidSlacker> slackers;
 };
 
 struct ClanwarSlacker

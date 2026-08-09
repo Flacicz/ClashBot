@@ -4,7 +4,7 @@
 #include <string>
 #include <variant>
 
-#include "models/models.h"
+#include "models/Models.h"
 
 struct PlayerJoinedClanEvent
 {

@@ -7,7 +7,7 @@
 #include <fmt/format.h>
 
 #include "core/Exceptions.h"
-#include "database/sqliteHelpers.h"
+#include "database/SQLiteHelpers.h"
 
 sqlite::SQLiteStmt sqlite::prepare(sqlite3* db, const std::string_view sql)
 {

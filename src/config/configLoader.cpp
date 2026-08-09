@@ -2,7 +2,7 @@
 #include <nlohmann/json.hpp>
 #include <nlohmann/json_fwd.hpp>
 
-#include "config/config.h"
+#include "config/Config.h"
 
 AppConfig loadConfig(const std::string& path)
 {

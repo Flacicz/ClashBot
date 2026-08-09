@@ -1,4 +1,4 @@
-#include "notifications/telegramNotifier.h"
+#include "notifications/TelegramNotifier.h"
 
 #include <cpr/api.h>
 #include <cpr/response.h>

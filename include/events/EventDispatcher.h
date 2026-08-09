@@ -1,6 +1,6 @@
 #ifndef CLASHBOT_EVENTDISPATCHER_H
 #define CLASHBOT_EVENTDISPATCHER_H
-#include "notifications/notificationService.h"
+#include "notifications/NotificationService.h"
 
 class EventDispatcher
 {

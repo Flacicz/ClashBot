@@ -21,27 +21,27 @@ endif ()
 
 add_executable(${PROJECT_NAME}
         src/main.cpp
-        src/api/apiclient.cpp
-        src/config/configLoader.cpp
-        src/database/database.cpp
-        src/database/repos/clansRepo.cpp
+        src/api/APIClient.cpp
+        src/config/ConfigLoader.cpp
+        src/database/Database.cpp
+        src/database/repos/ClansRepo.cpp
         src/database/repos/ClanwarRepo.cpp
-        src/database/repos/raidRepo.cpp
+        src/database/repos/RaidRepo.cpp
         src/database/repos/ClanwarsLeagueRepo.cpp
-        src/models/models.cpp
-        src/service/clanManager.cpp
-        src/service/clanInfoService.cpp
-        src/service/raidService.cpp
-        src/service/clanwarService.cpp
-        src/service/clanwarLeagueService.cpp
-        src/notifications/telegramNotifier.cpp
+        src/models/Models.cpp
+        src/service/ClanManager.cpp
+        src/service/ClanInfoService.cpp
+        src/service/RaidService.cpp
+        src/service/ClanwarService.cpp
+        src/service/ClanwarLeagueService.cpp
+        src/notifications/TelegramNotifier.cpp
         src/reports/RaidsEndedFormatter.cpp
         src/common/SyncResult.cpp
-        src/notifications/notificationService.cpp
+        src/notifications/NotificationService.cpp
         src/reports/ClanwarEndedFormatter.cpp
         src/reports/ClanwarsLeagueRoundEndedFormatter.cpp
         src/reports/WarReportParts.cpp
-        src/database/migratorManager.cpp
+        src/database/MigratorManager.cpp
         src/common/TimeParser.cpp
         src/database/repos/SubscriptionRepo.cpp
         src/events/EventDispatcher.cpp

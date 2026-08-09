@@ -3,8 +3,10 @@
 //
 
 #include "reports/PlayerLeftFormatter.h"
-#include "common/StringUtils.h"
+
 #include <fmt/format.h>
+
+#include "common/StringUtils.h"
 
 PlayerLeftFormatter::PlayerLeftFormatter(ClansRepo& clansRepo) : clansRepo(clansRepo)
 {
@@ -12,15 +14,12 @@ PlayerLeftFormatter::PlayerLeftFormatter(ClansRepo& clansRepo) : clansRepo(clans
 
 std::string PlayerLeftFormatter::format(const PlayerLeftClanEvent& event) const
 {
-    std::string message = fmt::format(
-        "🔔 <b>Обновление состава клана {}(<code>{}</code>)</b>\n\n",
+    return fmt::format(
+        "🔴 <b>Игрок покинул клан</b>\n\n"
+        "Клан: {} (<code>{}</code>)\n"
+        "Игрок: {} (<code>{}</code>)",
         utils::escapeHTML(clansRepo.getClanNameByTag(event.clanTag)),
-        utils::escapeHTML(event.clanTag));
-
-    message += fmt::format(
-        "• Игрок {}(<code>{}</code>) покинул клан.\n",
+        utils::escapeHTML(event.clanTag),
         utils::escapeHTML(event.playerName),
         utils::escapeHTML(event.playerTag));
-
-    return message;
 }

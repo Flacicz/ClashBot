@@ -3,8 +3,10 @@
 //
 
 #include "reports/PlayerJoinedFormatter.h"
-#include "common/StringUtils.h"
+
 #include <fmt/format.h>
+
+#include "common/StringUtils.h"
 
 PlayerJoinedFormatter::PlayerJoinedFormatter(ClansRepo& clansRepo) : clansRepo(clansRepo)
 {
@@ -12,15 +14,12 @@ PlayerJoinedFormatter::PlayerJoinedFormatter(ClansRepo& clansRepo) : clansRepo(c
 
 std::string PlayerJoinedFormatter::format(const PlayerJoinedClanEvent& event) const
 {
-    std::string message = fmt::format(
-        "🔔 <b>Обновление состава клана {}(<code>{}</code>)</b>\n\n",
+    return fmt::format(
+        "🟢 <b>Игрок присоединился к клану</b>\n\n"
+        "Клан: {} (<code>{}</code>)\n"
+        "Игрок: {} (<code>{}</code>)",
         utils::escapeHTML(clansRepo.getClanNameByTag(event.clanTag)),
-        utils::escapeHTML(event.clanTag));
-
-    message += fmt::format(
-        "• Игрок {}(<code>{}</code>) присоединился к клану.\n",
+        utils::escapeHTML(event.clanTag),
         utils::escapeHTML(event.playerName),
         utils::escapeHTML(event.playerTag));
-
-    return message;
 }

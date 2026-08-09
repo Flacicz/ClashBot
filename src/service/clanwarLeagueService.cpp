@@ -1,4 +1,4 @@
-﻿#include <service/clanwarLeagueService.h>
+#include <service/ClanwarLeagueService.h>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>

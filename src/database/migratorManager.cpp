@@ -1,5 +1,5 @@
-#include "database/migratorManager.h"
-#include "database/sqliteHelpers.h"
+#include "database/MigratorManager.h"
+#include "database/SQLiteHelpers.h"
 
 #include <spdlog/spdlog.h>
 #include <fstream>

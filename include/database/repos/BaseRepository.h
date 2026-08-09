@@ -12,7 +12,7 @@
 #include <fmt/format.h>
 
 #include "core/Exceptions.h"
-#include "database/sqliteHelpers.h"
+#include "database/SQLiteHelpers.h"
 
 class BaseRepository
 {

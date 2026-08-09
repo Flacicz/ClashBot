@@ -1,7 +1,7 @@
 #ifndef CLASHBOT_MIGRATORMANAGER_H
 #define CLASHBOT_MIGRATORMANAGER_H
 #include <filesystem>
-#include "database.h"
+#include "Database.h"
 
 class Database;
 

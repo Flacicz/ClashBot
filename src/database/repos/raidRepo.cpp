@@ -1,9 +1,24 @@
-﻿#include "database/repos/raidRepo.h"
-#include "database/sqliteHelpers.h"
+#include "database/repos/RaidRepo.h"
+
+#include <string>
+#include <string_view>
+
 #include <fmt/format.h>
+
+#include "database/SQLiteHelpers.h"
 
 RaidRepo::RaidRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))
 {
+}
+
+long long RaidRepo::saveCompleteRaidData(const ClanRaid& clanRaid,
+                                         const std::vector<PlayerRaidSnapshot>& playerRaidSnapshots) const
+{
+    const long long raidId = saveRaid(clanRaid);
+
+    saveRaidPlayerSnapshots(raidId, playerRaidSnapshots);
+
+    return raidId;
 }
 
 long long RaidRepo::saveRaid(const ClanRaid& clanRaid) const
@@ -38,7 +53,7 @@ long long RaidRepo::saveRaid(const ClanRaid& clanRaid) const
     );
 }
 
-void RaidRepo::saveRaidPlayerSnapshots(const long long raidId,
+void RaidRepo::saveRaidPlayerSnapshots(long long raidId,
                                        const std::vector<PlayerRaidSnapshot>& members) const
 {
     if (members.empty()) return;
@@ -63,25 +78,81 @@ void RaidRepo::saveRaidPlayerSnapshots(const long long raidId,
     }
 }
 
-long long RaidRepo::saveCompleteRaidData(const ClanRaid& clanRaid,
-                                         const std::vector<PlayerRaidSnapshot>& playerRaidSnapshots) const
+RaidStats RaidRepo::getRaidStats(long long raidId) const
 {
-    const long long raidId = saveRaid(clanRaid);
+    static constexpr std::string_view sql = R"(
+        SELECT total_loot, raids_completed, total_attacks,
+               enemy_districts_destroyed, offensive_reward, defensive_reward
+        FROM clan_raids
+        WHERE id = ?;
+    )";
 
-    saveRaidPlayerSnapshots(raidId, playerRaidSnapshots);
+    auto mapper = [](sqlite3_stmt* stmt) -> RaidStats
+    {
+        return RaidStats{
+            .totalLoot = sqlite::getInt(stmt, 0),
+            .raidsCompleted = sqlite::getInt(stmt, 1),
+            .totalAttacks = sqlite::getInt(stmt, 2),
+            .enemyDistrictsDestroyed = sqlite::getInt(stmt, 3),
+            .offensiveReward = sqlite::getInt(stmt, 4),
+            .defensiveReward = sqlite::getInt(stmt, 5)
+        };
+    };
 
-    return raidId;
+    return queryOne<RaidStats>(sql, "load raid stats",
+                               fmt::format("raid_id = {}", raidId),
+                               mapper,
+                               raidId);
 }
 
-std::vector<RaidSlacker> RaidRepo::getRaidSlackers(const long long raidId, const std::string_view clanTag) const
+std::vector<RaidMemberStats> RaidRepo::getBestRaidMembers(long long raidId) const
+{
+    static constexpr std::string_view sql = R"(
+        SELECT
+            prs.player_tag,
+            p.name,
+            prs.attacks_count,
+            prs.bonus_attacks,
+            prs.total_loot
+        FROM player_raid_snapshots AS prs
+        JOIN players AS p
+            ON p.tag = prs.player_tag
+        WHERE prs.raid_id = ?
+        ORDER BY
+            prs.total_loot DESC,
+            prs.player_tag ASC
+        LIMIT 3;
+    )";
+
+    auto mapper = [](sqlite3_stmt* stmt) -> RaidMemberStats
+    {
+        return RaidMemberStats{
+            .playerTag = sqlite::getString(stmt, 0),
+            .playerName = sqlite::getString(stmt, 1),
+            .attacksCount = sqlite::getInt(stmt, 2),
+            .bonusAttacks = sqlite::getInt(stmt, 3),
+            .totalLoot = sqlite::getInt(stmt, 4)
+        };
+    };
+
+    return query<RaidMemberStats>(sql, "load raid best members",
+                                  fmt::format("raid_id = {}", raidId),
+                                  mapper,
+                                  raidId);
+}
+
+std::vector<RaidSlacker> RaidRepo::getRaidSlackers(long long raidId, std::string_view clanTag) const
 {
     static constexpr std::string_view sql = R"(
         SELECT
             p.tag,
             p.name,
-            COALESCE(s.attacks_count, 0) as attacks_done
-        FROM players p
-        LEFT JOIN player_raid_snapshots s ON p.tag = s.player_tag AND s.raid_id = ?
+            COALESCE(s.attacks_count, 0) AS attacks_done,
+            COALESCE(s.bonus_attacks, 0) AS bonus_attacks
+        FROM players AS p
+        LEFT JOIN player_raid_snapshots AS s
+            ON p.tag = s.player_tag
+           AND s.raid_id = ?
         WHERE p.clan_tag = ?
         ORDER BY attacks_done ASC, p.name ASC;
     )";
@@ -92,6 +163,7 @@ std::vector<RaidSlacker> RaidRepo::getRaidSlackers(const long long raidId, const
             .playerTag = sqlite::getString(stmt, 0),
             .playerName = sqlite::getString(stmt, 1),
             .attacksCount = sqlite::getInt(stmt, 2),
+            .bonusAttacks = sqlite::getInt(stmt, 3),
         };
     };
 

@@ -5,7 +5,7 @@
 
 #include <fmt/format.h>
 
-#include "database/sqliteHelpers.h"
+#include "database/SQLiteHelpers.h"
 
 ClanwarsLeagueRepo::ClanwarsLeagueRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))
 {

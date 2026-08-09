@@ -1,6 +1,6 @@
 #pragma once
 
-#include "models/models.h"
+#include "models/Models.h"
 #include <sqlite3.h>
 
 #include "BaseRepository.h"

@@ -4,7 +4,7 @@
 #include <string_view>
 #include <utility>
 
-#include "database/sqliteHelpers.h"
+#include "database/SQLiteHelpers.h"
 
 ClanwarRepo::ClanwarRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))
 {

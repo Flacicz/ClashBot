@@ -1,5 +1,5 @@
 #include "database/repos/SubscriptionRepo.h"
-#include "database/sqliteHelpers.h"
+#include "database/SQLiteHelpers.h"
 #include <fmt/format.h>
 
 SubscriptionRepo::SubscriptionRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))
