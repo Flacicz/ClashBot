@@ -192,10 +192,9 @@ Clash of Clans Analytics Bot — это автономное серверное 
 
 Отчетные модели:
 
-* ClanReportData
 * RaidReportData
 * ClanwarReportData
-* ClanwarsLeagueReportData
+* ClanwarsLeagueRoundReportData
 
 Каждая сущность отвечает за парсинг собственных данных из JSON через статические методы fromJson() или parse().
 
@@ -344,7 +343,10 @@ Clash of Clans Analytics Bot — это автономное серверное 
 * PlayerLeftClanEvent
 * PlayerRoleChangedEvent
 * WarEndedEvent
-* RaidEndedEvent
+* RaidsEndedEvent
+* ClanwarsLeagueRoundEndedEvent
+* SyncFailureEvent
+* SyncRecoveryEvent
 
 Все события являются простыми структурами данных и объединены в тип `std::variant`, что обеспечивает строгую типизацию без использования наследования и RTTI.
 
@@ -360,10 +362,6 @@ Clash of Clans Analytics Bot — это автономное серверное 
 
 Слой отчетов отвечает исключительно за преобразование Domain Events в человекочитаемые сообщения.
 
-Базовый интерфейс:
-
-* `IReportFormatter`
-
 Каждый форматтер отвечает только за:
 
 * получение конкретного Domain Event;
@@ -374,11 +372,16 @@ Clash of Clans Analytics Bot — это автономное серверное 
 
 Каждый тип события имеет собственный форматтер, например:
 
-* PlayerJoinedClanFormatter
-* PlayerLeftClanFormatter
+* PlayerJoinedFormatter
+* PlayerLeftFormatter
 * PlayerRoleChangedFormatter
-* WarEndedFormatter
-* RaidEndedFormatter
+* ClanwarEndedFormatter
+* ClanwarsLeagueRoundEndedFormatter
+* RaidsEndedFormatter
+* SystemAlertReportFormatter
+
+Общие части отчётов о войнах и раундах CWL вынесены в `WarReportParts`: результат, статистика и распределение атак,
+лучшие атаки и нарушения зеркальной системы.
 
 Такое разделение позволяет независимо расширять список событий и отчетов без изменения существующей архитектуры.
 
