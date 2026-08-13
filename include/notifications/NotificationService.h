@@ -1,9 +1,7 @@
 #ifndef CLASHBOT_NOTIFICATIONSERVICE_H
 #define CLASHBOT_NOTIFICATIONSERVICE_H
-#include <memory>
 
 #include "TelegramNotifier.h"
-#include "common/SyncResult.h"
 #include "database/Database.h"
 #include "reports/ClanwarEndedFormatter.h"
 #include "reports/ClanwarsLeagueRoundEndedFormatter.h"
@@ -48,6 +46,7 @@ public:
     void handleEvent(const ClanwarsLeagueRoundEndedEvent& event) const;
     void handleEvent(const SyncFailureEvent& event) const;
     void handleEvent(const SyncRecoveryEvent& event) const;
+    void handleEvent(const WarReminderEvent& event) const;
 };
 
 

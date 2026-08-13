@@ -17,8 +17,16 @@ class NotificationRepo : public BaseRepository
 public:
     explicit NotificationRepo(sqlite3* db);
 
-    [[nodiscard]] bool wasSent(std::string_view eventType, std::string_view eventId, long long chatId) const;
-    void markAsSent(std::string_view eventType, std::string_view eventId, long long chatId) const;
+    [[nodiscard]] bool wasSent(
+        std::string_view eventType,
+        std::string_view eventId,
+        long long chatId,
+        long long messageThreadId) const;
+    void markAsSent(
+        std::string_view eventType,
+        std::string_view eventId,
+        long long chatId,
+        long long messageThreadId) const;
 };
 
 #endif //CLASHBOT_NOTIFICATIONSREPO_H

@@ -8,6 +8,7 @@ namespace utils
 {
     std::string extractTime(const nlohmann::json& j, std::string_view key);
     long long parseISOToUnix(std::string_view iso);
+    std::string formatUnixToLocalDateTime(long long timestamp);
 }
 
 

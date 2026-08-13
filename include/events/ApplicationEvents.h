@@ -2,6 +2,7 @@
 #define CLASHBOT_DOMAINEVENTS_H
 
 #include <string>
+#include <string_view>
 #include <variant>
 
 #include "models/Models.h"
@@ -83,6 +84,42 @@ struct SyncRecoveryEvent
     std::string serviceName;
 };
 
+struct WarReminderEvent
+{
+    enum class WarReminderKind
+    {
+        Started,
+        SixHoursLeft,
+        OneHourLeft
+    };
+
+    std::string clanTag;
+    long long warId;
+    long long endTime;
+    WarReminderKind kind;
+
+    static constexpr auto Type = "war_reminder";
+
+    [[nodiscard]] static std::string_view kindName(const WarReminderKind& kind)
+    {
+        switch (kind)
+        {
+        case WarReminderKind::Started:
+            return "started";
+        case WarReminderKind::SixHoursLeft:
+            return "six_hours_left";
+        case WarReminderKind::OneHourLeft:
+            return "one_hour_left";
+        }
+        return "unknown";
+    }
+
+    [[nodiscard]] std::string key() const
+    {
+        return std::to_string(warId) + ":" + std::string(kindName(kind));
+    }
+};
+
 using ApplicationEvent = std::variant<
     PlayerJoinedClanEvent,
     PlayerLeftClanEvent,
@@ -91,7 +128,8 @@ using ApplicationEvent = std::variant<
     RaidsEndedEvent,
     ClanwarsLeagueRoundEndedEvent,
     SyncFailureEvent,
-    SyncRecoveryEvent
+    SyncRecoveryEvent,
+    WarReminderEvent
 >;
 
 #endif //CLASHBOT_DOMAINEVENTS_H

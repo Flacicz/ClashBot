@@ -10,8 +10,11 @@ NotificationRepo::NotificationRepo(sqlite3* db) : BaseRepository(db, std::string
 {
 }
 
-bool NotificationRepo::wasSent(const std::string_view eventType, const std::string_view eventId,
-                               const long long chatId) const
+bool NotificationRepo::wasSent(
+    const std::string_view eventType,
+    const std::string_view eventId,
+    const long long chatId,
+    const long long messageThreadId) const
 {
     static constexpr std::string_view sql = R"(
         SELECT EXISTS (
@@ -20,6 +23,7 @@ bool NotificationRepo::wasSent(const std::string_view eventType, const std::stri
             WHERE event_type = ?
               AND event_id = ?
               AND chat_id = ?
+              AND message_thread_id = ?
         );
     )";
 
@@ -29,22 +33,26 @@ bool NotificationRepo::wasSent(const std::string_view eventType, const std::stri
     };
 
     return queryOne<bool>(sql, "load notification",
-                          fmt::format("entity_type = {}, entity_id = {}, chat_id = {}",
-                                      eventType, eventId, chatId),
+                          fmt::format("entity_type = {}, entity_id = {}, chat_id = {}, message_thread_id = {}",
+                                      eventType, eventId, chatId, messageThreadId),
                           mapper,
-                          eventType, eventId, chatId);
+                          eventType, eventId, chatId, messageThreadId);
 }
 
-void NotificationRepo::markAsSent(const std::string_view eventType, const std::string_view eventId,
-                                  const long long chatId) const
+void NotificationRepo::markAsSent(
+    const std::string_view eventType,
+    const std::string_view eventId,
+    const long long chatId,
+    const long long messageThreadId) const
 {
     static constexpr std::string_view sql = R"(
-        INSERT OR IGNORE INTO notifications (event_type, event_id, chat_id)
-        VALUES (?, ?, ?);
+        INSERT OR IGNORE INTO notifications
+            (event_type, event_id, chat_id, message_thread_id)
+        VALUES (?, ?, ?, ?);
     )";
 
     execute(sql, "save notification",
-            fmt::format("entity_type = {}, entity_id = {}, chat_id = {}",
-                        eventType, eventId, chatId),
-            eventType, eventId, chatId);
+            fmt::format("entity_type = {}, entity_id = {}, chat_id = {}, message_thread_id = {}",
+                        eventType, eventId, chatId, messageThreadId),
+            eventType, eventId, chatId, messageThreadId);
 }

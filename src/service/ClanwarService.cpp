@@ -1,6 +1,7 @@
 #include "service/ClanwarService.h"
 #include "database/TransactionGuard.h"
 
+#include <chrono>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
@@ -21,11 +22,45 @@ std::string ClanwarService::getServiceName() const
 }
 
 std::vector<ApplicationEvent> ClanwarService::generateEvents(const std::string_view clanTag, const std::string& state,
+                                                             const Clanwar& clanwar,
                                                              const InsertedWarResult& insertedWarResult)
 {
     std::vector<ApplicationEvent> events;
 
-    if (state == "ended")
+    const auto now = std::chrono::system_clock::to_time_t(
+        std::chrono::system_clock::now());
+
+    if (now >= clanwar.startTime && now < clanwar.endTime)
+    {
+        events.emplace_back(WarReminderEvent{
+            .clanTag = std::string(clanTag),
+            .warId = insertedWarResult.warId,
+            .endTime = clanwar.endTime,
+            .kind = WarReminderEvent::WarReminderKind::Started
+        });
+    }
+
+    if (now >= clanwar.endTime - 6 * 60 * 60 && now < clanwar.endTime)
+    {
+        events.emplace_back(WarReminderEvent{
+            .clanTag = std::string(clanTag),
+            .warId = insertedWarResult.warId,
+            .endTime = clanwar.endTime,
+            .kind = WarReminderEvent::WarReminderKind::SixHoursLeft
+        });
+    }
+
+    if (now >= clanwar.endTime - 60 * 60 && now < clanwar.endTime)
+    {
+        events.emplace_back(WarReminderEvent{
+            .clanTag = std::string(clanTag),
+            .warId = insertedWarResult.warId,
+            .endTime = clanwar.endTime,
+            .kind = WarReminderEvent::WarReminderKind::OneHourLeft
+        });
+    }
+
+    if (state == "warEnded")
     {
         events.emplace_back(
             WarEndedEvent(std::string(clanTag), insertedWarResult)
@@ -78,7 +113,7 @@ SyncResult ClanwarService::updateData(std::string_view tag)
         const auto warResult = clanwar_repo_.saveCompleteClanwarData(clanwar, clans, attacks, members);
         if (warResult.warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
 
-        syncResult.events = generateEvents(tag, clanwar.state, warResult);
+        syncResult.events = generateEvents(tag, clanwar.state, clanwar, warResult);
         syncResult.successFlag = true;
         syncResult.serviceName = svc;
         syncResult.clanTag = tag;

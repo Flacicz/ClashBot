@@ -11,7 +11,10 @@ TelegramNotifier::TelegramNotifier(std::string token)
 {
 }
 
-bool TelegramNotifier::sendMessage(const std::string& message, long long chatId) const
+bool TelegramNotifier::sendMessage(
+    const std::string& message,
+    const long long chatId,
+    const long long messageThreadId) const
 {
     if (botToken.empty())
     {
@@ -24,11 +27,16 @@ bool TelegramNotifier::sendMessage(const std::string& message, long long chatId)
 
     const std::string url = "https://api.telegram.org/bot" + botToken + "/sendMessage";
 
-    const nlohmann::json jsonBody = {
+    nlohmann::json jsonBody = {
         {"chat_id", chatId},
         {"text", message},
         {"parse_mode", "HTML"}
     };
+
+    if (messageThreadId > 0)
+    {
+        jsonBody["message_thread_id"] = messageThreadId;
+    }
 
     cpr::Response response = cpr::Post(
         cpr::Url{url},

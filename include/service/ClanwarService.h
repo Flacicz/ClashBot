@@ -12,7 +12,8 @@ class ClanwarService : public ISyncService
     TransactionManager& transaction_manager_;
 
     static std::vector<ApplicationEvent> generateEvents(std::string_view clanTag, const std::string& state,
-                                                   const InsertedWarResult& insertedWarResult);
+                                                        const Clanwar& clanwar,
+                                                        const InsertedWarResult& insertedWarResult);
 
 public:
     ClanwarService(ClanwarRepo& clanwar_repo,

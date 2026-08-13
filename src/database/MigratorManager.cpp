@@ -93,7 +93,7 @@ bool MigratorManager::migrate(const std::string& migrationsPath) const
         {
             applyMigration(version, file);
         }
-        catch (const DatabaseException& e)
+        catch (const DatabaseException&)
         {
             return false;
         }

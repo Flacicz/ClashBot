@@ -9,5 +9,8 @@ class TelegramNotifier
 public:
     explicit TelegramNotifier(std::string token);
 
-    [[nodiscard]] bool sendMessage(const std::string& message, long long chatId) const;
+    [[nodiscard]] bool sendMessage(
+        const std::string& message,
+        long long chatId,
+        long long messageThreadId = 0) const;
 };

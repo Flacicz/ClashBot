@@ -5,6 +5,8 @@
 #include <iomanip>
 #include <sstream>
 
+#include <fmt/chrono.h>
+
 std::string utils::extractTime(const nlohmann::json& j, const std::string_view key)
 {
     if (!j.contains(key)) return {};
@@ -18,17 +20,42 @@ std::string utils::extractTime(const nlohmann::json& j, const std::string_view k
 
 long long utils::parseISOToUnix(const std::string_view iso)
 {
-    std::istringstream ss{std::string(iso)};
-    std::tm tm = {};
+    std::string value(iso);
 
-    // Парсим строку формата "20260530T193939" в структуру tm
+    if (const auto dot = value.find('.'); dot != std::string::npos)
+    {
+        value.resize(dot);
+    }
+
+    if (!value.empty() && value.back() == 'Z')
+    {
+        value.pop_back();
+    }
+
+    std::tm tm{};
+    std::istringstream ss(value);
     ss >> std::get_time(&tm, "%Y%m%dT%H%M%S");
 
     if (ss.fail()) return 0;
 
-    // Конвертируем std::tm в time_t (Unix timestamp)
-    const std::time_t tt = std::mktime(&tm);
-    if (tt == -1) return 0;
+#ifdef _WIN32
+    const auto timestamp = _mkgmtime(&tm);
+#else
+    const auto timestamp = timegm(&tm);
+#endif
 
-    return tt;
+    return timestamp == -1 ? 0 : static_cast<long long>(timestamp);
+}
+
+std::string utils::formatUnixToLocalDateTime(const long long timestamp)
+{
+    if (timestamp <= 0) return "неизвестно";
+
+    const auto utcTime = std::chrono::system_clock::from_time_t(timestamp);
+
+    const auto moscowTime = utcTime + std::chrono::hours{3};
+
+    return fmt::format(
+        "{:%d.%m.%Y %H:%M}",
+        moscowTime);
 }

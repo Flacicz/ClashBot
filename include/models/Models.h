@@ -33,6 +33,12 @@ struct Clan
     static Clan fromJson(const nlohmann::json& j);
 };
 
+struct TelegramDestination
+{
+    long long chatId;
+    long long messageThreadId;
+};
+
 struct Player
 {
     std::string tag;
