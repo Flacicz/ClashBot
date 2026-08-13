@@ -1,7 +1,9 @@
 #include <service/ClanwarLeagueService.h>
+#include <chrono>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "common/StringUtils.h"
 #include "database/TransactionGuard.h"
@@ -22,6 +24,54 @@ std::string ClanwarLeagueService::getServiceName() const
     return "ClanwarLeagueService";
 }
 
+std::vector<ApplicationEvent> ClanwarLeagueService::generateEvents(
+    const std::string_view clanTag,
+    const long long cwlSeasonId,
+    const Clanwar& war,
+    const InsertedWarResult& warResult)
+{
+    std::vector<ApplicationEvent> events;
+
+    const auto now = std::chrono::system_clock::to_time_t(
+        std::chrono::system_clock::now());
+
+    const auto addReminder = [&events, clanTag, warId = warResult.warId, endTime = war.endTime]
+    (const WarReminderEvent::WarReminderKind kind)
+    {
+        events.emplace_back(WarReminderEvent{
+            .clanTag = std::string(clanTag),
+            .warId = warId,
+            .endTime = endTime,
+            .warKind = WarReminderEvent::WarKind::CWL,
+            .kind = kind
+        });
+    };
+
+    if (now >= war.startTime && now < war.endTime)
+    {
+        addReminder(WarReminderEvent::WarReminderKind::Started);
+    }
+
+    if (now >= war.endTime - 6 * 60 * 60 && now < war.endTime)
+    {
+        addReminder(WarReminderEvent::WarReminderKind::SixHoursLeft);
+    }
+
+    if (now >= war.endTime - 60 * 60 && now < war.endTime)
+    {
+        addReminder(WarReminderEvent::WarReminderKind::OneHourLeft);
+    }
+
+    if (war.state == "warEnded")
+    {
+        events.emplace_back(
+            ClanwarsLeagueRoundEndedEvent(std::string(clanTag), cwlSeasonId, warResult)
+        );
+    }
+
+    return events;
+}
+
 SyncResult ClanwarLeagueService::updateData(std::string_view tag)
 {
     auto svc = getServiceName();
@@ -37,7 +87,6 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
         return SyncResult::error(getServiceName(), std::string(tag), std::move(detailedError));
     }
 
-    SyncResult syncResult;
     if (status == LeagueFetchStatus::NoActiveLeague)
     {
         spdlog::info(
@@ -45,8 +94,7 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
             svc,
             tag);
 
-        syncResult.successFlag = true;
-        return syncResult;
+        return SyncResult::success(svc, std::string(tag));
     }
 
     if (!completeClanwarsLeagueData.has_value())
@@ -61,7 +109,10 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
 
     try
     {
+        SyncResult syncResult;
         auto transaction = transaction_manager_.beginTransaction();
+
+        std::vector<ApplicationEvent> events;
 
         const long long lastCWLId = clanwars_league_repo_.saveCompleteCWLData(
             clanwarsLeagueSeason, clanwarsLeagueMembers);
@@ -75,13 +126,11 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
                 war.roundNumber = roundNumber++;
 
                 auto warResult = clanwar_repo_.saveCompleteClanwarData(war, clans, attacks, members);
-                if (warResult.warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
 
-                if (war.state == "warEnded")
+                auto roundEvents = generateEvents(tag, lastCWLId, war, warResult);
+                for (auto& event : roundEvents)
                 {
-                    syncResult.events.emplace_back(
-                        ClanwarsLeagueRoundEndedEvent(std::string(tag), lastCWLId, warResult)
-                    );
+                    events.emplace_back(std::move(event));
                 }
             }
             catch (const std::exception& e)
@@ -94,9 +143,7 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
             }
         }
 
-        syncResult.successFlag = true;
-        syncResult.serviceName = svc;
-        syncResult.clanTag = tag;
+        syncResult = SyncResult::success(svc, std::string(tag), std::move(events));
 
         transaction.commit();
 

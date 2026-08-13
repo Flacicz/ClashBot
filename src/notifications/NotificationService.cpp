@@ -2,6 +2,7 @@
 #include <spdlog/spdlog.h>
 
 #include "reports/SystemAlertReportFormatter.h"
+#include "reports/RaidReminderFormatter.h"
 #include "reports/WarReminderFormatter.h"
 
 NotificationService::NotificationService(NotificationRepo& notification_repo,
@@ -209,13 +210,19 @@ void NotificationService::handleEvent(const WarReminderEvent& event) const
     switch (event.kind)
     {
     case WarReminderEvent::WarReminderKind::Started:
-        message = WarReminderFormatter::formatStartOfWarReminder(event);
+        message = event.warKind == WarReminderEvent::WarKind::CWL
+                      ? WarReminderFormatter::formatStartOfCwlReminder(event)
+                      : WarReminderFormatter::formatStartOfWarReminder(event);
         break;
     case WarReminderEvent::WarReminderKind::SixHoursLeft:
-        message = WarReminderFormatter::formatSixHoursLeftReminder(event);
+        message = event.warKind == WarReminderEvent::WarKind::CWL
+                      ? WarReminderFormatter::formatSixHoursLeftCwlReminder(event)
+                      : WarReminderFormatter::formatSixHoursLeftReminder(event);
         break;
     case WarReminderEvent::WarReminderKind::OneHourLeft:
-        message = WarReminderFormatter::formatOneHourLeftReminder(event);
+        message = event.warKind == WarReminderEvent::WarKind::CWL
+                      ? WarReminderFormatter::formatOneHourLeftCwlReminder(event)
+                      : WarReminderFormatter::formatOneHourLeftReminder(event);
         break;
     }
 
@@ -232,11 +239,58 @@ void NotificationService::handleEvent(const WarReminderEvent& event) const
 
         if (!telegramNotifier.sendMessage(message, destination.chatId, destination.messageThreadId))
         {
-            spdlog::error("[NotificationService] Failed to send WarRemainderEvent message. ClanTag - {}, Chat ID - {}",
+            spdlog::error("[NotificationService] Failed to send WarReminderEvent message. ClanTag - {}, Chat ID - {}",
                           event.clanTag, destination.chatId);
         }
 
         notification_repo_.markAsSent(WarReminderEvent::Type,
+                                      event.key(),
+                                      destination.chatId,
+                                      destination.messageThreadId);
+    }
+}
+
+void NotificationService::handleEvent(const RaidReminderEvent& event) const
+{
+    std::string message;
+
+    switch (event.kind)
+    {
+    case RaidReminderEvent::RaidReminderKind::Started:
+        message = RaidReminderFormatter::formatStartOfRaidReminder(event);
+        break;
+    case RaidReminderEvent::RaidReminderKind::FortyEightHoursLeft:
+        message = RaidReminderFormatter::formatFortyEightHoursLeftReminder(event);
+        break;
+    case RaidReminderEvent::RaidReminderKind::TwentyFourHoursLeft:
+        message = RaidReminderFormatter::formatTwentyFourHoursLeftReminder(event);
+        break;
+    case RaidReminderEvent::RaidReminderKind::SixHoursLeft:
+        message = RaidReminderFormatter::formatSixHoursLeftReminder(event);
+        break;
+    case RaidReminderEvent::RaidReminderKind::OneHourLeft:
+        message = RaidReminderFormatter::formatOneHourLeftReminder(event);
+        break;
+    }
+
+    const auto destinations =
+        subscription_repo_.getDestinationsForClan(event.clanTag);
+
+    for (const auto& destination : destinations)
+    {
+        if (notification_repo_.wasSent(RaidReminderEvent::Type,
+                                       event.key(),
+                                       destination.chatId,
+                                       destination.messageThreadId))
+            continue;
+
+        if (!telegramNotifier.sendMessage(message, destination.chatId, destination.messageThreadId))
+        {
+            spdlog::error("[NotificationService] Failed to send RaidReminderEvent message. ClanTag - {}, Chat ID - {}",
+                          event.clanTag, destination.chatId);
+        }
+
+        notification_repo_.markAsSent(RaidReminderEvent::Type,
                                       event.key(),
                                       destination.chatId,
                                       destination.messageThreadId);

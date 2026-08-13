@@ -12,6 +12,12 @@ class ClanwarLeagueService : public ISyncService
     APIClient& api_client_;
     TransactionManager& transaction_manager_;
 
+    static std::vector<ApplicationEvent> generateEvents(
+        std::string_view clanTag,
+        long long cwlSeasonId,
+        const Clanwar& war,
+        const InsertedWarResult& warResult);
+
 public:
     ClanwarLeagueService(ClanwarRepo& clanwar_repo_,
                          ClanwarsLeagueRepo& clanwars_league_repo_,

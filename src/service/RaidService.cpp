@@ -1,6 +1,7 @@
 #include "service/RaidService.h"
 #include "database/TransactionGuard.h"
 
+#include <chrono>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
@@ -29,12 +30,52 @@ void RaidService::ensurePlayersExist(const std::vector<PlayerRaidSnapshot>& play
     }
 }
 
-std::vector<ApplicationEvent> RaidService::generateEvents(const std::string_view clanTag, const std::string& state,
+std::vector<ApplicationEvent> RaidService::generateEvents(const std::string_view clanTag,
+                                                          const ClanRaid& clanRaid,
                                                           const long long raidId)
 {
     std::vector<ApplicationEvent> events;
 
-    if (state == "ended")
+    const auto now = std::chrono::system_clock::to_time_t(
+        std::chrono::system_clock::now());
+
+    const auto addReminder = [&events, clanTag, raidId, endTime = clanRaid.endTime]
+    (const RaidReminderEvent::RaidReminderKind kind)
+    {
+        events.emplace_back(RaidReminderEvent{
+            .clanTag = std::string(clanTag),
+            .raidId = raidId,
+            .endTime = endTime,
+            .kind = kind
+        });
+    };
+
+    if (now >= clanRaid.startTime && now < clanRaid.endTime)
+    {
+        addReminder(RaidReminderEvent::RaidReminderKind::Started);
+    }
+
+    if (now >= clanRaid.endTime - 48 * 60 * 60 && now < clanRaid.endTime)
+    {
+        addReminder(RaidReminderEvent::RaidReminderKind::FortyEightHoursLeft);
+    }
+
+    if (now >= clanRaid.endTime - 24 * 60 * 60 && now < clanRaid.endTime)
+    {
+        addReminder(RaidReminderEvent::RaidReminderKind::TwentyFourHoursLeft);
+    }
+
+    if (now >= clanRaid.endTime - 6 * 60 * 60 && now < clanRaid.endTime)
+    {
+        addReminder(RaidReminderEvent::RaidReminderKind::SixHoursLeft);
+    }
+
+    if (now >= clanRaid.endTime - 60 * 60 && now < clanRaid.endTime)
+    {
+        addReminder(RaidReminderEvent::RaidReminderKind::OneHourLeft);
+    }
+
+    if (clanRaid.state == "ended")
     {
         events.emplace_back(
             RaidsEndedEvent(std::string(clanTag), raidId)
@@ -70,10 +111,10 @@ SyncResult RaidService::updateData(std::string_view tag)
 
         const long long lastRaidId = raid_repo_.saveCompleteRaidData(clanRaid, playerRaidSnapshots);
 
-        syncResult.events = generateEvents(tag, clanRaid.state, lastRaidId);
-        syncResult.successFlag = true;
-        syncResult.serviceName = svc;
-        syncResult.clanTag = tag;
+        syncResult = SyncResult::success(
+            svc,
+            std::string(tag),
+            generateEvents(tag, clanRaid, lastRaidId));
 
         transaction.commit();
 

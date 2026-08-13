@@ -51,8 +51,8 @@ add_executable(${PROJECT_NAME}
         src/reports/PlayerRoleChangedFormatter.cpp
         src/database/SQLiteHelpers.cpp
         src/reports/SystemAlertReportFormatter.cpp
-        include/reports/WarReminderFormatter.h
         src/reports/WarReminderFormatter.cpp
+        src/reports/RaidReminderFormatter.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

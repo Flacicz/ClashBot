@@ -9,6 +9,7 @@
 #include "reports/PlayerLeftFormatter.h"
 #include "reports/PlayerRoleChangedFormatter.h"
 #include "reports/RaidsEndedFormatter.h"
+#include "reports/RaidReminderFormatter.h"
 
 
 class NotificationService
@@ -47,6 +48,7 @@ public:
     void handleEvent(const SyncFailureEvent& event) const;
     void handleEvent(const SyncRecoveryEvent& event) const;
     void handleEvent(const WarReminderEvent& event) const;
+    void handleEvent(const RaidReminderEvent& event) const;
 };
 
 

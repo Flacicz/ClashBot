@@ -2,6 +2,7 @@
 #define CLASHBOT_SYNCRESULT_H
 #include <string>
 #include <variant>
+#include <vector>
 
 #include "events/ApplicationEvents.h"
 
@@ -14,6 +15,9 @@ struct SyncResult
 
     std::vector<ApplicationEvent> events;
 
+    static SyncResult success(std::string service,
+                              std::string tag,
+                              std::vector<ApplicationEvent> events = {});
     static SyncResult error(std::string service, std::string tag, std::string msg);
 };
 

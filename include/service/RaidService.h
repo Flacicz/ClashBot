@@ -13,7 +13,8 @@ class RaidService : public ISyncService
     TransactionManager& transaction_manager_;
 
     void ensurePlayersExist(const std::vector<PlayerRaidSnapshot>& players) const;
-    static std::vector<ApplicationEvent> generateEvents(std::string_view clanTag, const std::string& state,
+    static std::vector<ApplicationEvent> generateEvents(std::string_view clanTag,
+                                                        const ClanRaid& clanRaid,
                                                         long long raidId);
 
 public:

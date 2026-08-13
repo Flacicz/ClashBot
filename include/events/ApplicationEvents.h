@@ -86,6 +86,12 @@ struct SyncRecoveryEvent
 
 struct WarReminderEvent
 {
+    enum class WarKind
+    {
+        Regular,
+        CWL
+    };
+
     enum class WarReminderKind
     {
         Started,
@@ -96,6 +102,7 @@ struct WarReminderEvent
     std::string clanTag;
     long long warId;
     long long endTime;
+    WarKind warKind;
     WarReminderKind kind;
 
     static constexpr auto Type = "war_reminder";
@@ -120,6 +127,48 @@ struct WarReminderEvent
     }
 };
 
+struct RaidReminderEvent
+{
+    enum class RaidReminderKind
+    {
+        Started,
+        FortyEightHoursLeft,
+        TwentyFourHoursLeft,
+        SixHoursLeft,
+        OneHourLeft
+    };
+
+    std::string clanTag;
+    long long raidId;
+    long long endTime;
+    RaidReminderKind kind;
+
+    static constexpr auto Type = "raid_reminder";
+
+    [[nodiscard]] static std::string_view kindName(const RaidReminderKind& kind)
+    {
+        switch (kind)
+        {
+        case RaidReminderKind::Started:
+            return "started";
+        case RaidReminderKind::FortyEightHoursLeft:
+            return "forty_eight_hours_left";
+        case RaidReminderKind::TwentyFourHoursLeft:
+            return "twenty_four_hours_left";
+        case RaidReminderKind::SixHoursLeft:
+            return "six_hours_left";
+        case RaidReminderKind::OneHourLeft:
+            return "one_hour_left";
+        }
+        return "unknown";
+    }
+
+    [[nodiscard]] std::string key() const
+    {
+        return std::to_string(raidId) + ":" + std::string(kindName(kind));
+    }
+};
+
 using ApplicationEvent = std::variant<
     PlayerJoinedClanEvent,
     PlayerLeftClanEvent,
@@ -129,7 +178,8 @@ using ApplicationEvent = std::variant<
     ClanwarsLeagueRoundEndedEvent,
     SyncFailureEvent,
     SyncRecoveryEvent,
-    WarReminderEvent
+    WarReminderEvent,
+    RaidReminderEvent
 >;
 
 #endif //CLASHBOT_DOMAINEVENTS_H

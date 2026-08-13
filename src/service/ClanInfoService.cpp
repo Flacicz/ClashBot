@@ -83,11 +83,12 @@ RoleChanges ClanInfoService::detectRoleChanges(const std::string& clanTag,
             });
         }
     }
-    return roleChanges;     
+
+    return roleChanges;
 }
 
 std::vector<ApplicationEvent> ClanInfoService::generateEvents(const MembershipChanges& changes,
-                                                         const RoleChanges& roleChanges)
+                                                              const RoleChanges& roleChanges)
 {
     std::vector<ApplicationEvent> events;
     events.reserve(changes.joinedPlayers.size() + changes.leftPlayers.size());
@@ -147,8 +148,6 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
 
     try
     {
-        SyncResult syncResult;
-
         auto transaction = transaction_manager_.beginTransaction();
 
         const auto roleChanges = detectRoleChanges(std::string(tag), playerSnapshots);
@@ -159,10 +158,10 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
 
         clans_repo_.saveMembershipChanges(changes);
 
-        syncResult.events = generateEvents(changes, roleChanges);
-        syncResult.successFlag = true;
-        syncResult.serviceName = svc;
-        syncResult.clanTag = tag;
+        SyncResult syncResult = SyncResult::success(
+            svc,
+            std::string(tag),
+            generateEvents(changes, roleChanges));
 
         transaction.commit();
 

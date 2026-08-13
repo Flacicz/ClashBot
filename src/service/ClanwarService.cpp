@@ -30,34 +30,31 @@ std::vector<ApplicationEvent> ClanwarService::generateEvents(const std::string_v
     const auto now = std::chrono::system_clock::to_time_t(
         std::chrono::system_clock::now());
 
-    if (now >= clanwar.startTime && now < clanwar.endTime)
+    const auto addReminder = [&events, clanTag, warId = insertedWarResult.warId, endTime = clanwar.endTime]
+    (const WarReminderEvent::WarReminderKind kind)
     {
         events.emplace_back(WarReminderEvent{
             .clanTag = std::string(clanTag),
-            .warId = insertedWarResult.warId,
-            .endTime = clanwar.endTime,
-            .kind = WarReminderEvent::WarReminderKind::Started
+            .warId = warId,
+            .endTime = endTime,
+            .warKind = WarReminderEvent::WarKind::Regular,
+            .kind = kind
         });
+    };
+
+    if (now >= clanwar.startTime && now < clanwar.endTime)
+    {
+        addReminder(WarReminderEvent::WarReminderKind::Started);
     }
 
     if (now >= clanwar.endTime - 6 * 60 * 60 && now < clanwar.endTime)
     {
-        events.emplace_back(WarReminderEvent{
-            .clanTag = std::string(clanTag),
-            .warId = insertedWarResult.warId,
-            .endTime = clanwar.endTime,
-            .kind = WarReminderEvent::WarReminderKind::SixHoursLeft
-        });
+        addReminder(WarReminderEvent::WarReminderKind::SixHoursLeft);
     }
 
     if (now >= clanwar.endTime - 60 * 60 && now < clanwar.endTime)
     {
-        events.emplace_back(WarReminderEvent{
-            .clanTag = std::string(clanTag),
-            .warId = insertedWarResult.warId,
-            .endTime = clanwar.endTime,
-            .kind = WarReminderEvent::WarReminderKind::OneHourLeft
-        });
+        addReminder(WarReminderEvent::WarReminderKind::OneHourLeft);
     }
 
     if (state == "warEnded")
@@ -88,12 +85,10 @@ SyncResult ClanwarService::updateData(std::string_view tag)
         return SyncResult::error(getServiceName(), std::string(tag), std::move(detailedError));
     }
 
-    SyncResult syncResult;
     if (status == ClanwarFetchStatus::NoActiveWar)
     {
         spdlog::info("[Service: {}] No active Clan War for clan '{}'.", svc, tag);
-        syncResult.successFlag = true;
-        return syncResult;
+        return SyncResult::success(svc, std::string(tag));
     }
 
     if (!completeData.has_value())
@@ -111,12 +106,11 @@ SyncResult ClanwarService::updateData(std::string_view tag)
         auto transaction = transaction_manager_.beginTransaction();
 
         const auto warResult = clanwar_repo_.saveCompleteClanwarData(clanwar, clans, attacks, members);
-        if (warResult.warId == -1) throw std::runtime_error("saveCompleteClanwarData returned error status");
 
-        syncResult.events = generateEvents(tag, clanwar.state, clanwar, warResult);
-        syncResult.successFlag = true;
-        syncResult.serviceName = svc;
-        syncResult.clanTag = tag;
+        SyncResult syncResult = SyncResult::success(
+            svc,
+            std::string(tag),
+            generateEvents(tag, clanwar.state, clanwar, warResult));
 
         transaction.commit();
 
