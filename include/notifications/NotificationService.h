@@ -1,6 +1,9 @@
 #ifndef CLASHBOT_NOTIFICATIONSERVICE_H
 #define CLASHBOT_NOTIFICATIONSERVICE_H
 
+#include <string>
+#include <string_view>
+
 #include "TelegramNotifier.h"
 #include "database/Database.h"
 #include "reports/ClanwarEndedFormatter.h"
@@ -25,6 +28,16 @@ class NotificationService
     RaidsEndedFormatter raidsEndedFormatter;
     ClanwarEndedFormatter clanwarEndedFormatter;
     ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter;
+
+    void sendToDestinations(std::string_view clanTag,
+                            std::string_view eventName,
+                            const std::string& message) const;
+
+    void sendToDestinationsWithDeduplication(std::string_view clanTag,
+                                             std::string_view eventType,
+                                             std::string_view eventId,
+                                             std::string_view eventName,
+                                             const std::string& message) const;
 
 public:
     NotificationService(NotificationRepo& notification_repo,

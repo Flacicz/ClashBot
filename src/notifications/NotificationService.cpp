@@ -26,6 +26,55 @@ NotificationService::NotificationService(NotificationRepo& notification_repo,
 {
 }
 
+void NotificationService::sendToDestinations(const std::string_view clanTag,
+                                             const std::string_view eventName,
+                                             const std::string& message) const
+{
+    const auto destinations = subscription_repo_.getDestinationsForClan(clanTag);
+
+    for (const auto& [chatId, messageThreadId] : destinations)
+    {
+        if (!telegramNotifier.sendMessage(message, chatId, messageThreadId))
+        {
+            spdlog::error(
+                "[NotificationService] Failed to send {} message. ClanTag - {}, Chat ID - {}",
+                eventName, clanTag, chatId);
+        }
+    }
+}
+
+void NotificationService::sendToDestinationsWithDeduplication(const std::string_view clanTag,
+                                                              const std::string_view eventType,
+                                                              const std::string_view eventId,
+                                                              const std::string_view eventName,
+                                                              const std::string& message) const
+{
+    const auto destinations = subscription_repo_.getDestinationsForClan(clanTag);
+
+    for (const auto& [chatId, messageThreadId] : destinations)
+    {
+        if (notification_repo_.wasSent(eventType,
+                                       eventId,
+                                       chatId,
+                                       messageThreadId))
+            continue;
+
+        if (telegramNotifier.sendMessage(message, chatId, messageThreadId))
+        {
+            notification_repo_.markAsSent(eventType,
+                                          eventId,
+                                          chatId,
+                                          messageThreadId);
+        }
+        else
+        {
+            spdlog::error(
+                "[NotificationService] Failed to send {} message. ClanTag - {}, Chat ID - {}",
+                eventName, clanTag, chatId);
+        }
+    }
+}
+
 void NotificationService::handle(const ApplicationEvent& application_event)
 {
     std::visit(
@@ -39,168 +88,62 @@ void NotificationService::handle(const ApplicationEvent& application_event)
 
 void NotificationService::handleEvent(const PlayerJoinedClanEvent& event) const
 {
-    const auto& message = playerJoinedFormatter.format(event);
-
-    const auto destinations = subscription_repo_.getDestinationsForClan(event.clanTag);
-
-    for (const auto& destination : destinations)
-    {
-        if (!telegramNotifier.sendMessage(message, destination.chatId, destination.messageThreadId))
-        {
-            spdlog::error(
-                "[NotificationService] Failed to send PlayerJoinedClanEvent message. ClanTag - {}, Chat ID - {}",
-                event.clanTag, destination.chatId);
-        }
-    }
+    const auto message = playerJoinedFormatter.format(event);
+    sendToDestinations(event.clanTag, "PlayerJoinedClanEvent", message);
 }
 
 void NotificationService::handleEvent(const PlayerLeftClanEvent& event) const
 {
-    const auto& message = playerLeftFormatter.format(event);
-
-    const auto destinations = subscription_repo_.getDestinationsForClan(event.clanTag);
-
-    for (const auto& destination : destinations)
-    {
-        if (!telegramNotifier.sendMessage(message, destination.chatId, destination.messageThreadId))
-        {
-            spdlog::error(
-                "[NotificationService] Failed to send PlayerLeftClanEvent message. ClanTag - {}, Chat ID - {}",
-                event.clanTag, destination.chatId);
-        }
-    }
+    const auto message = playerLeftFormatter.format(event);
+    sendToDestinations(event.clanTag, "PlayerLeftClanEvent", message);
 }
 
 void NotificationService::handleEvent(const PlayerRoleChangedEvent& event) const
 {
-    const auto& message = playerRoleChangedFormatter.format(event);
-
-    const auto destinations = subscription_repo_.getDestinationsForClan(event.clanTag);
-
-    for (const auto& destination : destinations)
-    {
-        if (!telegramNotifier.sendMessage(message, destination.chatId, destination.messageThreadId))
-        {
-            spdlog::error(
-                "[NotificationService] Failed to send PlayerRoleChangedEvent message. ClanTag - {}, Chat ID - {}",
-                event.clanTag, destination.chatId);
-        }
-    }
+    const auto message = playerRoleChangedFormatter.format(event);
+    sendToDestinations(event.clanTag, "PlayerRoleChangedEvent", message);
 }
 
 void NotificationService::handleEvent(const RaidsEndedEvent& event) const
 {
-    const auto& message = raidsEndedFormatter.format(event);
-
-    const auto destinations = subscription_repo_.getDestinationsForClan(event.clanTag);
-
-    for (const auto& destination : destinations)
-    {
-        if (notification_repo_.wasSent(RaidsEndedEvent::Type,
-                                       event.key(),
-                                       destination.chatId,
-                                       destination.messageThreadId))
-            continue;
-
-        if (!telegramNotifier.sendMessage(message, destination.chatId, destination.messageThreadId))
-        {
-            spdlog::error("[NotificationService] Failed to send RaidsEndedEvent message. ClanTag - {}, Chat ID - {}",
-                          event.clanTag, destination.chatId);
-        }
-
-        notification_repo_.markAsSent(RaidsEndedEvent::Type,
-                                      event.key(),
-                                      destination.chatId,
-                                      destination.messageThreadId);
-    }
+    const auto message = raidsEndedFormatter.format(event);
+    sendToDestinationsWithDeduplication(event.clanTag,
+                                        RaidsEndedEvent::Type,
+                                        event.key(),
+                                        "RaidsEndedEvent",
+                                        message);
 }
 
 void NotificationService::handleEvent(const WarEndedEvent& event) const
 {
-    const auto& message = clanwarEndedFormatter.format(event);
-
-    const auto destinations = subscription_repo_.getDestinationsForClan(event.clanTag);
-
-    for (const auto& destination : destinations)
-    {
-        if (notification_repo_.wasSent(WarEndedEvent::Type,
-                                       event.key(),
-                                       destination.chatId,
-                                       destination.messageThreadId))
-            continue;
-
-        if (!telegramNotifier.sendMessage(message, destination.chatId, destination.messageThreadId))
-        {
-            spdlog::error("[NotificationService] Failed to send WarEndedEvent message. ClanTag - {}, Chat ID - {}",
-                          event.clanTag, destination.chatId);
-        }
-
-        notification_repo_.markAsSent(WarEndedEvent::Type,
-                                      event.key(),
-                                      destination.chatId,
-                                      destination.messageThreadId);
-    }
+    const auto message = clanwarEndedFormatter.format(event);
+    sendToDestinationsWithDeduplication(event.clanTag,
+                                        WarEndedEvent::Type,
+                                        event.key(),
+                                        "WarEndedEvent",
+                                        message);
 }
 
 void NotificationService::handleEvent(const ClanwarsLeagueRoundEndedEvent& event) const
 {
-    const auto& message = clanwarLeagueRoundEndedFormatter.format(event);
-
-    const auto destinations = subscription_repo_.getDestinationsForClan(event.clanTag);
-
-    for (const auto& destination : destinations)
-    {
-        if (notification_repo_.wasSent(ClanwarsLeagueRoundEndedEvent::Type,
-                                       event.key(),
-                                       destination.chatId,
-                                       destination.messageThreadId))
-            continue;
-
-        if (!telegramNotifier.sendMessage(message, destination.chatId, destination.messageThreadId))
-        {
-            spdlog::error("[NotificationService] Failed to send WarEndedEvent message. ClanTag - {}, Chat ID - {}",
-                          event.clanTag, destination.chatId);
-        }
-
-        notification_repo_.markAsSent(ClanwarsLeagueRoundEndedEvent::Type,
-                                      event.key(),
-                                      destination.chatId,
-                                      destination.messageThreadId);
-    }
+    const auto message = clanwarLeagueRoundEndedFormatter.format(event);
+    sendToDestinationsWithDeduplication(event.clanTag,
+                                        ClanwarsLeagueRoundEndedEvent::Type,
+                                        event.key(),
+                                        "ClanwarsLeagueRoundEndedEvent",
+                                        message);
 }
 
 void NotificationService::handleEvent(const SyncFailureEvent& event) const
 {
     const auto message = SystemAlertReportFormatter::formatFailureAlert(event);
-    const auto destinations =
-        subscription_repo_.getDestinationsForClan(event.clanTag);
-
-    for (const auto& destination : destinations)
-    {
-        if (!telegramNotifier.sendMessage(message, destination.chatId, destination.messageThreadId))
-        {
-            spdlog::error(
-                "[NotificationService] Failed to send SyncFailureEvent message. ClanTag - {}, Chat ID - {}",
-                event.clanTag, destination.chatId);
-        }
-    }
+    sendToDestinations(event.clanTag, "SyncFailureEvent", message);
 }
 
 void NotificationService::handleEvent(const SyncRecoveryEvent& event) const
 {
     const auto message = SystemAlertReportFormatter::formatRecoveryAlert(event);
-    const auto destinations =
-        subscription_repo_.getDestinationsForClan(event.clanTag);
-
-    for (const auto& destination : destinations)
-    {
-        if (!telegramNotifier.sendMessage(message, destination.chatId, destination.messageThreadId))
-        {
-            spdlog::error(
-                "[NotificationService] Failed to send SyncRecoveryEvent message. ClanTag - {}, Chat ID - {}",
-                event.clanTag, destination.chatId);
-        }
-    }
+    sendToDestinations(event.clanTag, "SyncRecoveryEvent", message);
 }
 
 void NotificationService::handleEvent(const WarReminderEvent& event) const
@@ -226,28 +169,11 @@ void NotificationService::handleEvent(const WarReminderEvent& event) const
         break;
     }
 
-    const auto destinations =
-        subscription_repo_.getDestinationsForClan(event.clanTag);
-
-    for (const auto& destination : destinations)
-    {
-        if (notification_repo_.wasSent(WarReminderEvent::Type,
-                                       event.key(),
-                                       destination.chatId,
-                                       destination.messageThreadId))
-            continue;
-
-        if (!telegramNotifier.sendMessage(message, destination.chatId, destination.messageThreadId))
-        {
-            spdlog::error("[NotificationService] Failed to send WarReminderEvent message. ClanTag - {}, Chat ID - {}",
-                          event.clanTag, destination.chatId);
-        }
-
-        notification_repo_.markAsSent(WarReminderEvent::Type,
-                                      event.key(),
-                                      destination.chatId,
-                                      destination.messageThreadId);
-    }
+    sendToDestinationsWithDeduplication(event.clanTag,
+                                        WarReminderEvent::Type,
+                                        event.key(),
+                                        "WarReminderEvent",
+                                        message);
 }
 
 void NotificationService::handleEvent(const RaidReminderEvent& event) const
@@ -273,26 +199,9 @@ void NotificationService::handleEvent(const RaidReminderEvent& event) const
         break;
     }
 
-    const auto destinations =
-        subscription_repo_.getDestinationsForClan(event.clanTag);
-
-    for (const auto& destination : destinations)
-    {
-        if (notification_repo_.wasSent(RaidReminderEvent::Type,
-                                       event.key(),
-                                       destination.chatId,
-                                       destination.messageThreadId))
-            continue;
-
-        if (!telegramNotifier.sendMessage(message, destination.chatId, destination.messageThreadId))
-        {
-            spdlog::error("[NotificationService] Failed to send RaidReminderEvent message. ClanTag - {}, Chat ID - {}",
-                          event.clanTag, destination.chatId);
-        }
-
-        notification_repo_.markAsSent(RaidReminderEvent::Type,
-                                      event.key(),
-                                      destination.chatId,
-                                      destination.messageThreadId);
-    }
+    sendToDestinationsWithDeduplication(event.clanTag,
+                                        RaidReminderEvent::Type,
+                                        event.key(),
+                                        "RaidReminderEvent",
+                                        message);
 }
