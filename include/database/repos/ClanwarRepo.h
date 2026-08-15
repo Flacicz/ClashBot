@@ -43,6 +43,10 @@ public:
     [[nodiscard]] std::vector<NotMirrorAttack> getPlayersWithFirstAttackNotOnMirror(
         long long warId, long long warClanId) const;
 
-    [[nodiscard]] ClanwarReportData getReportData(const InsertedWarResult& warResult) const;
+    [[nodiscard]] ClanwarDisciplineStats getClanwarDisciplineStats(
+        long long warId, long long warClanId) const;
+
+    [[nodiscard]] ClanwarResultReportData getClanwarResultReportData(
+        const InsertedWarResult& warResult) const;
     [[nodiscard]] WarRoundDetails getWarRoundDetails(const InsertedWarResult& warResult) const;
 };

@@ -7,8 +7,8 @@
 namespace
 {
     void appendWinner(std::ostream& report,
-                      int homeStars, int opponentStars,
-                      double homeDestruction, double opponentDestruction)
+                      const int homeStars, const int opponentStars,
+                      const double homeDestruction, const double opponentDestruction)
     {
         if (homeStars > opponentStars ||
             (homeStars == opponentStars && homeDestruction > opponentDestruction))
@@ -26,7 +26,6 @@ namespace
 
         report << "Итог: Ничья\n\n";
     }
-
 }
 
 namespace war_report
@@ -52,7 +51,7 @@ namespace war_report
                                 const ClanwarAttackStats& attackStats)
     {
         report << "📊 <b>СТАТИСТИКА АТАК</b>\n";
-        report << "Использовано атак: " << attackStats.attacksUsed
+        report << "Проведено атак: " << attackStats.attacksUsed
             << "/" << attackStats.maxAttacks << "\n";
         report << "Средний результат: "
             << fmt::format("{:.2f}", attackStats.averageStars)
@@ -64,6 +63,28 @@ namespace war_report
             << "2⭐ — " << attackStats.twoStarAttacks << "\n"
             << "1⭐ — " << attackStats.oneStarAttacks << "\n"
             << "0⭐ — " << attackStats.zeroStarAttacks << "\n\n";
+    }
+
+    void appendDisciplineSummary(std::ostream& report,
+                                 const ClanwarDisciplineStats& disciplineStats)
+    {
+        const bool hasNoViolations =
+            disciplineStats.playersWithoutAttacks == 0 &&
+            disciplineStats.playersWithoutSecondAttack == 0 &&
+            disciplineStats.notMirrorAttacks == 0;
+
+        report << "🎯 <b>ДИСЦИПЛИНА</b>\n";
+
+        if (hasNoViolations)
+        {
+            report << "✅ Все участники использовали атаки по правилам!";
+            return;
+        }
+
+        report << "⚠️ Есть замечания:\n";
+        report << "Без атак: " << disciplineStats.playersWithoutAttacks << "\n";
+        report << "Без второй атаки: " << disciplineStats.playersWithoutSecondAttack << "\n";
+        report << "Атаки не по зеркалу: " << disciplineStats.notMirrorAttacks << "\n";
     }
 
     void appendBestAttacks(std::ostream& report,
@@ -92,7 +113,7 @@ namespace war_report
     {
         if (attacks.empty()) return;
 
-        report << "\n🎯 <b>Атаковали не по зеркалу:</b>\n";
+        report << "\n🎯 <b>Атаки не по зеркалу (" << attacks.size() << "):</b>\n";
 
         for (const auto& attack : attacks)
         {
@@ -101,5 +122,4 @@ namespace war_report
                 << " ➜ №" << attack.defenderPosition << ")\n";
         }
     }
-
 }

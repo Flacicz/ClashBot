@@ -15,6 +15,9 @@ namespace war_report
     void appendAttackStatistics(std::ostream& report,
                                 const ClanwarAttackStats& attackStats);
 
+    void appendDisciplineSummary(std::ostream& report,
+                                 const ClanwarDisciplineStats& disciplineStats);
+
     void appendBestAttacks(std::ostream& report,
                            const std::vector<BestAttack>& bestAttacks);
 

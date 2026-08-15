@@ -355,6 +355,13 @@ struct ClanwarSlacker
     std::string playerName;
 };
 
+struct ClanwarDisciplineStats
+{
+    int playersWithoutAttacks;
+    int playersWithoutSecondAttack;
+    int notMirrorAttacks;
+};
+
 struct ClanwarOverview
 {
     std::string clanTag;
@@ -372,17 +379,14 @@ struct NotMirrorAttack
     int defenderPosition;
 };
 
-struct ClanwarReportData
+struct ClanwarResultReportData
 {
     ClanwarOverview home;
     ClanwarOverview opponent;
 
-    ClanwarAttackStats attack_stats;
-    std::vector<BestAttack> best_attacks;
-
-    std::vector<ClanwarSlacker> missedAllAttacks;
-    std::vector<ClanwarSlacker> missedOneAttack;
-    std::vector<NotMirrorAttack> notMirrorAttacks;
+    ClanwarAttackStats attackStats;
+    std::vector<BestAttack> bestAttacks;
+    ClanwarDisciplineStats disciplineStats;
 };
 
 struct WarRoundDetails

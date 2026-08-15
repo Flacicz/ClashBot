@@ -390,7 +390,7 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack(long long clan
 }
 
 std::vector<NotMirrorAttack> ClanwarRepo::getPlayersWithFirstAttackNotOnMirror(long long warId,
-                                                                                long long warClanId) const
+                                                                               long long warClanId) const
 {
     static constexpr std::string_view sql = R"(
         WITH normalized_members AS (
@@ -474,7 +474,98 @@ std::vector<NotMirrorAttack> ClanwarRepo::getPlayersWithFirstAttackNotOnMirror(l
     );
 }
 
-ClanwarReportData ClanwarRepo::getReportData(const InsertedWarResult& warResult) const
+ClanwarDisciplineStats ClanwarRepo::getClanwarDisciplineStats(const long long warId,
+                                                              const long long warClanId) const
+{
+    static constexpr std::string_view sql = R"(
+        WITH member_attack_counts AS (
+            SELECT
+                wm.player_tag,
+                COUNT(a.attack_id) AS attack_count
+            FROM war_members AS wm
+            LEFT JOIN attacks AS a
+                ON a.attacker_tag = wm.player_tag
+               AND a.war_id = wm.war_id
+               AND a.attacker_war_clan_id = wm.war_clan_id
+            WHERE wm.war_id = ? AND wm.war_clan_id = ?
+            GROUP BY wm.player_tag
+        ),
+        normalized_members AS (
+            SELECT
+                wm.war_id,
+                wm.war_clan_id,
+                wm.player_tag,
+                ROW_NUMBER() OVER (
+                    PARTITION BY wm.war_id, wm.war_clan_id
+                    ORDER BY wm.map_position
+                ) AS normalized_position
+            FROM war_members AS wm
+            WHERE wm.war_id = ?
+        ),
+        ranked_attacks AS (
+            SELECT
+                a.war_id,
+                a.attacker_war_clan_id,
+                a.defender_war_clan_id,
+                a.attacker_tag,
+                a.defender_tag,
+                ROW_NUMBER() OVER (
+                    PARTITION BY a.attacker_tag
+                    ORDER BY a.order_num
+                ) AS attack_number
+            FROM attacks AS a
+            WHERE a.war_id = ? AND a.attacker_war_clan_id = ?
+        ),
+        first_attacks AS (
+            SELECT *
+            FROM ranked_attacks
+            WHERE attack_number = 1
+        )
+        SELECT
+            COALESCE((
+                SELECT SUM(attack_count = 0)
+                FROM member_attack_counts
+            ), 0) AS players_without_attacks,
+            COALESCE((
+                SELECT SUM(attack_count = 1)
+                FROM member_attack_counts
+            ), 0) AS players_without_second_attack,
+            COALESCE((
+                SELECT COUNT(*)
+                FROM first_attacks AS fa
+                JOIN normalized_members AS attacker_members
+                    ON attacker_members.war_id = fa.war_id
+                   AND attacker_members.war_clan_id = fa.attacker_war_clan_id
+                   AND attacker_members.player_tag = fa.attacker_tag
+                JOIN normalized_members AS defender_members
+                    ON defender_members.war_id = fa.war_id
+                   AND defender_members.war_clan_id = fa.defender_war_clan_id
+                   AND defender_members.player_tag = fa.defender_tag
+                WHERE attacker_members.normalized_position
+                   <> defender_members.normalized_position
+            ), 0) AS not_mirror_attacks;
+    )";
+
+    auto mapper = [](sqlite3_stmt* stmt) -> ClanwarDisciplineStats
+    {
+        return ClanwarDisciplineStats{
+            .playersWithoutAttacks = sqlite::getInt(stmt, 0),
+            .playersWithoutSecondAttack = sqlite::getInt(stmt, 1),
+            .notMirrorAttacks = sqlite::getInt(stmt, 2)
+        };
+    };
+
+    return queryOne<ClanwarDisciplineStats>(
+        sql,
+        "load clanwar discipline stats",
+        fmt::format("war_id = {}, war_clan_id = {}", warId, warClanId),
+        mapper,
+        warId, warClanId, warId, warId, warClanId
+    );
+}
+
+ClanwarResultReportData ClanwarRepo::getClanwarResultReportData(
+    const InsertedWarResult& warResult) const
 {
     const auto clanwarId = warResult.warId;
     const auto warClanId = warResult.homeClanId;
@@ -482,21 +573,16 @@ ClanwarReportData ClanwarRepo::getReportData(const InsertedWarResult& warResult)
     auto home = getClanwarOverview(clanwarId, warResult.homeClanId);
     auto opponent = getClanwarOverview(clanwarId, warResult.opponentClanId);
 
-    auto clanwarAttackStats = getClanwarAttackStats(clanwarId, warClanId);
+    const auto clanwarAttackStats = getClanwarAttackStats(clanwarId, warClanId);
     auto bestAttacks = getBestAttacks(clanwarId, warClanId);
+    const auto disciplineStats = getClanwarDisciplineStats(clanwarId, warClanId);
 
-    auto noAttacks = getSlackersWithNoAttacks(clanwarId, warClanId);
-    auto oneAttack = getSlackersWithOneAttack(clanwarId, warClanId);
-    auto notMirrorAttacks = getPlayersWithFirstAttackNotOnMirror(clanwarId, warClanId);
-
-    return ClanwarReportData{
+    return ClanwarResultReportData{
         .home = std::move(home),
         .opponent = std::move(opponent),
-        .attack_stats = std::move(clanwarAttackStats),
-        .best_attacks = std::move(bestAttacks),
-        .missedAllAttacks = std::move(noAttacks),
-        .missedOneAttack = std::move(oneAttack),
-        .notMirrorAttacks = std::move(notMirrorAttacks)
+        .attackStats = clanwarAttackStats,
+        .bestAttacks = std::move(bestAttacks),
+        .disciplineStats = disciplineStats
     };
 }
 
@@ -504,7 +590,7 @@ WarRoundDetails ClanwarRepo::getWarRoundDetails(const InsertedWarResult& warResu
 {
     auto home = getClanwarOverview(warResult.warId, warResult.homeClanId);
     auto opponent = getClanwarOverview(warResult.warId, warResult.opponentClanId);
-    auto attackStats = getClanwarAttackStats(warResult.warId, warResult.homeClanId);
+    const auto attackStats = getClanwarAttackStats(warResult.warId, warResult.homeClanId);
     auto bestAttacks = getBestAttacks(warResult.warId, warResult.homeClanId);
 
     auto noAttack = getSlackersWithNoAttacks(warResult.warId, warResult.homeClanId);
@@ -513,7 +599,7 @@ WarRoundDetails ClanwarRepo::getWarRoundDetails(const InsertedWarResult& warResu
     return WarRoundDetails{
         .home = std::move(home),
         .opponent = std::move(opponent),
-        .attack_stats = std::move(attackStats),
+        .attack_stats = attackStats,
         .best_attacks = std::move(bestAttacks),
         .missedAttack = std::move(noAttack),
         .notMirrorAttacks = std::move(notMirrorAttacks)

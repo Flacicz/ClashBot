@@ -18,7 +18,7 @@ public:
     explicit ClanwarEndedFormatter(ClanwarRepo& repo);
 
     [[nodiscard]] std::string format(const WarEndedEvent& event) const;
-    static std::string buildReport(const ClanwarReportData& reportData);
+    static std::string buildReport(const ClanwarResultReportData& reportData);
 };
 
 #endif //CLASHBOT_CLANWARREPORTFORMATTER_H
