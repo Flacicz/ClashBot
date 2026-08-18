@@ -28,14 +28,14 @@ std::vector<ApplicationEvent> ClanwarLeagueService::generateEvents(
     const std::string_view clanTag,
     const long long cwlSeasonId,
     const Clanwar& war,
-    const InsertedWarResult& warResult)
+    const ClanwarReference& warReference)
 {
     std::vector<ApplicationEvent> events;
 
     const auto now = std::chrono::system_clock::to_time_t(
         std::chrono::system_clock::now());
 
-    const auto addReminder = [&events, clanTag, warId = warResult.warId, endTime = war.endTime]
+    const auto addReminder = [&events, clanTag, warId = warReference.warId, endTime = war.endTime]
     (const WarReminderEvent::WarReminderKind kind)
     {
         events.emplace_back(WarReminderEvent{
@@ -65,7 +65,11 @@ std::vector<ApplicationEvent> ClanwarLeagueService::generateEvents(
     if (war.state == "warEnded")
     {
         events.emplace_back(
-            ClanwarsLeagueRoundEndedEvent(std::string(clanTag), cwlSeasonId, warResult)
+            ClanwarsLeagueRoundEndedEvent{
+                .clanTag = std::string(clanTag),
+                .cwlSeasonId = cwlSeasonId,
+                .warReference = warReference
+            }
         );
     }
 
@@ -125,9 +129,9 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
                 war.seasonId = lastCWLId;
                 war.roundNumber = roundNumber++;
 
-                auto warResult = clanwar_repo_.saveCompleteClanwarData(war, clans, attacks, members);
+                auto warReference = clanwar_repo_.saveCompleteClanwarData(war, clans, attacks, members);
 
-                auto roundEvents = generateEvents(tag, lastCWLId, war, warResult);
+                auto roundEvents = generateEvents(tag, lastCWLId, war, warReference);
                 for (auto& event : roundEvents)
                 {
                     events.emplace_back(std::move(event));

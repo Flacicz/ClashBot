@@ -23,14 +23,14 @@ std::string ClanwarService::getServiceName() const
 
 std::vector<ApplicationEvent> ClanwarService::generateEvents(const std::string_view clanTag, const std::string& state,
                                                              const Clanwar& clanwar,
-                                                             const InsertedWarResult& insertedWarResult)
+                                                             const ClanwarReference& warReference)
 {
     std::vector<ApplicationEvent> events;
 
     const auto now = std::chrono::system_clock::to_time_t(
         std::chrono::system_clock::now());
 
-    const auto addReminder = [&events, clanTag, warId = insertedWarResult.warId, endTime = clanwar.endTime]
+    const auto addReminder = [&events, clanTag, warId = warReference.warId, endTime = clanwar.endTime]
     (const WarReminderEvent::WarReminderKind kind)
     {
         events.emplace_back(WarReminderEvent{
@@ -60,7 +60,7 @@ std::vector<ApplicationEvent> ClanwarService::generateEvents(const std::string_v
     if (state == "warEnded")
     {
         events.emplace_back(
-            WarEndedEvent(std::string(clanTag), insertedWarResult)
+            WarEndedEvent{.clanTag = std::string(clanTag), .warReference = warReference}
         );
     }
 
@@ -105,12 +105,12 @@ SyncResult ClanwarService::updateData(std::string_view tag)
     {
         auto transaction = transaction_manager_.beginTransaction();
 
-        const auto warResult = clanwar_repo_.saveCompleteClanwarData(clanwar, clans, attacks, members);
+        const auto warReference = clanwar_repo_.saveCompleteClanwarData(clanwar, clans, attacks, members);
 
         SyncResult syncResult = SyncResult::success(
             svc,
             std::string(tag),
-            generateEvents(tag, clanwar.state, clanwar, warResult));
+            generateEvents(tag, clanwar.state, clanwar, warReference));
 
         transaction.commit();
 

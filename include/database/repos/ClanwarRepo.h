@@ -18,12 +18,12 @@ class ClanwarRepo : public BaseRepository
 public:
     explicit ClanwarRepo(sqlite3* db);
 
-    [[nodiscard]] InsertedWarResult saveCompleteClanwarData(const Clanwar& war,
-                                                            const std::pair<ClanwarClan, ClanwarClan>& clans,
-                                                            const std::vector<ClanwarAttack>& attacks,
-                                                            const std::pair<
-                                                                std::vector<ClanwarMember>, std::vector<ClanwarMember>>&
-                                                            members) const;
+    [[nodiscard]] ClanwarReference saveCompleteClanwarData(const Clanwar& war,
+                                                           const std::pair<ClanwarClan, ClanwarClan>& clans,
+                                                           const std::vector<ClanwarAttack>& attacks,
+                                                           const std::pair<
+                                                               std::vector<ClanwarMember>, std::vector<ClanwarMember>>&
+                                                           members) const;
 
     [[nodiscard]] long long saveClanwar(const Clanwar& clanwar) const;
     [[nodiscard]] long long saveClanwarDetails(long long clanwarId, const ClanwarClan& clanwarClan) const;
@@ -43,10 +43,17 @@ public:
     [[nodiscard]] std::vector<NotMirrorAttack> getPlayersWithFirstAttackNotOnMirror(
         long long warId, long long warClanId) const;
 
+    [[nodiscard]] ClanwarWarStats getClanwarStats(
+        const ClanwarReference& reference) const;
+
+    [[nodiscard]] std::vector<ClanwarReference> getPreviousClanwars(
+        const ClanwarReference& currentWar,
+        int limit) const;
+
     [[nodiscard]] ClanwarDisciplineStats getClanwarDisciplineStats(
         long long warId, long long warClanId) const;
 
     [[nodiscard]] ClanwarResultReportData getClanwarResultReportData(
-        const InsertedWarResult& warResult) const;
-    [[nodiscard]] WarRoundDetails getWarRoundDetails(const InsertedWarResult& warResult) const;
+        const ClanwarReference& reference) const;
+    [[nodiscard]] WarRoundDetails getWarRoundDetails(const ClanwarReference& reference) const;
 };

@@ -4,18 +4,19 @@
 #include <string_view>
 #include <utility>
 
+#include "common/ClanwarUtils.h"
 #include "database/SQLiteHelpers.h"
 
 ClanwarRepo::ClanwarRepo(sqlite3* db) : BaseRepository(db, std::string(repoName))
 {
 }
 
-InsertedWarResult ClanwarRepo::saveCompleteClanwarData(const Clanwar& war,
-                                                       const std::pair<ClanwarClan, ClanwarClan>& clans,
-                                                       const std::vector<ClanwarAttack>& attacks,
-                                                       const std::pair<
-                                                           std::vector<ClanwarMember>, std::vector<ClanwarMember>>&
-                                                       members) const
+ClanwarReference ClanwarRepo::saveCompleteClanwarData(const Clanwar& war,
+                                                      const std::pair<ClanwarClan, ClanwarClan>& clans,
+                                                      const std::vector<ClanwarAttack>& attacks,
+                                                      const std::pair<
+                                                          std::vector<ClanwarMember>, std::vector<ClanwarMember>>&
+                                                      members) const
 {
     const long long warId = saveClanwar(war);
 
@@ -36,7 +37,12 @@ InsertedWarResult ClanwarRepo::saveCompleteClanwarData(const Clanwar& war,
     saveClanwarMembers(warId, homeId, members.first);
     saveClanwarMembers(warId, oppId, members.second);
 
-    return {warId, homeId, oppId};
+    return ClanwarReference{
+        .clanTag = war.clanTag,
+        .warId = warId,
+        .homeClanId = homeId,
+        .opponentClanId = oppId
+    };
 }
 
 long long ClanwarRepo::saveClanwar(const Clanwar& clanwar) const
@@ -202,6 +208,7 @@ ClanwarAttackStats ClanwarRepo::getClanwarAttackStats(long long warId, long long
             w.attacks_per_member,
 
             COUNT(a.attack_id) AS attacks_count,
+            COALESCE(SUM(a.stars), 0) AS total_attack_stars,
 
             COALESCE(ROUND(AVG(a.stars), 2), 0) AS avg_stars,
             COALESCE(ROUND(AVG(a.destruction_percentage), 2), 0) AS avg_destruction,
@@ -226,12 +233,14 @@ ClanwarAttackStats ClanwarRepo::getClanwarAttackStats(long long warId, long long
         return ClanwarAttackStats{
             .attacksUsed = sqlite::getInt(stmt, 2),
             .maxAttacks = sqlite::getInt(stmt, 0) * sqlite::getInt(stmt, 1),
-            .averageStars = sqlite::getDouble(stmt, 3),
-            .averageDestruction = sqlite::getDouble(stmt, 4),
-            .threeStarAttacks = sqlite::getInt(stmt, 5),
-            .twoStarAttacks = sqlite::getInt(stmt, 6),
-            .oneStarAttacks = sqlite::getInt(stmt, 7),
-            .zeroStarAttacks = sqlite::getInt(stmt, 8)
+            .teamSize = sqlite::getInt(stmt, 0),
+            .totalAttackStars = sqlite::getInt(stmt, 3),
+            .averageStars = sqlite::getDouble(stmt, 4),
+            .averageDestruction = sqlite::getDouble(stmt, 5),
+            .threeStarAttacks = sqlite::getInt(stmt, 6),
+            .twoStarAttacks = sqlite::getInt(stmt, 7),
+            .oneStarAttacks = sqlite::getInt(stmt, 8),
+            .zeroStarAttacks = sqlite::getInt(stmt, 9)
         };
     };
 
@@ -529,7 +538,7 @@ ClanwarDisciplineStats ClanwarRepo::getClanwarDisciplineStats(const long long wa
             COALESCE((
                 SELECT SUM(attack_count = 1)
                 FROM member_attack_counts
-            ), 0) AS players_without_second_attack,
+            ), 0) AS players_with_one_attack,
             COALESCE((
                 SELECT COUNT(*)
                 FROM first_attacks AS fa
@@ -543,15 +552,15 @@ ClanwarDisciplineStats ClanwarRepo::getClanwarDisciplineStats(const long long wa
                    AND defender_members.player_tag = fa.defender_tag
                 WHERE attacker_members.normalized_position
                    <> defender_members.normalized_position
-            ), 0) AS not_mirror_attacks;
+            ), 0) AS first_attacks_not_on_mirror;
     )";
 
     auto mapper = [](sqlite3_stmt* stmt) -> ClanwarDisciplineStats
     {
         return ClanwarDisciplineStats{
             .playersWithoutAttacks = sqlite::getInt(stmt, 0),
-            .playersWithoutSecondAttack = sqlite::getInt(stmt, 1),
-            .notMirrorAttacks = sqlite::getInt(stmt, 2)
+            .playersWithOneAttack = sqlite::getInt(stmt, 1),
+            .firstAttacksNotOnMirror = sqlite::getInt(stmt, 2)
         };
     };
 
@@ -564,14 +573,109 @@ ClanwarDisciplineStats ClanwarRepo::getClanwarDisciplineStats(const long long wa
     );
 }
 
-ClanwarResultReportData ClanwarRepo::getClanwarResultReportData(
-    const InsertedWarResult& warResult) const
+ClanwarWarStats ClanwarRepo::getClanwarStats(const ClanwarReference& reference) const
 {
-    const auto clanwarId = warResult.warId;
-    const auto warClanId = warResult.homeClanId;
+    const auto home = getClanwarOverview(reference.warId, reference.homeClanId);
+    const auto opponent = getClanwarOverview(reference.warId, reference.opponentClanId);
+    const auto attackStats = getClanwarAttackStats(reference.warId, reference.homeClanId);
+    const auto disciplineStats = getClanwarDisciplineStats(reference.warId, reference.homeClanId);
 
-    auto home = getClanwarOverview(clanwarId, warResult.homeClanId);
-    auto opponent = getClanwarOverview(clanwarId, warResult.opponentClanId);
+    return ClanwarWarStats{
+        .homeStars = home.stars,
+        .opponentStars = opponent.stars,
+        .homeDestruction = home.destructionPercentage,
+        .opponentDestruction = opponent.destructionPercentage,
+        .result = clanwar_utils::calculateClanwarOutcome(
+            home.stars,
+            opponent.stars,
+            home.destructionPercentage,
+            opponent.destructionPercentage
+        ),
+        .maxAttacks = attackStats.maxAttacks,
+        .attacksUsed = attackStats.attacksUsed,
+        .teamSize = attackStats.teamSize,
+        .totalAttackStars = attackStats.totalAttackStars,
+        .averageStarsPerAttack = attackStats.averageStars,
+        .disciplineStats = disciplineStats
+    };
+}
+
+std::vector<ClanwarReference> ClanwarRepo::getPreviousClanwars(
+    const ClanwarReference& currentWar,
+    const int limit) const
+{
+    if (limit <= 0) return {};
+
+    static constexpr std::string_view sql = R"(
+        WITH current_war AS (
+            SELECT
+                war_id,
+                clan_tag,
+                preparation_start_time
+            FROM wars
+            WHERE war_id = ?
+              AND clan_tag = ?
+              AND war_type = 'regular'
+        ),
+        previous_wars AS (
+            SELECT
+                w.clan_tag,
+                w.war_id,
+                w.preparation_start_time
+            FROM wars AS w
+            JOIN current_war AS cw
+                ON cw.clan_tag = w.clan_tag
+            WHERE w.war_type = 'regular'
+              AND w.war_id <> cw.war_id
+              AND w.preparation_start_time < cw.preparation_start_time
+            ORDER BY w.preparation_start_time DESC
+            LIMIT ?
+        )
+        SELECT
+            pw.clan_tag,
+            pw.war_id,
+            home.war_clan_id,
+            opponent.war_clan_id
+        FROM previous_wars AS pw
+        JOIN war_clans AS home
+            ON home.war_id = pw.war_id
+           AND home.side = 'home'
+        JOIN war_clans AS opponent
+            ON opponent.war_id = pw.war_id
+           AND opponent.side = 'opponent'
+        ORDER BY pw.preparation_start_time DESC;
+    )";
+
+    auto mapper = [](sqlite3_stmt* stmt) -> ClanwarReference
+    {
+        return ClanwarReference{
+            .clanTag = sqlite::getString(stmt, 0),
+            .warId = sqlite::getLong(stmt, 1),
+            .homeClanId = sqlite::getLong(stmt, 2),
+            .opponentClanId = sqlite::getLong(stmt, 3)
+        };
+    };
+
+    return query<ClanwarReference>(
+        sql,
+        "load previous clanwars",
+        fmt::format("clan_tag = {}, current_war_id = {}, limit = {}",
+                    currentWar.clanTag, currentWar.warId, limit),
+        mapper,
+        currentWar.warId,
+        currentWar.clanTag,
+        limit
+    );
+}
+
+ClanwarResultReportData ClanwarRepo::getClanwarResultReportData(
+    const ClanwarReference& reference) const
+{
+    const auto clanwarId = reference.warId;
+    const auto warClanId = reference.homeClanId;
+
+    auto home = getClanwarOverview(clanwarId, reference.homeClanId);
+    auto opponent = getClanwarOverview(clanwarId, reference.opponentClanId);
 
     const auto clanwarAttackStats = getClanwarAttackStats(clanwarId, warClanId);
     auto bestAttacks = getBestAttacks(clanwarId, warClanId);
@@ -586,15 +690,15 @@ ClanwarResultReportData ClanwarRepo::getClanwarResultReportData(
     };
 }
 
-WarRoundDetails ClanwarRepo::getWarRoundDetails(const InsertedWarResult& warResult) const
+WarRoundDetails ClanwarRepo::getWarRoundDetails(const ClanwarReference& reference) const
 {
-    auto home = getClanwarOverview(warResult.warId, warResult.homeClanId);
-    auto opponent = getClanwarOverview(warResult.warId, warResult.opponentClanId);
-    const auto attackStats = getClanwarAttackStats(warResult.warId, warResult.homeClanId);
-    auto bestAttacks = getBestAttacks(warResult.warId, warResult.homeClanId);
+    auto home = getClanwarOverview(reference.warId, reference.homeClanId);
+    auto opponent = getClanwarOverview(reference.warId, reference.opponentClanId);
+    const auto attackStats = getClanwarAttackStats(reference.warId, reference.homeClanId);
+    auto bestAttacks = getBestAttacks(reference.warId, reference.homeClanId);
 
-    auto noAttack = getSlackersWithNoAttacks(warResult.warId, warResult.homeClanId);
-    auto notMirrorAttacks = getPlayersWithFirstAttackNotOnMirror(warResult.warId, warResult.homeClanId);
+    auto noAttack = getSlackersWithNoAttacks(reference.warId, reference.homeClanId);
+    auto notMirrorAttacks = getPlayersWithFirstAttackNotOnMirror(reference.warId, reference.homeClanId);
 
     return WarRoundDetails{
         .home = std::move(home),

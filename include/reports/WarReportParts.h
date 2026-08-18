@@ -8,6 +8,8 @@
 
 namespace war_report
 {
+    void appendOutcome(std::ostream& report, ClanwarOutcome outcome);
+
     void appendWarOverview(std::ostream& report,
                            const ClanwarOverview& home,
                            const ClanwarOverview& opponent);

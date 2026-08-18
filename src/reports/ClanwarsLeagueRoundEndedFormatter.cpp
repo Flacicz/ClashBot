@@ -14,11 +14,9 @@ ClanwarsLeagueRoundEndedFormatter::ClanwarsLeagueRoundEndedFormatter(ClanwarsLea
 
 std::string ClanwarsLeagueRoundEndedFormatter::format(const ClanwarsLeagueRoundEndedEvent& event) const
 {
-    const auto ids = event.insertedWarResult;
-
     const auto reportData = ClanwarsLeagueRoundReportData{
-        .cwlRoundInfo = clanwarsLeagueRepo.getRoundInfo(ids.warId),
-        .warDetails = clanwarRepo.getWarRoundDetails(ids)
+        .cwlRoundInfo = clanwarsLeagueRepo.getRoundInfo(event.warReference.warId),
+        .warDetails = clanwarRepo.getWarRoundDetails(event.warReference)
     };
 
     return buildReport(reportData);

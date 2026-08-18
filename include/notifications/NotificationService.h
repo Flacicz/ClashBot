@@ -6,6 +6,7 @@
 
 #include "TelegramNotifier.h"
 #include "database/Database.h"
+#include "reports/ClanwarComparisonFormatter.h"
 #include "reports/ClanwarEndedFormatter.h"
 #include "reports/ClanwarsLeagueRoundEndedFormatter.h"
 #include "reports/PlayerJoinedFormatter.h"
@@ -27,6 +28,7 @@ class NotificationService
     PlayerRoleChangedFormatter playerRoleChangedFormatter;
     RaidsEndedFormatter raidsEndedFormatter;
     ClanwarEndedFormatter clanwarEndedFormatter;
+    ClanwarComparisonFormatter clanwarComparisonFormatter;
     ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter;
 
     void sendToDestinations(std::string_view clanTag,
@@ -48,6 +50,7 @@ public:
                         PlayerRoleChangedFormatter playerRoleChangedFormatter,
                         RaidsEndedFormatter raidsEndedFormatter,
                         ClanwarEndedFormatter clanwarEndedFormatter,
+                        ClanwarComparisonFormatter clanwarComparisonFormatter,
                         ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter);
 
     void handle(const ApplicationEvent& application_event);

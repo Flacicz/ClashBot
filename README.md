@@ -119,7 +119,7 @@ cd ClashBot
     "base_url": "https://api.clashofclans.com/v1"
   },
   "database": {
-    "path": "data/database.sqlite",
+    "path": "data/database2.sqlite",
     "migrations_path": "src/database/migrations"
   },
   "bot": {
@@ -307,7 +307,7 @@ wsl bash ./scripts/startTunnel.sh
     "base_url": "https://api.clashofclans.com/v1"
   },
   "database": {
-    "path": "/app/data/database.sqlite",
+    "path": "/app/data/database2.sqlite",
     "migrations_path": "/app/migrations"
   },
   "bot": {
@@ -392,7 +392,7 @@ docker stop clashbot
 Откройте созданную базу данных:
 
 ```bash
-sqlite3 ~/clashbot/data/database.sqlite
+sqlite3 ~/clashbot/data/database2.sqlite
 ```
 
 Добавьте отслеживаемый клан:

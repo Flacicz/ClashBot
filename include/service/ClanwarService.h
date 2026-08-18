@@ -13,7 +13,7 @@ class ClanwarService : public ISyncService
 
     static std::vector<ApplicationEvent> generateEvents(std::string_view clanTag, const std::string& state,
                                                         const Clanwar& clanwar,
-                                                        const InsertedWarResult& insertedWarResult);
+                                                        const ClanwarReference& warReference);
 
 public:
     ClanwarService(ClanwarRepo& clanwar_repo,

@@ -37,12 +37,12 @@ AppConfig loadConfig(const std::string& path)
 
     if (j.contains("database"))
     {
-        config.databasePath = j["database"].value("path", "../data/database.sqlite");
+        config.databasePath = j["database"].value("path", "../data/database2.sqlite");
         config.migrationPath = j["database"].value("migrations_path", "../src/database/migrations");
     }
     else
     {
-        config.databasePath = "../data/database.sqlite";
+        config.databasePath = "../data/database2.sqlite";
         config.migrationPath = "../src/database/migrations";
     }
 

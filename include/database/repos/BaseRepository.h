@@ -5,6 +5,7 @@
 #ifndef CLASHBOT_BASEREPOSITORY_H
 #define CLASHBOT_BASEREPOSITORY_H
 #include <sqlite3.h>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -74,6 +75,33 @@ public:
                 fmt::format("[{}] Failed to {} ({}): row not found",
                             repoName, operation, context)
             );
+        }
+
+        throwDbException(operation, context);
+    }
+
+    template <typename T, typename M, typename... Params>
+        requires sqlite::Mapper<T, M> && (sqlite::Bindable<Params> && ...)
+    std::optional<T> queryOptional(const std::string_view sql,
+                                   const std::string_view operation,
+                                   const std::string_view context,
+                                   const M& mapper,
+                                   Params&&... params) const
+    {
+        const auto stmt = sqlite::prepare(db, sql);
+
+        bindParams(stmt.get(), 1, std::forward<Params>(params)...);
+
+        const int rc = sqlite3_step(stmt.get());
+
+        if (rc == SQLITE_ROW)
+        {
+            return mapper(stmt.get());
+        }
+
+        if (rc == SQLITE_DONE)
+        {
+            return std::nullopt;
         }
 
         throwDbException(operation, context);

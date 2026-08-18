@@ -13,6 +13,7 @@ NotificationService::NotificationService(NotificationRepo& notification_repo,
                                          const PlayerRoleChangedFormatter playerRoleChangedFormatter,
                                          const RaidsEndedFormatter raidsEndedFormatter,
                                          const ClanwarEndedFormatter clanwarEndedFormatter,
+                                         const ClanwarComparisonFormatter clanwarComparisonFormatter,
                                          const ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter) :
     notification_repo_(notification_repo),
     subscription_repo_(subscription_repo),
@@ -22,6 +23,7 @@ NotificationService::NotificationService(NotificationRepo& notification_repo,
     playerRoleChangedFormatter(playerRoleChangedFormatter),
     raidsEndedFormatter(raidsEndedFormatter),
     clanwarEndedFormatter(clanwarEndedFormatter),
+    clanwarComparisonFormatter(clanwarComparisonFormatter),
     clanwarLeagueRoundEndedFormatter(clanwarLeagueRoundEndedFormatter)
 {
 }
@@ -122,6 +124,15 @@ void NotificationService::handleEvent(const WarEndedEvent& event) const
                                         event.key(),
                                         "WarEndedEvent",
                                         message);
+
+    const auto comparisonMessage = clanwarComparisonFormatter.format(event);
+    if (comparisonMessage.empty()) return;
+
+    sendToDestinationsWithDeduplication(event.clanTag,
+                                        ClanwarComparisonFormatter::EventType,
+                                        event.key(),
+                                        "ClanwarComparisonFormatter",
+                                        comparisonMessage);
 }
 
 void NotificationService::handleEvent(const ClanwarsLeagueRoundEndedEvent& event) const

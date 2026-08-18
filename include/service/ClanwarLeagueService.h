@@ -16,7 +16,7 @@ class ClanwarLeagueService : public ISyncService
         std::string_view clanTag,
         long long cwlSeasonId,
         const Clanwar& war,
-        const InsertedWarResult& warResult);
+        const ClanwarReference& warReference);
 
 public:
     ClanwarLeagueService(ClanwarRepo& clanwar_repo_,

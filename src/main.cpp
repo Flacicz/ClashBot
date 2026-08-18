@@ -33,6 +33,7 @@
 
 #include "reports/RaidsEndedFormatter.h"
 #include "reports/ClanwarsLeagueRoundEndedFormatter.h"
+#include "reports/ClanwarComparisonFormatter.h"
 #include "reports/ClanwarEndedFormatter.h"
 
 #include "notifications/TelegramNotifier.h"
@@ -132,6 +133,7 @@ int main(const int argc, char* argv[])
         PlayerRoleChangedFormatter playerRoleChangedFormatter(db.clans());
         RaidsEndedFormatter raidsEndedFormatter(db.clans(), db.raids());
         ClanwarEndedFormatter clanwarEndedFormatter(db.war());
+        ClanwarComparisonFormatter clanwarComparisonFormatter(db.war());
         ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(db.leagueWar(), db.war());
 
         auto notificationService = NotificationService(
@@ -143,6 +145,7 @@ int main(const int argc, char* argv[])
             playerRoleChangedFormatter,
             raidsEndedFormatter,
             clanwarEndedFormatter,
+            clanwarComparisonFormatter,
             clanwarsLeagueRoundEndedFormatter
         );
 

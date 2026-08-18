@@ -37,8 +37,11 @@ add_executable(${PROJECT_NAME}
         src/notifications/TelegramNotifier.cpp
         src/reports/RaidsEndedFormatter.cpp
         src/common/SyncResult.cpp
+        src/common/ClanwarUtils.cpp
+        src/analytics/ClanwarComparisonAnalyzer.cpp
         src/notifications/NotificationService.cpp
         src/reports/ClanwarEndedFormatter.cpp
+        src/reports/ClanwarComparisonFormatter.cpp
         src/reports/ClanwarsLeagueRoundEndedFormatter.cpp
         src/reports/WarReportParts.cpp
         src/database/MigratorManager.cpp

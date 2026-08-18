@@ -2,34 +2,29 @@
 
 #include <fmt/format.h>
 
+#include "common/ClanwarUtils.h"
 #include "common/StringUtils.h"
-
-namespace
-{
-    void appendWinner(std::ostream& report,
-                      const int homeStars, const int opponentStars,
-                      const double homeDestruction, const double opponentDestruction)
-    {
-        if (homeStars > opponentStars ||
-            (homeStars == opponentStars && homeDestruction > opponentDestruction))
-        {
-            report << "Итог: Победа\n\n";
-            return;
-        }
-
-        if (homeStars < opponentStars ||
-            (homeStars == opponentStars && homeDestruction < opponentDestruction))
-        {
-            report << "Итог: Поражение\n\n";
-            return;
-        }
-
-        report << "Итог: Ничья\n\n";
-    }
-}
 
 namespace war_report
 {
+    void appendOutcome(std::ostream& report, const ClanwarOutcome outcome)
+    {
+        switch (outcome)
+        {
+        case ClanwarOutcome::Victory:
+            report << "Итог: Победа\n\n";
+            break;
+
+        case ClanwarOutcome::Defeat:
+            report << "Итог: Поражение\n\n";
+            break;
+
+        case ClanwarOutcome::Draw:
+            report << "Итог: Ничья\n\n";
+            break;
+        }
+    }
+
     void appendWarOverview(std::ostream& report,
                            const ClanwarOverview& home,
                            const ClanwarOverview& opponent)
@@ -43,8 +38,13 @@ namespace war_report
         report << "Разрушение: 💥 " << fmt::format("{:.2f}%", home.destructionPercentage)
             << " - " << fmt::format("{:.2f}%", opponent.destructionPercentage) << "\n\n";
 
-        appendWinner(report, home.stars, opponent.stars,
-                     home.destructionPercentage, opponent.destructionPercentage);
+        const auto outcome = clanwar_utils::calculateClanwarOutcome(
+            home.stars,
+            opponent.stars,
+            home.destructionPercentage,
+            opponent.destructionPercentage);
+
+        appendOutcome(report, outcome);
     }
 
     void appendAttackStatistics(std::ostream& report,
@@ -70,8 +70,8 @@ namespace war_report
     {
         const bool hasNoViolations =
             disciplineStats.playersWithoutAttacks == 0 &&
-            disciplineStats.playersWithoutSecondAttack == 0 &&
-            disciplineStats.notMirrorAttacks == 0;
+            disciplineStats.playersWithOneAttack == 0 &&
+            disciplineStats.firstAttacksNotOnMirror == 0;
 
         report << "🎯 <b>ДИСЦИПЛИНА</b>\n";
 
@@ -83,8 +83,8 @@ namespace war_report
 
         report << "⚠️ Есть замечания:\n";
         report << "Без атак: " << disciplineStats.playersWithoutAttacks << "\n";
-        report << "Без второй атаки: " << disciplineStats.playersWithoutSecondAttack << "\n";
-        report << "Атаки не по зеркалу: " << disciplineStats.notMirrorAttacks << "\n";
+        report << "Без второй атаки: " << disciplineStats.playersWithOneAttack << "\n";
+        report << "Атаки не по зеркалу: " << disciplineStats.firstAttacksNotOnMirror << "\n";
     }
 
     void appendBestAttacks(std::ostream& report,

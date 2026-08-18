@@ -191,6 +191,8 @@ struct ClanwarAttackStats
 {
     int attacksUsed;
     int maxAttacks;
+    int teamSize;
+    int totalAttackStars;
     double averageStars;
     double averageDestruction;
     int threeStarAttacks;
@@ -240,8 +242,9 @@ struct CompleteClanwarData
     std::pair<std::vector<ClanwarMember>, std::vector<ClanwarMember>> members;
 };
 
-struct InsertedWarResult
+struct ClanwarReference
 {
+    std::string clanTag;
     long long warId;
     long long homeClanId;
     long long opponentClanId;
@@ -357,9 +360,9 @@ struct ClanwarSlacker
 
 struct ClanwarDisciplineStats
 {
-    int playersWithoutAttacks;
-    int playersWithoutSecondAttack;
-    int notMirrorAttacks;
+    int playersWithoutAttacks = 0;
+    int playersWithOneAttack = 0;
+    int firstAttacksNotOnMirror = 0;
 };
 
 struct ClanwarOverview
@@ -456,4 +459,69 @@ struct RoleChange
 struct RoleChanges
 {
     std::vector<RoleChange> changes;
+};
+
+enum class ClanwarOutcome
+{
+    Victory,
+    Defeat,
+    Draw
+};
+
+struct ClanwarWarStats
+{
+    int homeStars;
+    int opponentStars;
+
+    double homeDestruction;
+    double opponentDestruction;
+
+    ClanwarOutcome result;
+
+    int maxAttacks;
+    int attacksUsed;
+    int teamSize;
+
+    int totalAttackStars;
+    double averageStarsPerAttack;
+
+    ClanwarDisciplineStats disciplineStats;
+};
+
+struct ClanwarHistoricalAverages
+{
+    int warsCount;
+
+    double averageStarsPerAttack;
+    double averageDestruction;
+    double averageMissedAttacks;
+    double averagePlayersWithOneAttack;
+    double averageFirstAttacksNotOnMirror;
+
+    double averageMissedAttacksRate;
+    double averagePlayersWithOneAttackRate;
+    double averageFirstAttacksNotOnMirrorRate;
+};
+
+enum class ClanwarPerformanceTrend
+{
+    Better,
+    Worse,
+    Similar
+};
+
+struct ClanwarPerformanceComparison
+{
+    ClanwarPerformanceTrend trend;
+    int improvedMetrics;
+    int worsenedMetrics;
+};
+
+struct ClanwarComparisonData
+{
+    ClanwarWarStats currentWar;
+    std::optional<ClanwarWarStats> previousWar;
+    std::optional<ClanwarHistoricalAverages> previousWarsAverage;
+    std::optional<ClanwarPerformanceComparison> performanceComparison;
+    std::vector<ClanwarOutcome> recentWarResults;
 };

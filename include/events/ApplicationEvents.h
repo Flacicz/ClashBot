@@ -33,13 +33,13 @@ struct PlayerRoleChangedEvent
 struct WarEndedEvent
 {
     std::string clanTag;
-    InsertedWarResult insertedWarResult;
+    ClanwarReference warReference;
 
     static constexpr auto Type = "war_ended";
 
     [[nodiscard]] std::string key() const
     {
-        return std::to_string(insertedWarResult.warId);
+        return std::to_string(warReference.warId);
     }
 };
 
@@ -60,13 +60,13 @@ struct ClanwarsLeagueRoundEndedEvent
 {
     std::string clanTag;
     long long cwlSeasonId;
-    InsertedWarResult insertedWarResult;
+    ClanwarReference warReference;
 
     static constexpr auto Type = "cwl_round_ended";
 
     [[nodiscard]] std::string key() const
     {
-        return std::to_string(insertedWarResult.warId);
+        return std::to_string(warReference.warId);
     }
 };
 

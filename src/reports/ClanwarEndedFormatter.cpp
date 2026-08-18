@@ -10,8 +10,7 @@ ClanwarEndedFormatter::ClanwarEndedFormatter(ClanwarRepo& repo) : clanwarRepo(re
 
 std::string ClanwarEndedFormatter::format(const WarEndedEvent& event) const
 {
-    const auto ids = event.insertedWarResult;
-    const auto reportData = clanwarRepo.getClanwarResultReportData(ids);
+    const auto reportData = clanwarRepo.getClanwarResultReportData(event.warReference);
 
     return buildReport(reportData);
 }
