@@ -4,7 +4,7 @@
 #include <iosfwd>
 #include <vector>
 
-#include "models/Models.h"
+#include "models/clanwar/ClanwarModels.h"
 
 namespace war_report
 {

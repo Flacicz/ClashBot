@@ -69,7 +69,7 @@ void ClanwarsLeagueRepo::saveCWLMembers(long long lastSeasonId,
     }
 }
 
-CWLRoundInfo ClanwarsLeagueRepo::getRoundInfo(long long warId) const
+CWLRoundInfo ClanwarsLeagueRepo::getRoundInfo(const ClanwarReference& reference) const
 {
     static constexpr std::string_view sql = R"(
         SELECT season_id, round_number
@@ -88,8 +88,8 @@ CWLRoundInfo ClanwarsLeagueRepo::getRoundInfo(long long warId) const
     return queryOne<CWLRoundInfo>(
         sql,
         "load clanwars league round info",
-        fmt::format("war_id = {}", warId),
+        fmt::format("war_id = {}", reference.warId),
         mapper,
-        warId
+        reference.warId
     );
 }

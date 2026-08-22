@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "BaseRepository.h"
-#include "models/Models.h"
+#include "models/common/CommonModels.h"
 
 
 class SubscriptionRepo : public BaseRepository

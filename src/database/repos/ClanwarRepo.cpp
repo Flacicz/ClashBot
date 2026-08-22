@@ -23,26 +23,18 @@ ClanwarReference ClanwarRepo::saveCompleteClanwarData(const Clanwar& war,
     const long long homeId = saveClanwarDetails(warId, clans.first);
     const long long oppId = saveClanwarDetails(warId, clans.second);
 
-    std::vector<PreparedAttackData> preparedAttacks;
-    preparedAttacks.reserve(attacks.size());
-
-    for (const auto& attack : attacks)
-    {
-        preparedAttacks.push_back(
-            PreparedAttackData::prepare(attack, homeId, war.clanTag, oppId)
-        );
-    }
-
-    saveClanwarAttacks(warId, preparedAttacks);
-    saveClanwarMembers(warId, homeId, members.first);
-    saveClanwarMembers(warId, oppId, members.second);
-
-    return ClanwarReference{
+    const ClanwarReference reference{
         .clanTag = war.clanTag,
         .warId = warId,
         .homeClanId = homeId,
         .opponentClanId = oppId
     };
+
+    saveClanwarAttacks(reference, attacks);
+    saveClanwarMembers(reference, members.first);
+    saveClanwarMembers(reference, members.second);
+
+    return reference;
 }
 
 long long ClanwarRepo::saveClanwar(const Clanwar& clanwar) const
@@ -105,8 +97,8 @@ long long ClanwarRepo::saveClanwarDetails(long long clanwarId, const ClanwarClan
     );
 }
 
-void ClanwarRepo::saveClanwarAttacks(long long clanwarId,
-                                     const std::vector<PreparedAttackData>& attacks) const
+void ClanwarRepo::saveClanwarAttacks(const ClanwarReference& reference,
+                                     const std::vector<ClanwarAttack>& attacks) const
 {
     if (attacks.empty()) return;
 
@@ -125,14 +117,22 @@ void ClanwarRepo::saveClanwarAttacks(long long clanwarId,
             defender_position = excluded.defender_position;
     )";
 
-    for (const auto& [attackerWarClanId, defenderWarClanId, attack] : attacks)
+    for (const auto& attack : attacks)
     {
+        const bool isHomeAttack = attack.attackerClanTag == reference.clanTag;
+        const long long attackerWarClanId = isHomeAttack
+                                                 ? reference.homeClanId
+                                                 : reference.opponentClanId;
+        const long long defenderWarClanId = isHomeAttack
+                                                 ? reference.opponentClanId
+                                                 : reference.homeClanId;
+
         execute(
             sql,
             "save clanwar attack",
             fmt::format("clan_tag = {}, attacker_tag = {}, war_id = {}",
-                        attack.attackerClanTag, attack.attackerTag, clanwarId),
-            clanwarId, attackerWarClanId, defenderWarClanId,
+                        attack.attackerClanTag, attack.attackerTag, reference.warId),
+            reference.warId, attackerWarClanId, defenderWarClanId,
             attack.attackerTag, attack.defenderTag,
             attack.attackerPosition, attack.defenderPosition,
             attack.stars, attack.destructionPercentage,
@@ -141,10 +141,14 @@ void ClanwarRepo::saveClanwarAttacks(long long clanwarId,
     }
 }
 
-void ClanwarRepo::saveClanwarMembers(long long clanwarId, long long warClanId,
+void ClanwarRepo::saveClanwarMembers(const ClanwarReference& reference,
                                      const std::vector<ClanwarMember>& members) const
 {
     if (members.empty()) return;
+
+    const long long warClanId = members.front().clanTag == reference.clanTag
+                                    ? reference.homeClanId
+                                    : reference.opponentClanId;
 
     static constexpr std::string_view sql = R"(
         INSERT INTO war_members(
@@ -163,13 +167,14 @@ void ClanwarRepo::saveClanwarMembers(long long clanwarId, long long warClanId,
             sql,
             "save clanwar member",
             fmt::format("clan_tag = {}, player_tag = {}, war_id = {}",
-                        clanTag, playerTag, clanwarId),
-            clanwarId, warClanId, playerTag, playerName, townhallLevel, mapPosition
+                        clanTag, playerTag, reference.warId),
+            reference.warId, warClanId, playerTag, playerName, townhallLevel, mapPosition
         );
     }
 }
 
-ClanwarOverview ClanwarRepo::getClanwarOverview(long long warId, long long warClanId) const
+std::pair<ClanwarOverview, ClanwarOverview> ClanwarRepo::getClanwarOverviews(
+    const ClanwarReference& reference) const
 {
     static constexpr std::string_view sql = R"(
         SELECT
@@ -191,16 +196,25 @@ ClanwarOverview ClanwarRepo::getClanwarOverview(long long warId, long long warCl
         };
     };
 
-    return queryOne<ClanwarOverview>(
-        sql,
-        "load clanwar overview",
-        fmt::format("war_id = {}, war_clan_id = {}", warId, warClanId),
-        mapper,
-        warId, warClanId
-    );
+    const auto loadOverview = [&](const long long warClanId)
+    {
+        return queryOne<ClanwarOverview>(
+            sql,
+            "load clanwar overview",
+            fmt::format("war_id = {}, war_clan_id = {}", reference.warId, warClanId),
+            mapper,
+            reference.warId, warClanId
+        );
+    };
+
+    return {
+        loadOverview(reference.homeClanId),
+        loadOverview(reference.opponentClanId)
+    };
 }
 
-ClanwarAttackStats ClanwarRepo::getClanwarAttackStats(long long warId, long long warClanId) const
+ClanwarAttackStats ClanwarRepo::getClanwarAttackStats(
+    const ClanwarReference& reference) const
 {
     static constexpr std::string_view sql = R"(
         SELECT
@@ -210,8 +224,7 @@ ClanwarAttackStats ClanwarRepo::getClanwarAttackStats(long long warId, long long
             COUNT(a.attack_id) AS attacks_count,
             COALESCE(SUM(a.stars), 0) AS total_attack_stars,
 
-            COALESCE(ROUND(AVG(a.stars), 2), 0) AS avg_stars,
-            COALESCE(ROUND(AVG(a.destruction_percentage), 2), 0) AS avg_destruction,
+            COALESCE(AVG(a.destruction_percentage), 0) AS avg_destruction,
 
             COALESCE(SUM(a.stars = 3), 0) AS three_stars,
             COALESCE(SUM(a.stars = 2), 0) AS two_stars,
@@ -230,31 +243,37 @@ ClanwarAttackStats ClanwarRepo::getClanwarAttackStats(long long warId, long long
 
     auto mapper = [](sqlite3_stmt* stmt) -> ClanwarAttackStats
     {
+        const auto attacksUsed = sqlite::getInt(stmt, 2);
+        const auto totalAttackStars = sqlite::getInt(stmt, 3);
+
         return ClanwarAttackStats{
-            .attacksUsed = sqlite::getInt(stmt, 2),
+            .attacksUsed = attacksUsed,
             .maxAttacks = sqlite::getInt(stmt, 0) * sqlite::getInt(stmt, 1),
             .teamSize = sqlite::getInt(stmt, 0),
-            .totalAttackStars = sqlite::getInt(stmt, 3),
-            .averageStars = sqlite::getDouble(stmt, 4),
-            .averageDestruction = sqlite::getDouble(stmt, 5),
-            .threeStarAttacks = sqlite::getInt(stmt, 6),
-            .twoStarAttacks = sqlite::getInt(stmt, 7),
-            .oneStarAttacks = sqlite::getInt(stmt, 8),
-            .zeroStarAttacks = sqlite::getInt(stmt, 9)
+            .totalAttackStars = totalAttackStars,
+            .averageStars = attacksUsed == 0
+                                ? 0.0
+                                : static_cast<double>(totalAttackStars) / attacksUsed,
+            .averageDestruction = sqlite::getDouble(stmt, 4),
+            .threeStarAttacks = sqlite::getInt(stmt, 5),
+            .twoStarAttacks = sqlite::getInt(stmt, 6),
+            .oneStarAttacks = sqlite::getInt(stmt, 7),
+            .zeroStarAttacks = sqlite::getInt(stmt, 8)
         };
     };
 
     return queryOne<ClanwarAttackStats>(
         sql,
         "load clanwar attack stats",
-        fmt::format("war_id = {}, war_clan_id = {}", warId, warClanId),
+        fmt::format("war_id = {}, war_clan_id = {}", reference.warId, reference.homeClanId),
         mapper,
-        warClanId, warId
+        reference.homeClanId, reference.warId
     );
 }
 
 // TODO: При выборе лучших атак учитывать правила войны, а не только звёзды и разрушение.
-std::vector<BestAttack> ClanwarRepo::getBestAttacks(long long warId, long long warClanId) const
+std::vector<BestAttack> ClanwarRepo::getBestAttacks(
+    const ClanwarReference& reference) const
 {
     static constexpr std::string_view sql = R"(
         WITH normalized_members AS (
@@ -326,14 +345,14 @@ std::vector<BestAttack> ClanwarRepo::getBestAttacks(long long warId, long long w
     return query<BestAttack>(
         sql,
         "load clanwar best attacks",
-        fmt::format("war_id = {}, war_clan_id = {}", warId, warClanId),
+        fmt::format("war_id = {}, war_clan_id = {}", reference.warId, reference.homeClanId),
         mapper,
-        warId, warId, warClanId
+        reference.warId, reference.warId, reference.homeClanId
     );
 }
 
-std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithNoAttacks(long long clanwarId,
-                                                                  long long warClanId) const
+std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithNoAttacks(
+    const ClanwarReference& reference) const
 {
     static constexpr std::string_view sql = R"(
         SELECT
@@ -358,14 +377,14 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithNoAttacks(long long clan
     return query<ClanwarSlacker>(
         sql,
         "load clanwar slackers with no attacks",
-        fmt::format("war_id = {}, war_clan_id = {}", clanwarId, warClanId),
+        fmt::format("war_id = {}, war_clan_id = {}", reference.warId, reference.homeClanId),
         mapper,
-        clanwarId, warClanId
+        reference.warId, reference.homeClanId
     );
 }
 
-std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack(long long clanwarId,
-                                                                  long long warClanId) const
+std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack(
+    const ClanwarReference& reference) const
 {
     static constexpr std::string_view sql = R"(
         SELECT
@@ -392,14 +411,14 @@ std::vector<ClanwarSlacker> ClanwarRepo::getSlackersWithOneAttack(long long clan
     return query<ClanwarSlacker>(
         sql,
         "load clanwar slackers with one attack",
-        fmt::format("war_id = {}, war_clan_id = {}", clanwarId, warClanId),
+        fmt::format("war_id = {}, war_clan_id = {}", reference.warId, reference.homeClanId),
         mapper,
-        clanwarId, warClanId
+        reference.warId, reference.homeClanId
     );
 }
 
-std::vector<NotMirrorAttack> ClanwarRepo::getPlayersWithFirstAttackNotOnMirror(long long warId,
-                                                                               long long warClanId) const
+std::vector<NotMirrorAttack> ClanwarRepo::getPlayersWithFirstAttackNotOnMirror(
+    const ClanwarReference& reference) const
 {
     static constexpr std::string_view sql = R"(
         WITH normalized_members AS (
@@ -477,14 +496,14 @@ std::vector<NotMirrorAttack> ClanwarRepo::getPlayersWithFirstAttackNotOnMirror(l
     return query<NotMirrorAttack>(
         sql,
         "load clanwar first attacks not on mirror",
-        fmt::format("war_id = {}, war_clan_id = {}", warId, warClanId),
+        fmt::format("war_id = {}, war_clan_id = {}", reference.warId, reference.homeClanId),
         mapper,
-        warId, warId, warClanId
+        reference.warId, reference.warId, reference.homeClanId
     );
 }
 
-ClanwarDisciplineStats ClanwarRepo::getClanwarDisciplineStats(const long long warId,
-                                                              const long long warClanId) const
+ClanwarDisciplineStats ClanwarRepo::getClanwarDisciplineStats(
+    const ClanwarReference& reference) const
 {
     static constexpr std::string_view sql = R"(
         WITH member_attack_counts AS (
@@ -567,18 +586,19 @@ ClanwarDisciplineStats ClanwarRepo::getClanwarDisciplineStats(const long long wa
     return queryOne<ClanwarDisciplineStats>(
         sql,
         "load clanwar discipline stats",
-        fmt::format("war_id = {}, war_clan_id = {}", warId, warClanId),
+        fmt::format("war_id = {}, war_clan_id = {}", reference.warId, reference.homeClanId),
         mapper,
-        warId, warClanId, warId, warId, warClanId
+        reference.warId, reference.homeClanId,
+        reference.warId,
+        reference.warId, reference.homeClanId
     );
 }
 
 ClanwarWarStats ClanwarRepo::getClanwarStats(const ClanwarReference& reference) const
 {
-    const auto home = getClanwarOverview(reference.warId, reference.homeClanId);
-    const auto opponent = getClanwarOverview(reference.warId, reference.opponentClanId);
-    const auto attackStats = getClanwarAttackStats(reference.warId, reference.homeClanId);
-    const auto disciplineStats = getClanwarDisciplineStats(reference.warId, reference.homeClanId);
+    const auto [home, opponent] = getClanwarOverviews(reference);
+    const auto attackStats = getClanwarAttackStats(reference);
+    const auto disciplineStats = getClanwarDisciplineStats(reference);
 
     return ClanwarWarStats{
         .homeStars = home.stars,
@@ -668,18 +688,65 @@ std::vector<ClanwarReference> ClanwarRepo::getPreviousClanwars(
     );
 }
 
+std::vector<std::string> ClanwarRepo::getHomeMemberTags(
+    const ClanwarReference& reference) const
+{
+    static constexpr std::string_view sql = R"(
+        SELECT player_tag
+        FROM war_members
+        WHERE war_id = ?
+          AND war_clan_id = ?;
+    )";
+
+    auto mapper = [](sqlite3_stmt* stmt) -> std::string
+    {
+        return sqlite::getString(stmt, 0);
+    };
+
+    return query<std::string>(
+        sql,
+        "load home member tags",
+        fmt::format("war_id = {}, war_clan_id = {}", reference.warId, reference.homeClanId),
+        mapper,
+        reference.warId, reference.homeClanId
+    );
+}
+
+std::vector<ClanwarPlayerAttack> ClanwarRepo::getHomeClanwarAttackResults(const ClanwarReference& reference) const
+{
+    static constexpr std::string_view sql = R"(
+        SELECT attacker_tag, stars, destruction_percentage
+        FROM attacks
+        WHERE war_id = ?
+          AND attacker_war_clan_id = ?;
+    )";
+
+    auto mapper = [](sqlite3_stmt* stmt) -> ClanwarPlayerAttack
+    {
+        return ClanwarPlayerAttack{
+            .playerTag = sqlite::getString(stmt, 0),
+            .stars = sqlite::getInt(stmt, 1),
+            .destructionPercentage = sqlite::getDouble(stmt, 2)
+        };
+    };
+
+    return query<ClanwarPlayerAttack>(
+        sql,
+        "load home clanwar attacks results",
+        fmt::format("war_id = {}, war_clan_id = {}", reference.warId, reference.homeClanId),
+        mapper,
+        reference.warId, reference.homeClanId
+    );
+}
+
 ClanwarResultReportData ClanwarRepo::getClanwarResultReportData(
     const ClanwarReference& reference) const
 {
-    const auto clanwarId = reference.warId;
-    const auto warClanId = reference.homeClanId;
+    auto [home, opponent] = getClanwarOverviews(reference);
 
-    auto home = getClanwarOverview(clanwarId, reference.homeClanId);
-    auto opponent = getClanwarOverview(clanwarId, reference.opponentClanId);
-
-    const auto clanwarAttackStats = getClanwarAttackStats(clanwarId, warClanId);
-    auto bestAttacks = getBestAttacks(clanwarId, warClanId);
-    const auto disciplineStats = getClanwarDisciplineStats(clanwarId, warClanId);
+    const auto clanwarAttackStats = getClanwarAttackStats(reference);
+    auto bestAttacks = getBestAttacks(reference);
+    const auto disciplineStats = getClanwarDisciplineStats(reference);
 
     return ClanwarResultReportData{
         .home = std::move(home),
@@ -692,13 +759,12 @@ ClanwarResultReportData ClanwarRepo::getClanwarResultReportData(
 
 WarRoundDetails ClanwarRepo::getWarRoundDetails(const ClanwarReference& reference) const
 {
-    auto home = getClanwarOverview(reference.warId, reference.homeClanId);
-    auto opponent = getClanwarOverview(reference.warId, reference.opponentClanId);
-    const auto attackStats = getClanwarAttackStats(reference.warId, reference.homeClanId);
-    auto bestAttacks = getBestAttacks(reference.warId, reference.homeClanId);
+    auto [home, opponent] = getClanwarOverviews(reference);
+    const auto attackStats = getClanwarAttackStats(reference);
+    auto bestAttacks = getBestAttacks(reference);
 
-    auto noAttack = getSlackersWithNoAttacks(reference.warId, reference.homeClanId);
-    auto notMirrorAttacks = getPlayersWithFirstAttackNotOnMirror(reference.warId, reference.homeClanId);
+    auto noAttack = getSlackersWithNoAttacks(reference);
+    auto notMirrorAttacks = getPlayersWithFirstAttackNotOnMirror(reference);
 
     return WarRoundDetails{
         .home = std::move(home),

@@ -8,6 +8,7 @@
 #include "database/Database.h"
 #include "reports/ClanwarComparisonFormatter.h"
 #include "reports/ClanwarEndedFormatter.h"
+#include "reports/ClanwarRosterFormatter.h"
 #include "reports/ClanwarsLeagueRoundEndedFormatter.h"
 #include "reports/PlayerJoinedFormatter.h"
 #include "reports/PlayerLeftFormatter.h"
@@ -29,6 +30,7 @@ class NotificationService
     RaidsEndedFormatter raidsEndedFormatter;
     ClanwarEndedFormatter clanwarEndedFormatter;
     ClanwarComparisonFormatter clanwarComparisonFormatter;
+    ClanwarRosterFormatter clanwarRosterFormatter;
     ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter;
 
     void sendToDestinations(std::string_view clanTag,
@@ -51,6 +53,7 @@ public:
                         RaidsEndedFormatter raidsEndedFormatter,
                         ClanwarEndedFormatter clanwarEndedFormatter,
                         ClanwarComparisonFormatter clanwarComparisonFormatter,
+                        ClanwarRosterFormatter clanwarRosterFormatter,
                         ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter);
 
     void handle(const ApplicationEvent& application_event);

@@ -6,7 +6,7 @@
 #include <sqlite3.h>
 
 #include "BaseRepository.h"
-#include "models/Models.h"
+#include "models/raid/RaidModels.h"
 
 
 class RaidRepo : public BaseRepository

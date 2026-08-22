@@ -2,7 +2,10 @@
 
 #include <string>
 
-#include "models/Models.h"
+#include "models/clan/ClanModels.h"
+#include "models/clanwar/ClanwarModels.h"
+#include "models/cwl/CwlModels.h"
+#include "models/raid/RaidModels.h"
 
 
 class APIClient

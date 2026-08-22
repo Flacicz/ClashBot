@@ -14,6 +14,7 @@ NotificationService::NotificationService(NotificationRepo& notification_repo,
                                          const RaidsEndedFormatter raidsEndedFormatter,
                                          const ClanwarEndedFormatter clanwarEndedFormatter,
                                          const ClanwarComparisonFormatter clanwarComparisonFormatter,
+                                         const ClanwarRosterFormatter clanwarRosterFormatter,
                                          const ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter) :
     notification_repo_(notification_repo),
     subscription_repo_(subscription_repo),
@@ -24,6 +25,7 @@ NotificationService::NotificationService(NotificationRepo& notification_repo,
     raidsEndedFormatter(raidsEndedFormatter),
     clanwarEndedFormatter(clanwarEndedFormatter),
     clanwarComparisonFormatter(clanwarComparisonFormatter),
+    clanwarRosterFormatter(clanwarRosterFormatter),
     clanwarLeagueRoundEndedFormatter(clanwarLeagueRoundEndedFormatter)
 {
 }
@@ -126,13 +128,23 @@ void NotificationService::handleEvent(const WarEndedEvent& event) const
                                         message);
 
     const auto comparisonMessage = clanwarComparisonFormatter.format(event);
-    if (comparisonMessage.empty()) return;
+    if (!comparisonMessage.empty())
+    {
+        sendToDestinationsWithDeduplication(event.clanTag,
+                                            ClanwarComparisonFormatter::EventType,
+                                            event.key(),
+                                            "ClanwarComparisonFormatter",
+                                            comparisonMessage);
+    }
+
+    const auto rosterMessage = clanwarRosterFormatter.format(event);
+    if (rosterMessage.empty()) return;
 
     sendToDestinationsWithDeduplication(event.clanTag,
-                                        ClanwarComparisonFormatter::EventType,
+                                        ClanwarRosterFormatter::EventType,
                                         event.key(),
-                                        "ClanwarComparisonFormatter",
-                                        comparisonMessage);
+                                        "ClanwarRosterFormatter",
+                                        rosterMessage);
 }
 
 void NotificationService::handleEvent(const ClanwarsLeagueRoundEndedEvent& event) const

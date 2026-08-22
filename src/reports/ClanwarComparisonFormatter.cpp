@@ -1,6 +1,5 @@
 #include "reports/ClanwarComparisonFormatter.h"
 
-#include <cmath>
 #include <sstream>
 #include <string_view>
 #include <vector>

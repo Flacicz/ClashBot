@@ -4,7 +4,7 @@
 #include <optional>
 #include <vector>
 
-#include "models/Models.h"
+#include "models/clanwar/ClanwarModels.h"
 
 namespace clanwar_analytics
 {

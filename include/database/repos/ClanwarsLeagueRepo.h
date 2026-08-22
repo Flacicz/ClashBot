@@ -6,7 +6,8 @@
 #include <sqlite3.h>
 
 #include "BaseRepository.h"
-#include "models/Models.h"
+#include "models/cwl/CwlModels.h"
+#include "models/clanwar/ClanwarModels.h"
 
 
 class ClanwarsLeagueRepo : public BaseRepository
@@ -23,5 +24,5 @@ public:
     void saveCWLMembers(long long lastSeasonId,
                         const std::vector<ClanwarsLeagueMember>& members) const;
 
-    [[nodiscard]] CWLRoundInfo getRoundInfo(long long warId) const;
+    [[nodiscard]] CWLRoundInfo getRoundInfo(const ClanwarReference& reference) const;
 };

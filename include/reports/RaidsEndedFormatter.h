@@ -6,7 +6,7 @@
 #include "database/repos/ClansRepo.h"
 #include "database/repos/RaidRepo.h"
 #include "events/ApplicationEvents.h"
-#include "models/Models.h"
+#include "models/raid/RaidModels.h"
 
 class RaidsEndedFormatter
 {

@@ -5,7 +5,7 @@
 #include <string_view>
 #include <variant>
 
-#include "models/Models.h"
+#include "models/clanwar/ClanwarModels.h"
 
 struct PlayerJoinedClanEvent
 {

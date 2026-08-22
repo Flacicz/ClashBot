@@ -1,5 +1,6 @@
 #include "reports/WarReportParts.h"
 
+#include <ostream>
 #include <fmt/format.h>
 
 #include "common/ClanwarUtils.h"

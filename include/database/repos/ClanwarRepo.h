@@ -8,7 +8,7 @@
 #include <sqlite3.h>
 
 #include "BaseRepository.h"
-#include "models/Models.h"
+#include "models/clanwar/ClanwarModels.h"
 
 
 class ClanwarRepo : public BaseRepository
@@ -27,21 +27,24 @@ public:
 
     [[nodiscard]] long long saveClanwar(const Clanwar& clanwar) const;
     [[nodiscard]] long long saveClanwarDetails(long long clanwarId, const ClanwarClan& clanwarClan) const;
-    void saveClanwarAttacks(long long clanwarId,
-                            const std::vector<PreparedAttackData>& attacks) const;
-    void saveClanwarMembers(long long clanwarId, long long warClanId,
+    void saveClanwarAttacks(const ClanwarReference& reference,
+                            const std::vector<ClanwarAttack>& attacks) const;
+    void saveClanwarMembers(const ClanwarReference& reference,
                             const std::vector<ClanwarMember>& members) const;
 
-    [[nodiscard]] ClanwarOverview getClanwarOverview(long long warId, long long warClanId) const;
-    [[nodiscard]] ClanwarAttackStats getClanwarAttackStats(long long warId, long long warClanId) const;
-    [[nodiscard]] std::vector<BestAttack> getBestAttacks(long long warId, long long warClanId) const;
+    [[nodiscard]] std::pair<ClanwarOverview, ClanwarOverview> getClanwarOverviews(
+        const ClanwarReference& reference) const;
+    [[nodiscard]] ClanwarAttackStats getClanwarAttackStats(
+        const ClanwarReference& reference) const;
+    [[nodiscard]] std::vector<BestAttack> getBestAttacks(
+        const ClanwarReference& reference) const;
 
-    [[nodiscard]] std::vector<ClanwarSlacker> getSlackersWithNoAttacks(long long clanwarId,
-                                                                       long long warClanId) const;
-    [[nodiscard]] std::vector<ClanwarSlacker> getSlackersWithOneAttack(long long clanwarId,
-                                                                       long long warClanId) const;
+    [[nodiscard]] std::vector<ClanwarSlacker> getSlackersWithNoAttacks(
+        const ClanwarReference& reference) const;
+    [[nodiscard]] std::vector<ClanwarSlacker> getSlackersWithOneAttack(
+        const ClanwarReference& reference) const;
     [[nodiscard]] std::vector<NotMirrorAttack> getPlayersWithFirstAttackNotOnMirror(
-        long long warId, long long warClanId) const;
+        const ClanwarReference& reference) const;
 
     [[nodiscard]] ClanwarWarStats getClanwarStats(
         const ClanwarReference& reference) const;
@@ -50,8 +53,14 @@ public:
         const ClanwarReference& currentWar,
         int limit) const;
 
+    [[nodiscard]] std::vector<std::string> getHomeMemberTags(
+        const ClanwarReference& reference) const;
+
+    [[nodiscard]] std::vector<ClanwarPlayerAttack>
+    getHomeClanwarAttackResults(const ClanwarReference& reference) const;
+
     [[nodiscard]] ClanwarDisciplineStats getClanwarDisciplineStats(
-        long long warId, long long warClanId) const;
+        const ClanwarReference& reference) const;
 
     [[nodiscard]] ClanwarResultReportData getClanwarResultReportData(
         const ClanwarReference& reference) const;

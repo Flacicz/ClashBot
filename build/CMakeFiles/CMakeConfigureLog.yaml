@@ -1,0 +1,1584 @@
+
+---
+events:
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineSystem.cmake:218 (message)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      The system is: Windows - 10.0.19045 - AMD64
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:501 (find_file)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:538 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCXXCompilerId.cpp.in"
+    candidate_directories:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/"
+    found: "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeCXXCompilerId.cpp.in"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\.codex\\tmp\\arg0\\codex-arg0hZbVKh"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\Program Files\\Zulu\\zulu-8\\bin\\"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\java8path"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "c:\\altera\\91\\quartus\\bin"
+        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files\\Docker\\Docker\\resources\\bin"
+        - "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\zuevm\\AppData\\Local\\JetBrains\\Toolbox\\scripts"
+        - "C:\\Users\\zuevm\\AppData\\Roaming\\npm"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\zuevm\\AppData\\Local\\OpenAI\\Codex\\bin\\c3408b9418856cc6"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      1
+      ╨Т╨╡╤А╤Б╨╕╤П MSBuild 18.5.4+cb4e32d21 ╨┤╨╗╤П .NET Framework
+      ╨б╨▒╨╛╤А╨║╨░ ╨╜╨░╤З╨░╤В╨░ 19.08.2026 14:30:49.
+      
+      ╨Я╤А╨╛╨╡╨║╤В "C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" ╨▓ ╤Г╨╖╨╗╨╡ 1 (╤Ж╨╡╨╗╨╡╨▓╤Л╨╡ ╨╛╨▒╤К╨╡╨║╤В╤Л ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О).
+      PrepareForBuild:
+        ╨б╨╛╨╖╨┤╨░╨╜╨╕╨╡ ╨║╨░╤В╨░╨╗╨╛╨│╨░ "Debug\\".
+        ╨б╤В╤А╤Г╨║╤В╤Г╤А╨╕╤А╨╛╨▓╨░╨╜╨╜╤Л╨╣ ╨▓╤Л╨▓╨╛╨┤ ╨▓╨║╨╗╤О╤З╨╡╨╜. ╨д╨╛╤А╨╝╨░╤В╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡ ╨┤╨╕╨░╨│╨╜╨╛╤Б╤В╨╕╨║╨╕ ╨║╨╛╨╝╨┐╨╕╨╗╤П╤В╨╛╤А╨░ ╨▒╤Г╨┤╨╡╤В ╨╛╤В╤А╨░╨╢╨░╤В╤М ╨╕╨╡╤А╨░╤А╤Е╨╕╤О ╨╛╤И╨╕╨▒╨╛╨║. ╨Я╨╛╨┤╤А╨╛╨▒╨╜╨╡╨╡ ╤Б╨╝. https://aka.ms/cpp/structured-output.
+        ╨б╨╛╨╖╨┤╨░╨╜╨╕╨╡ ╨║╨░╤В╨░╨╗╨╛╨│╨░ "Debug\\CompilerIdCXX.tlog\\".
+      InitializeBuildStatus:
+        ╨б╨╛╨╖╨┤╨░╨╜╨╕╨╡ "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild", ╤В╨░╨║ ╨║╨░╨║ ╨▒╤Л╨╗╨╛ ╨╖╨░╨┤╨░╨╜╨╛ "AlwaysCreate".
+        ╨Ю╨▒╤А╨░╤Й╨╡╨╜╨╕╨╡ ╨║ "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild".
+      VcpkgTripletSelection:
+        Using triplet "x64-windows" from "C:\\Users\\zuevm\\vcpkg\\installed\\x64-windows\\"
+        Using normalized configuration "Release"
+      VcpkgCheckManifestRoot:
+        The vcpkg manifest was disabled, but we found a manifest file in C:\\Code\\C++\\ActivityTracking\\. You may want to enable vcpkg manifests in your properties page or pass /p:VcpkgEnableManifest=true to the msbuild invocation.
+      ClCompile:
+        C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Users\\zuevm\\vcpkg\\installed\\x64-windows\\include" /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc145.pdb" /external:W0 /Gd /TP /FC /errorReport:queue CMakeCXXCompilerId.cpp
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001: ╨Э╨╡╨┤╨╛╨┐╤Г╤Б╤В╨╕╨╝╤Л╨╣ ╨┐╨╡╤А╨╡╨║╨╗╤О╤З╨░╤В╨╡╨╗╤М ╨║╨╛╨╝╨░╨╜╨┤╨╜╨╛╨╣ ╤Б╤В╤А╨╛╨║╨╕ ╨┤╨╗╤П "CL.exe". System.ArgumentException: ╨н╨╗╨╡╨╝╨╡╨╜╤В ╤Г╨╢╨╡ ╨┤╨╛╨▒╨░╨▓╨╗╨╡╨╜. ╨Ъ╨╗╤О╤З ╨▓ ╤Б╨╗╨╛╨▓╨░╤А╨╡: "Path"  ╨Ф╨╛╨▒╨░╨▓╨╗╤П╨╡╨╝╤Л╨╣ ╨║╨╗╤О╤З: 'PATH' [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Collections.Hashtable.Insert(Object key, Object nvalue, Boolean add) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Diagnostics.ProcessStartInfo.get_EnvironmentVariables() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.GetProcessStartInfo(String pathToTool, String commandLineCommands, String responseFileSwitch) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.TrackerExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.CL.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.Execute() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      ╨б╨▒╨╛╤А╨║╨░ ╨┐╤А╨╛╨╡╨║╤В╨░ "C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" ╨╖╨░╨▓╨╡╤А╤И╨╡╨╜╨░ (╤Ж╨╡╨╗╨╡╨▓╤Л╨╡ ╨╛╨▒╤К╨╡╨║╤В╤Л ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О) ╤Б ╨╛╤И╨╕╨▒╨║╨╛╨╣.
+      
+      ╨Ю╤И╨╕╨▒╨║╨░ ╤Б╨▒╨╛╤А╨║╨╕.
+      
+      "C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" (╤Ж╨╡╨╗╨╡╨▓╨╛╨╣ ╨╛╨▒╤К╨╡╨║╤В ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О) (1) ->
+      (╨ж╨╡╨╗╨╡╨▓╨╛╨╣ ╨╛╨▒╤К╨╡╨║╤В ClCompile) -> 
+        C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001: ╨Э╨╡╨┤╨╛╨┐╤Г╤Б╤В╨╕╨╝╤Л╨╣ ╨┐╨╡╤А╨╡╨║╨╗╤О╤З╨░╤В╨╡╨╗╤М ╨║╨╛╨╝╨░╨╜╨┤╨╜╨╛╨╣ ╤Б╤В╤А╨╛╨║╨╕ ╨┤╨╗╤П "CL.exe". System.ArgumentException: ╨н╨╗╨╡╨╝╨╡╨╜╤В ╤Г╨╢╨╡ ╨┤╨╛╨▒╨░╨▓╨╗╨╡╨╜. ╨Ъ╨╗╤О╤З ╨▓ ╤Б╨╗╨╛╨▓╨░╤А╨╡: "Path"  ╨Ф╨╛╨▒╨░╨▓╨╗╤П╨╡╨╝╤Л╨╣ ╨║╨╗╤О╤З: 'PATH' [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Collections.Hashtable.Insert(Object key, Object nvalue, Boolean add) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Diagnostics.ProcessStartInfo.get_EnvironmentVariables() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.GetProcessStartInfo(String pathToTool, String commandLineCommands, String responseFileSwitch) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.TrackerExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.CL.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.Execute() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      
+          ╨Я╤А╨╡╨┤╤Г╨┐╤А╨╡╨╢╨┤╨╡╨╜╨╕╨╣: 0
+          ╨Ю╤И╨╕╨▒╨╛╨║: 1
+      
+      ╨Я╤А╨╛╤И╨╗╨╛ ╨▓╤А╨╡╨╝╨╡╨╜╨╕ 00:00:00.46
+      
+      
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:501 (find_file)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:538 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCXXCompilerId.cpp.in"
+    candidate_directories:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/"
+    found: "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeCXXCompilerId.cpp.in"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\.codex\\tmp\\arg0\\codex-arg0hZbVKh"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\Program Files\\Zulu\\zulu-8\\bin\\"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\java8path"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "c:\\altera\\91\\quartus\\bin"
+        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files\\Docker\\Docker\\resources\\bin"
+        - "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\zuevm\\AppData\\Local\\JetBrains\\Toolbox\\scripts"
+        - "C:\\Users\\zuevm\\AppData\\Roaming\\npm"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\zuevm\\AppData\\Local\\OpenAI\\Codex\\bin\\c3408b9418856cc6"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      1
+      ╨Т╨╡╤А╤Б╨╕╤П MSBuild 18.5.4+cb4e32d21 ╨┤╨╗╤П .NET Framework
+      ╨б╨▒╨╛╤А╨║╨░ ╨╜╨░╤З╨░╤В╨░ 19.08.2026 14:30:50.
+      
+      ╨Я╤А╨╛╨╡╨║╤В "C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" ╨▓ ╤Г╨╖╨╗╨╡ 1 (╤Ж╨╡╨╗╨╡╨▓╤Л╨╡ ╨╛╨▒╤К╨╡╨║╤В╤Л ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О).
+      PrepareForBuild:
+        ╨б╨╛╨╖╨┤╨░╨╜╨╕╨╡ ╨║╨░╤В╨░╨╗╨╛╨│╨░ "Debug\\".
+        ╨б╤В╤А╤Г╨║╤В╤Г╤А╨╕╤А╨╛╨▓╨░╨╜╨╜╤Л╨╣ ╨▓╤Л╨▓╨╛╨┤ ╨▓╨║╨╗╤О╤З╨╡╨╜. ╨д╨╛╤А╨╝╨░╤В╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡ ╨┤╨╕╨░╨│╨╜╨╛╤Б╤В╨╕╨║╨╕ ╨║╨╛╨╝╨┐╨╕╨╗╤П╤В╨╛╤А╨░ ╨▒╤Г╨┤╨╡╤В ╨╛╤В╤А╨░╨╢╨░╤В╤М ╨╕╨╡╤А╨░╤А╤Е╨╕╤О ╨╛╤И╨╕╨▒╨╛╨║. ╨Я╨╛╨┤╤А╨╛╨▒╨╜╨╡╨╡ ╤Б╨╝. https://aka.ms/cpp/structured-output.
+        ╨б╨╛╨╖╨┤╨░╨╜╨╕╨╡ ╨║╨░╤В╨░╨╗╨╛╨│╨░ "Debug\\CompilerIdCXX.tlog\\".
+      InitializeBuildStatus:
+        ╨б╨╛╨╖╨┤╨░╨╜╨╕╨╡ "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild", ╤В╨░╨║ ╨║╨░╨║ ╨▒╤Л╨╗╨╛ ╨╖╨░╨┤╨░╨╜╨╛ "AlwaysCreate".
+        ╨Ю╨▒╤А╨░╤Й╨╡╨╜╨╕╨╡ ╨║ "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild".
+      VcpkgTripletSelection:
+        Using triplet "x64-windows" from "C:\\Users\\zuevm\\vcpkg\\installed\\x64-windows\\"
+        Using normalized configuration "Release"
+      VcpkgCheckManifestRoot:
+        The vcpkg manifest was disabled, but we found a manifest file in C:\\Code\\C++\\ActivityTracking\\. You may want to enable vcpkg manifests in your properties page or pass /p:VcpkgEnableManifest=true to the msbuild invocation.
+      ClCompile:
+        C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Users\\zuevm\\vcpkg\\installed\\x64-windows\\include" /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc145.pdb" /external:W0 /Gd /TP /FC /errorReport:queue CMakeCXXCompilerId.cpp
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001: ╨Э╨╡╨┤╨╛╨┐╤Г╤Б╤В╨╕╨╝╤Л╨╣ ╨┐╨╡╤А╨╡╨║╨╗╤О╤З╨░╤В╨╡╨╗╤М ╨║╨╛╨╝╨░╨╜╨┤╨╜╨╛╨╣ ╤Б╤В╤А╨╛╨║╨╕ ╨┤╨╗╤П "CL.exe". System.ArgumentException: ╨н╨╗╨╡╨╝╨╡╨╜╤В ╤Г╨╢╨╡ ╨┤╨╛╨▒╨░╨▓╨╗╨╡╨╜. ╨Ъ╨╗╤О╤З ╨▓ ╤Б╨╗╨╛╨▓╨░╤А╨╡: "Path"  ╨Ф╨╛╨▒╨░╨▓╨╗╤П╨╡╨╝╤Л╨╣ ╨║╨╗╤О╤З: 'PATH' [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Collections.Hashtable.Insert(Object key, Object nvalue, Boolean add) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Diagnostics.ProcessStartInfo.get_EnvironmentVariables() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.GetProcessStartInfo(String pathToTool, String commandLineCommands, String responseFileSwitch) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.TrackerExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.CL.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.Execute() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      ╨б╨▒╨╛╤А╨║╨░ ╨┐╤А╨╛╨╡╨║╤В╨░ "C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" ╨╖╨░╨▓╨╡╤А╤И╨╡╨╜╨░ (╤Ж╨╡╨╗╨╡╨▓╤Л╨╡ ╨╛╨▒╤К╨╡╨║╤В╤Л ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О) ╤Б ╨╛╤И╨╕╨▒╨║╨╛╨╣.
+      
+      ╨Ю╤И╨╕╨▒╨║╨░ ╤Б╨▒╨╛╤А╨║╨╕.
+      
+      "C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" (╤Ж╨╡╨╗╨╡╨▓╨╛╨╣ ╨╛╨▒╤К╨╡╨║╤В ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О) (1) ->
+      (╨ж╨╡╨╗╨╡╨▓╨╛╨╣ ╨╛╨▒╤К╨╡╨║╤В ClCompile) -> 
+        C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001: ╨Э╨╡╨┤╨╛╨┐╤Г╤Б╤В╨╕╨╝╤Л╨╣ ╨┐╨╡╤А╨╡╨║╨╗╤О╤З╨░╤В╨╡╨╗╤М ╨║╨╛╨╝╨░╨╜╨┤╨╜╨╛╨╣ ╤Б╤В╤А╨╛╨║╨╕ ╨┤╨╗╤П "CL.exe". System.ArgumentException: ╨н╨╗╨╡╨╝╨╡╨╜╤В ╤Г╨╢╨╡ ╨┤╨╛╨▒╨░╨▓╨╗╨╡╨╜. ╨Ъ╨╗╤О╤З ╨▓ ╤Б╨╗╨╛╨▓╨░╤А╨╡: "Path"  ╨Ф╨╛╨▒╨░╨▓╨╗╤П╨╡╨╝╤Л╨╣ ╨║╨╗╤О╤З: 'PATH' [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Collections.Hashtable.Insert(Object key, Object nvalue, Boolean add) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Diagnostics.ProcessStartInfo.get_EnvironmentVariables() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.GetProcessStartInfo(String pathToTool, String commandLineCommands, String responseFileSwitch) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.TrackerExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.CL.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.Execute() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      
+          ╨Я╤А╨╡╨┤╤Г╨┐╤А╨╡╨╢╨┤╨╡╨╜╨╕╨╣: 0
+          ╨Ю╤И╨╕╨▒╨╛╨║: 1
+      
+      ╨Я╤А╨╛╤И╨╗╨╛ ╨▓╤А╨╡╨╝╨╡╨╜╨╕ 00:00:00.42
+      
+      
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:37 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:64 (__resolve_tool_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:102 (__resolve_linker_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "_CMAKE_TOOL_WITH_PATH"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "link"
+    candidate_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Program Files/Zulu/zulu-8/bin/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/altera/91/quartus/bin/"
+      - "C:/Program Files/nodejs/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/Docker/Docker/resources/bin/"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/"
+      - "C:/Users/zuevm/AppData/Roaming/npm/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/"
+    searched_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/link"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/link.com"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/link.exe"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/link"
+      - "C:/Program Files/Zulu/zulu-8/bin/link.com"
+      - "C:/Program Files/Zulu/zulu-8/bin/link.exe"
+      - "C:/Program Files/Zulu/zulu-8/bin/link"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/link.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/link.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/link"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/link.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/link.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/link"
+      - "C:/Windows/System32/link.com"
+      - "C:/Windows/System32/link.exe"
+      - "C:/Windows/System32/link"
+      - "C:/Windows/link.com"
+      - "C:/Windows/link.exe"
+      - "C:/Windows/link"
+      - "C:/Windows/System32/wbem/link.com"
+      - "C:/Windows/System32/wbem/link.exe"
+      - "C:/Windows/System32/wbem/link"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/link.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/link.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/link"
+      - "C:/Windows/System32/OpenSSH/link.com"
+      - "C:/Windows/System32/OpenSSH/link.exe"
+      - "C:/Windows/System32/OpenSSH/link"
+      - "C:/Program Files/Git/cmd/link.com"
+      - "C:/Program Files/Git/cmd/link.exe"
+      - "C:/Program Files/Git/cmd/link"
+      - "C:/Program Files/dotnet/link.com"
+      - "C:/Program Files/dotnet/link.exe"
+      - "C:/Program Files/dotnet/link"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/link.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/link.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/link"
+      - "C:/altera/91/quartus/bin/link.com"
+      - "C:/altera/91/quartus/bin/link.exe"
+      - "C:/altera/91/quartus/bin/link"
+      - "C:/Program Files/nodejs/link.com"
+      - "C:/Program Files/nodejs/link.exe"
+      - "C:/Program Files/nodejs/link"
+      - "C:/Program Files/CMake/bin/link.com"
+      - "C:/Program Files/CMake/bin/link.exe"
+      - "C:/Program Files/CMake/bin/link"
+      - "C:/Program Files/Docker/Docker/resources/bin/link.com"
+      - "C:/Program Files/Docker/Docker/resources/bin/link.exe"
+      - "C:/Program Files/Docker/Docker/resources/bin/link"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/link.com"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/link.exe"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/link"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/link.com"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/link.exe"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/link"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/link.com"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/link.exe"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/link"
+      - "C:/Users/zuevm/AppData/Roaming/npm/link.com"
+      - "C:/Users/zuevm/AppData/Roaming/npm/link.exe"
+      - "C:/Users/zuevm/AppData/Roaming/npm/link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/link"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/link.com"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/link.exe"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/link"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/link.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/link.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/link"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\.codex\\tmp\\arg0\\codex-arg0hZbVKh"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\Program Files\\Zulu\\zulu-8\\bin\\"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\java8path"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "c:\\altera\\91\\quartus\\bin"
+        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files\\Docker\\Docker\\resources\\bin"
+        - "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\zuevm\\AppData\\Local\\JetBrains\\Toolbox\\scripts"
+        - "C:\\Users\\zuevm\\AppData\\Roaming\\npm"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\zuevm\\AppData\\Local\\OpenAI\\Codex\\bin\\c3408b9418856cc6"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:37 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:64 (__resolve_tool_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:103 (__resolve_linker_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "_CMAKE_TOOL_WITH_PATH"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "lld-link"
+    candidate_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Program Files/Zulu/zulu-8/bin/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/altera/91/quartus/bin/"
+      - "C:/Program Files/nodejs/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/Docker/Docker/resources/bin/"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/"
+      - "C:/Users/zuevm/AppData/Roaming/npm/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/"
+    searched_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lld-link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lld-link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lld-link"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/lld-link.com"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/lld-link.exe"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/lld-link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lld-link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lld-link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lld-link"
+      - "C:/Program Files/Zulu/zulu-8/bin/lld-link.com"
+      - "C:/Program Files/Zulu/zulu-8/bin/lld-link.exe"
+      - "C:/Program Files/Zulu/zulu-8/bin/lld-link"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/lld-link.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/lld-link.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/lld-link"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/lld-link.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/lld-link.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/lld-link"
+      - "C:/Windows/System32/lld-link.com"
+      - "C:/Windows/System32/lld-link.exe"
+      - "C:/Windows/System32/lld-link"
+      - "C:/Windows/lld-link.com"
+      - "C:/Windows/lld-link.exe"
+      - "C:/Windows/lld-link"
+      - "C:/Windows/System32/wbem/lld-link.com"
+      - "C:/Windows/System32/wbem/lld-link.exe"
+      - "C:/Windows/System32/wbem/lld-link"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link"
+      - "C:/Windows/System32/OpenSSH/lld-link.com"
+      - "C:/Windows/System32/OpenSSH/lld-link.exe"
+      - "C:/Windows/System32/OpenSSH/lld-link"
+      - "C:/Program Files/Git/cmd/lld-link.com"
+      - "C:/Program Files/Git/cmd/lld-link.exe"
+      - "C:/Program Files/Git/cmd/lld-link"
+      - "C:/Program Files/dotnet/lld-link.com"
+      - "C:/Program Files/dotnet/lld-link.exe"
+      - "C:/Program Files/dotnet/lld-link"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link"
+      - "C:/altera/91/quartus/bin/lld-link.com"
+      - "C:/altera/91/quartus/bin/lld-link.exe"
+      - "C:/altera/91/quartus/bin/lld-link"
+      - "C:/Program Files/nodejs/lld-link.com"
+      - "C:/Program Files/nodejs/lld-link.exe"
+      - "C:/Program Files/nodejs/lld-link"
+      - "C:/Program Files/CMake/bin/lld-link.com"
+      - "C:/Program Files/CMake/bin/lld-link.exe"
+      - "C:/Program Files/CMake/bin/lld-link"
+      - "C:/Program Files/Docker/Docker/resources/bin/lld-link.com"
+      - "C:/Program Files/Docker/Docker/resources/bin/lld-link.exe"
+      - "C:/Program Files/Docker/Docker/resources/bin/lld-link"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/lld-link.com"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/lld-link.exe"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/lld-link"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/lld-link.com"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/lld-link.exe"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/lld-link"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/lld-link.com"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/lld-link.exe"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/lld-link"
+      - "C:/Users/zuevm/AppData/Roaming/npm/lld-link.com"
+      - "C:/Users/zuevm/AppData/Roaming/npm/lld-link.exe"
+      - "C:/Users/zuevm/AppData/Roaming/npm/lld-link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lld-link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lld-link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lld-link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lld-link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lld-link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lld-link"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/lld-link.com"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/lld-link.exe"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/lld-link"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/lld-link.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/lld-link.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/lld-link"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\.codex\\tmp\\arg0\\codex-arg0hZbVKh"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\Program Files\\Zulu\\zulu-8\\bin\\"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\java8path"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "c:\\altera\\91\\quartus\\bin"
+        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files\\Docker\\Docker\\resources\\bin"
+        - "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\zuevm\\AppData\\Local\\JetBrains\\Toolbox\\scripts"
+        - "C:\\Users\\zuevm\\AppData\\Roaming\\npm"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\zuevm\\AppData\\Local\\OpenAI\\Codex\\bin\\c3408b9418856cc6"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:247 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_LINKER"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "link"
+    candidate_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Program Files/Zulu/zulu-8/bin/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/altera/91/quartus/bin/"
+      - "C:/Program Files/nodejs/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/Docker/Docker/resources/bin/"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/"
+      - "C:/Users/zuevm/AppData/Roaming/npm/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/"
+    searched_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/link"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/link.com"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/link.exe"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/link"
+      - "C:/Program Files/Zulu/zulu-8/bin/link.com"
+      - "C:/Program Files/Zulu/zulu-8/bin/link.exe"
+      - "C:/Program Files/Zulu/zulu-8/bin/link"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/link.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/link.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/link"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/link.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/link.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/link"
+      - "C:/Windows/System32/link.com"
+      - "C:/Windows/System32/link.exe"
+      - "C:/Windows/System32/link"
+      - "C:/Windows/link.com"
+      - "C:/Windows/link.exe"
+      - "C:/Windows/link"
+      - "C:/Windows/System32/wbem/link.com"
+      - "C:/Windows/System32/wbem/link.exe"
+      - "C:/Windows/System32/wbem/link"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/link.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/link.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/link"
+      - "C:/Windows/System32/OpenSSH/link.com"
+      - "C:/Windows/System32/OpenSSH/link.exe"
+      - "C:/Windows/System32/OpenSSH/link"
+      - "C:/Program Files/Git/cmd/link.com"
+      - "C:/Program Files/Git/cmd/link.exe"
+      - "C:/Program Files/Git/cmd/link"
+      - "C:/Program Files/dotnet/link.com"
+      - "C:/Program Files/dotnet/link.exe"
+      - "C:/Program Files/dotnet/link"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/link.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/link.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/link"
+      - "C:/altera/91/quartus/bin/link.com"
+      - "C:/altera/91/quartus/bin/link.exe"
+      - "C:/altera/91/quartus/bin/link"
+      - "C:/Program Files/nodejs/link.com"
+      - "C:/Program Files/nodejs/link.exe"
+      - "C:/Program Files/nodejs/link"
+      - "C:/Program Files/CMake/bin/link.com"
+      - "C:/Program Files/CMake/bin/link.exe"
+      - "C:/Program Files/CMake/bin/link"
+      - "C:/Program Files/Docker/Docker/resources/bin/link.com"
+      - "C:/Program Files/Docker/Docker/resources/bin/link.exe"
+      - "C:/Program Files/Docker/Docker/resources/bin/link"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/link.com"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/link.exe"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/link"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/link.com"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/link.exe"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/link"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/link.com"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/link.exe"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/link"
+      - "C:/Users/zuevm/AppData/Roaming/npm/link.com"
+      - "C:/Users/zuevm/AppData/Roaming/npm/link.exe"
+      - "C:/Users/zuevm/AppData/Roaming/npm/link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/link"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/link.com"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/link.exe"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/link"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/link.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/link.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/link"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\.codex\\tmp\\arg0\\codex-arg0hZbVKh"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\Program Files\\Zulu\\zulu-8\\bin\\"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\java8path"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "c:\\altera\\91\\quartus\\bin"
+        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files\\Docker\\Docker\\resources\\bin"
+        - "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\zuevm\\AppData\\Local\\JetBrains\\Toolbox\\scripts"
+        - "C:\\Users\\zuevm\\AppData\\Roaming\\npm"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\zuevm\\AppData\\Local\\OpenAI\\Codex\\bin\\c3408b9418856cc6"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:247 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_MT"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "mt"
+    candidate_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Program Files/Zulu/zulu-8/bin/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/altera/91/quartus/bin/"
+      - "C:/Program Files/nodejs/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/Docker/Docker/resources/bin/"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/"
+      - "C:/Users/zuevm/AppData/Roaming/npm/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/"
+    searched_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/mt.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/mt.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/mt"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/mt.com"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/mt.exe"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/mt"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/mt.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/mt.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/mt"
+      - "C:/Program Files/Zulu/zulu-8/bin/mt.com"
+      - "C:/Program Files/Zulu/zulu-8/bin/mt.exe"
+      - "C:/Program Files/Zulu/zulu-8/bin/mt"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/mt.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/mt.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/mt"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/mt.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/mt.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/mt"
+      - "C:/Windows/System32/mt.com"
+      - "C:/Windows/System32/mt.exe"
+      - "C:/Windows/System32/mt"
+      - "C:/Windows/mt.com"
+      - "C:/Windows/mt.exe"
+      - "C:/Windows/mt"
+      - "C:/Windows/System32/wbem/mt.com"
+      - "C:/Windows/System32/wbem/mt.exe"
+      - "C:/Windows/System32/wbem/mt"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/mt.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/mt.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/mt"
+      - "C:/Windows/System32/OpenSSH/mt.com"
+      - "C:/Windows/System32/OpenSSH/mt.exe"
+      - "C:/Windows/System32/OpenSSH/mt"
+      - "C:/Program Files/Git/cmd/mt.com"
+      - "C:/Program Files/Git/cmd/mt.exe"
+      - "C:/Program Files/Git/cmd/mt"
+      - "C:/Program Files/dotnet/mt.com"
+      - "C:/Program Files/dotnet/mt.exe"
+      - "C:/Program Files/dotnet/mt"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/mt.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/mt.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/mt"
+      - "C:/altera/91/quartus/bin/mt.com"
+      - "C:/altera/91/quartus/bin/mt.exe"
+      - "C:/altera/91/quartus/bin/mt"
+      - "C:/Program Files/nodejs/mt.com"
+      - "C:/Program Files/nodejs/mt.exe"
+      - "C:/Program Files/nodejs/mt"
+      - "C:/Program Files/CMake/bin/mt.com"
+      - "C:/Program Files/CMake/bin/mt.exe"
+      - "C:/Program Files/CMake/bin/mt"
+      - "C:/Program Files/Docker/Docker/resources/bin/mt.com"
+      - "C:/Program Files/Docker/Docker/resources/bin/mt.exe"
+      - "C:/Program Files/Docker/Docker/resources/bin/mt"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/mt.com"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/mt.exe"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/mt"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/mt.com"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/mt.exe"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/mt"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/mt.com"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/mt.exe"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/mt"
+      - "C:/Users/zuevm/AppData/Roaming/npm/mt.com"
+      - "C:/Users/zuevm/AppData/Roaming/npm/mt.exe"
+      - "C:/Users/zuevm/AppData/Roaming/npm/mt"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/mt.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/mt.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/mt"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/mt.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/mt.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/mt"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/mt.com"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/mt.exe"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/mt"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/mt.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/mt.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/mt"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\.codex\\tmp\\arg0\\codex-arg0hZbVKh"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\Program Files\\Zulu\\zulu-8\\bin\\"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\java8path"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "c:\\altera\\91\\quartus\\bin"
+        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files\\Docker\\Docker\\resources\\bin"
+        - "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\zuevm\\AppData\\Local\\JetBrains\\Toolbox\\scripts"
+        - "C:\\Users\\zuevm\\AppData\\Roaming\\npm"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\zuevm\\AppData\\Local\\OpenAI\\Codex\\bin\\c3408b9418856cc6"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:247 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_AR"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "lib"
+    candidate_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Program Files/Zulu/zulu-8/bin/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/altera/91/quartus/bin/"
+      - "C:/Program Files/nodejs/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/Docker/Docker/resources/bin/"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/"
+      - "C:/Users/zuevm/AppData/Roaming/npm/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/"
+    searched_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lib.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lib.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lib"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/lib.com"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/lib.exe"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0hZbVKh/lib"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lib.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lib.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lib"
+      - "C:/Program Files/Zulu/zulu-8/bin/lib.com"
+      - "C:/Program Files/Zulu/zulu-8/bin/lib.exe"
+      - "C:/Program Files/Zulu/zulu-8/bin/lib"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/lib.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/lib.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/lib"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/lib.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/lib.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/lib"
+      - "C:/Windows/System32/lib.com"
+      - "C:/Windows/System32/lib.exe"
+      - "C:/Windows/System32/lib"
+      - "C:/Windows/lib.com"
+      - "C:/Windows/lib.exe"
+      - "C:/Windows/lib"
+      - "C:/Windows/System32/wbem/lib.com"
+      - "C:/Windows/System32/wbem/lib.exe"
+      - "C:/Windows/System32/wbem/lib"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lib.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lib.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lib"
+      - "C:/Windows/System32/OpenSSH/lib.com"
+      - "C:/Windows/System32/OpenSSH/lib.exe"
+      - "C:/Windows/System32/OpenSSH/lib"
+      - "C:/Program Files/Git/cmd/lib.com"
+      - "C:/Program Files/Git/cmd/lib.exe"
+      - "C:/Program Files/Git/cmd/lib"
+      - "C:/Program Files/dotnet/lib.com"
+      - "C:/Program Files/dotnet/lib.exe"
+      - "C:/Program Files/dotnet/lib"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lib.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lib.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lib"
+      - "C:/altera/91/quartus/bin/lib.com"
+      - "C:/altera/91/quartus/bin/lib.exe"
+      - "C:/altera/91/quartus/bin/lib"
+      - "C:/Program Files/nodejs/lib.com"
+      - "C:/Program Files/nodejs/lib.exe"
+      - "C:/Program Files/nodejs/lib"
+      - "C:/Program Files/CMake/bin/lib.com"
+      - "C:/Program Files/CMake/bin/lib.exe"
+      - "C:/Program Files/CMake/bin/lib"
+      - "C:/Program Files/Docker/Docker/resources/bin/lib.com"
+      - "C:/Program Files/Docker/Docker/resources/bin/lib.exe"
+      - "C:/Program Files/Docker/Docker/resources/bin/lib"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/lib.com"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/lib.exe"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/lib"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/lib.com"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/lib.exe"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/lib"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/lib.com"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/lib.exe"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/lib"
+      - "C:/Users/zuevm/AppData/Roaming/npm/lib.com"
+      - "C:/Users/zuevm/AppData/Roaming/npm/lib.exe"
+      - "C:/Users/zuevm/AppData/Roaming/npm/lib"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lib.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lib.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lib"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lib.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lib.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lib"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/lib.com"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/lib.exe"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/c3408b9418856cc6/lib"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/lib.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/lib.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0/app/resources/lib"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\.codex\\tmp\\arg0\\codex-arg0hZbVKh"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\Program Files\\Zulu\\zulu-8\\bin\\"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\java8path"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "c:\\altera\\91\\quartus\\bin"
+        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files\\Docker\\Docker\\resources\\bin"
+        - "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\zuevm\\AppData\\Local\\JetBrains\\Toolbox\\scripts"
+        - "C:\\Users\\zuevm\\AppData\\Roaming\\npm"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\zuevm\\AppData\\Local\\OpenAI\\Codex\\bin\\c3408b9418856cc6"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.814.5167.0_x64__2p2nqsd0c76g0\\app\\resources"
+...
+
+---
+events:
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:501 (find_file)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:538 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCXXCompilerId.cpp.in"
+    candidate_directories:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/"
+    found: "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeCXXCompilerId.cpp.in"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\.codex\\tmp\\arg0\\codex-arg0wqD6ti"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\Program Files\\Zulu\\zulu-8\\bin\\"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\java8path"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "c:\\altera\\91\\quartus\\bin"
+        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files\\Docker\\Docker\\resources\\bin"
+        - "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\zuevm\\AppData\\Local\\JetBrains\\Toolbox\\scripts"
+        - "C:\\Users\\zuevm\\AppData\\Roaming\\npm"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\zuevm\\AppData\\Local\\OpenAI\\Codex\\bin\\86e03341eee51c2e"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.2441.0_x64__2p2nqsd0c76g0\\app\\resources"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/ClashBot"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      1
+      ╨Т╨╡╤А╤Б╨╕╤П MSBuild 18.5.4+cb4e32d21 ╨┤╨╗╤П .NET Framework
+      ╨б╨▒╨╛╤А╨║╨░ ╨╜╨░╤З╨░╤В╨░ 21.08.2026 14:14:41.
+      
+      ╨Я╤А╨╛╨╡╨║╤В "C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" ╨▓ ╤Г╨╖╨╗╨╡ 1 (╤Ж╨╡╨╗╨╡╨▓╤Л╨╡ ╨╛╨▒╤К╨╡╨║╤В╤Л ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О).
+      PrepareForBuild:
+        ╨б╨╛╨╖╨┤╨░╨╜╨╕╨╡ ╨║╨░╤В╨░╨╗╨╛╨│╨░ "Debug\\".
+        ╨б╤В╤А╤Г╨║╤В╤Г╤А╨╕╤А╨╛╨▓╨░╨╜╨╜╤Л╨╣ ╨▓╤Л╨▓╨╛╨┤ ╨▓╨║╨╗╤О╤З╨╡╨╜. ╨д╨╛╤А╨╝╨░╤В╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡ ╨┤╨╕╨░╨│╨╜╨╛╤Б╤В╨╕╨║╨╕ ╨║╨╛╨╝╨┐╨╕╨╗╤П╤В╨╛╤А╨░ ╨▒╤Г╨┤╨╡╤В ╨╛╤В╤А╨░╨╢╨░╤В╤М ╨╕╨╡╤А╨░╤А╤Е╨╕╤О ╨╛╤И╨╕╨▒╨╛╨║. ╨Я╨╛╨┤╤А╨╛╨▒╨╜╨╡╨╡ ╤Б╨╝. https://aka.ms/cpp/structured-output.
+        ╨б╨╛╨╖╨┤╨░╨╜╨╕╨╡ ╨║╨░╤В╨░╨╗╨╛╨│╨░ "Debug\\CompilerIdCXX.tlog\\".
+      InitializeBuildStatus:
+        ╨б╨╛╨╖╨┤╨░╨╜╨╕╨╡ "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild", ╤В╨░╨║ ╨║╨░╨║ ╨▒╤Л╨╗╨╛ ╨╖╨░╨┤╨░╨╜╨╛ "AlwaysCreate".
+        ╨Ю╨▒╤А╨░╤Й╨╡╨╜╨╕╨╡ ╨║ "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild".
+      VcpkgTripletSelection:
+        Using triplet "x64-windows" from "C:\\Users\\zuevm\\vcpkg\\installed\\x64-windows\\"
+        Using normalized configuration "Release"
+      VcpkgCheckManifestRoot:
+        The vcpkg manifest was disabled, but we found a manifest file in C:\\Code\\C++\\ActivityTracking\\. You may want to enable vcpkg manifests in your properties page or pass /p:VcpkgEnableManifest=true to the msbuild invocation.
+      ClCompile:
+        C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Users\\zuevm\\vcpkg\\installed\\x64-windows\\include" /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc145.pdb" /external:W0 /Gd /TP /FC /errorReport:queue CMakeCXXCompilerId.cpp
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001: ╨Э╨╡╨┤╨╛╨┐╤Г╤Б╤В╨╕╨╝╤Л╨╣ ╨┐╨╡╤А╨╡╨║╨╗╤О╤З╨░╤В╨╡╨╗╤М ╨║╨╛╨╝╨░╨╜╨┤╨╜╨╛╨╣ ╤Б╤В╤А╨╛╨║╨╕ ╨┤╨╗╤П "CL.exe". System.ArgumentException: ╨н╨╗╨╡╨╝╨╡╨╜╤В ╤Г╨╢╨╡ ╨┤╨╛╨▒╨░╨▓╨╗╨╡╨╜. ╨Ъ╨╗╤О╤З ╨▓ ╤Б╨╗╨╛╨▓╨░╤А╨╡: "Path"  ╨Ф╨╛╨▒╨░╨▓╨╗╤П╨╡╨╝╤Л╨╣ ╨║╨╗╤О╤З: 'PATH' [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Collections.Hashtable.Insert(Object key, Object nvalue, Boolean add) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Diagnostics.ProcessStartInfo.get_EnvironmentVariables() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.GetProcessStartInfo(String pathToTool, String commandLineCommands, String responseFileSwitch) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.TrackerExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.CL.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.Execute() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      ╨б╨▒╨╛╤А╨║╨░ ╨┐╤А╨╛╨╡╨║╤В╨░ "C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" ╨╖╨░╨▓╨╡╤А╤И╨╡╨╜╨░ (╤Ж╨╡╨╗╨╡╨▓╤Л╨╡ ╨╛╨▒╤К╨╡╨║╤В╤Л ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О) ╤Б ╨╛╤И╨╕╨▒╨║╨╛╨╣.
+      
+      ╨Ю╤И╨╕╨▒╨║╨░ ╤Б╨▒╨╛╤А╨║╨╕.
+      
+      "C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" (╤Ж╨╡╨╗╨╡╨▓╨╛╨╣ ╨╛╨▒╤К╨╡╨║╤В ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О) (1) ->
+      (╨ж╨╡╨╗╨╡╨▓╨╛╨╣ ╨╛╨▒╤К╨╡╨║╤В ClCompile) -> 
+        C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001: ╨Э╨╡╨┤╨╛╨┐╤Г╤Б╤В╨╕╨╝╤Л╨╣ ╨┐╨╡╤А╨╡╨║╨╗╤О╤З╨░╤В╨╡╨╗╤М ╨║╨╛╨╝╨░╨╜╨┤╨╜╨╛╨╣ ╤Б╤В╤А╨╛╨║╨╕ ╨┤╨╗╤П "CL.exe". System.ArgumentException: ╨н╨╗╨╡╨╝╨╡╨╜╤В ╤Г╨╢╨╡ ╨┤╨╛╨▒╨░╨▓╨╗╨╡╨╜. ╨Ъ╨╗╤О╤З ╨▓ ╤Б╨╗╨╛╨▓╨░╤А╨╡: "Path"  ╨Ф╨╛╨▒╨░╨▓╨╗╤П╨╡╨╝╤Л╨╣ ╨║╨╗╤О╤З: 'PATH' [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Collections.Hashtable.Insert(Object key, Object nvalue, Boolean add) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Diagnostics.ProcessStartInfo.get_EnvironmentVariables() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.GetProcessStartInfo(String pathToTool, String commandLineCommands, String responseFileSwitch) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.TrackerExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.CL.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.Execute() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      
+          ╨Я╤А╨╡╨┤╤Г╨┐╤А╨╡╨╢╨┤╨╡╨╜╨╕╨╣: 0
+          ╨Ю╤И╨╕╨▒╨╛╨║: 1
+      
+      ╨Я╤А╨╛╤И╨╗╨╛ ╨▓╤А╨╡╨╝╨╡╨╜╨╕ 00:00:00.80
+      
+      
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:501 (find_file)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:538 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCXXCompilerId.cpp.in"
+    candidate_directories:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/"
+    found: "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeCXXCompilerId.cpp.in"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\.codex\\tmp\\arg0\\codex-arg0wqD6ti"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\Program Files\\Zulu\\zulu-8\\bin\\"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\java8path"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "c:\\altera\\91\\quartus\\bin"
+        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files\\Docker\\Docker\\resources\\bin"
+        - "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\zuevm\\AppData\\Local\\JetBrains\\Toolbox\\scripts"
+        - "C:\\Users\\zuevm\\AppData\\Roaming\\npm"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\zuevm\\AppData\\Local\\OpenAI\\Codex\\bin\\86e03341eee51c2e"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.2441.0_x64__2p2nqsd0c76g0\\app\\resources"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/ClashBot"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      1
+      ╨Т╨╡╤А╤Б╨╕╤П MSBuild 18.5.4+cb4e32d21 ╨┤╨╗╤П .NET Framework
+      ╨б╨▒╨╛╤А╨║╨░ ╨╜╨░╤З╨░╤В╨░ 21.08.2026 14:14:42.
+      
+      ╨Я╤А╨╛╨╡╨║╤В "C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" ╨▓ ╤Г╨╖╨╗╨╡ 1 (╤Ж╨╡╨╗╨╡╨▓╤Л╨╡ ╨╛╨▒╤К╨╡╨║╤В╤Л ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О).
+      PrepareForBuild:
+        ╨б╨╛╨╖╨┤╨░╨╜╨╕╨╡ ╨║╨░╤В╨░╨╗╨╛╨│╨░ "Debug\\".
+        ╨б╤В╤А╤Г╨║╤В╤Г╤А╨╕╤А╨╛╨▓╨░╨╜╨╜╤Л╨╣ ╨▓╤Л╨▓╨╛╨┤ ╨▓╨║╨╗╤О╤З╨╡╨╜. ╨д╨╛╤А╨╝╨░╤В╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡ ╨┤╨╕╨░╨│╨╜╨╛╤Б╤В╨╕╨║╨╕ ╨║╨╛╨╝╨┐╨╕╨╗╤П╤В╨╛╤А╨░ ╨▒╤Г╨┤╨╡╤В ╨╛╤В╤А╨░╨╢╨░╤В╤М ╨╕╨╡╤А╨░╤А╤Е╨╕╤О ╨╛╤И╨╕╨▒╨╛╨║. ╨Я╨╛╨┤╤А╨╛╨▒╨╜╨╡╨╡ ╤Б╨╝. https://aka.ms/cpp/structured-output.
+        ╨б╨╛╨╖╨┤╨░╨╜╨╕╨╡ ╨║╨░╤В╨░╨╗╨╛╨│╨░ "Debug\\CompilerIdCXX.tlog\\".
+      InitializeBuildStatus:
+        ╨б╨╛╨╖╨┤╨░╨╜╨╕╨╡ "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild", ╤В╨░╨║ ╨║╨░╨║ ╨▒╤Л╨╗╨╛ ╨╖╨░╨┤╨░╨╜╨╛ "AlwaysCreate".
+        ╨Ю╨▒╤А╨░╤Й╨╡╨╜╨╕╨╡ ╨║ "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild".
+      VcpkgTripletSelection:
+        Using triplet "x64-windows" from "C:\\Users\\zuevm\\vcpkg\\installed\\x64-windows\\"
+        Using normalized configuration "Release"
+      VcpkgCheckManifestRoot:
+        The vcpkg manifest was disabled, but we found a manifest file in C:\\Code\\C++\\ActivityTracking\\. You may want to enable vcpkg manifests in your properties page or pass /p:VcpkgEnableManifest=true to the msbuild invocation.
+      ClCompile:
+        C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Users\\zuevm\\vcpkg\\installed\\x64-windows\\include" /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc145.pdb" /external:W0 /Gd /TP /FC /errorReport:queue CMakeCXXCompilerId.cpp
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001: ╨Э╨╡╨┤╨╛╨┐╤Г╤Б╤В╨╕╨╝╤Л╨╣ ╨┐╨╡╤А╨╡╨║╨╗╤О╤З╨░╤В╨╡╨╗╤М ╨║╨╛╨╝╨░╨╜╨┤╨╜╨╛╨╣ ╤Б╤В╤А╨╛╨║╨╕ ╨┤╨╗╤П "CL.exe". System.ArgumentException: ╨н╨╗╨╡╨╝╨╡╨╜╤В ╤Г╨╢╨╡ ╨┤╨╛╨▒╨░╨▓╨╗╨╡╨╜. ╨Ъ╨╗╤О╤З ╨▓ ╤Б╨╗╨╛╨▓╨░╤А╨╡: "Path"  ╨Ф╨╛╨▒╨░╨▓╨╗╤П╨╡╨╝╤Л╨╣ ╨║╨╗╤О╤З: 'PATH' [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Collections.Hashtable.Insert(Object key, Object nvalue, Boolean add) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Diagnostics.ProcessStartInfo.get_EnvironmentVariables() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.GetProcessStartInfo(String pathToTool, String commandLineCommands, String responseFileSwitch) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.TrackerExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.CL.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.Execute() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      ╨б╨▒╨╛╤А╨║╨░ ╨┐╤А╨╛╨╡╨║╤В╨░ "C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" ╨╖╨░╨▓╨╡╤А╤И╨╡╨╜╨░ (╤Ж╨╡╨╗╨╡╨▓╤Л╨╡ ╨╛╨▒╤К╨╡╨║╤В╤Л ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О) ╤Б ╨╛╤И╨╕╨▒╨║╨╛╨╣.
+      
+      ╨Ю╤И╨╕╨▒╨║╨░ ╤Б╨▒╨╛╤А╨║╨╕.
+      
+      "C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" (╤Ж╨╡╨╗╨╡╨▓╨╛╨╣ ╨╛╨▒╤К╨╡╨║╤В ╨┐╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О) (1) ->
+      (╨ж╨╡╨╗╨╡╨▓╨╛╨╣ ╨╛╨▒╤К╨╡╨║╤В ClCompile) -> 
+        C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001: ╨Э╨╡╨┤╨╛╨┐╤Г╤Б╤В╨╕╨╝╤Л╨╣ ╨┐╨╡╤А╨╡╨║╨╗╤О╤З╨░╤В╨╡╨╗╤М ╨║╨╛╨╝╨░╨╜╨┤╨╜╨╛╨╣ ╤Б╤В╤А╨╛╨║╨╕ ╨┤╨╗╤П "CL.exe". System.ArgumentException: ╨н╨╗╨╡╨╝╨╡╨╜╤В ╤Г╨╢╨╡ ╨┤╨╛╨▒╨░╨▓╨╗╨╡╨╜. ╨Ъ╨╗╤О╤З ╨▓ ╤Б╨╗╨╛╨▓╨░╤А╨╡: "Path"  ╨Ф╨╛╨▒╨░╨▓╨╗╤П╨╡╨╝╤Л╨╣ ╨║╨╗╤О╤З: 'PATH' [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Collections.Hashtable.Insert(Object key, Object nvalue, Boolean add) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ System.Diagnostics.ProcessStartInfo.get_EnvironmentVariables() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.GetProcessStartInfo(String pathToTool, String commandLineCommands, String responseFileSwitch) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.TrackerExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.TrackedVCToolTask.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.CPPTasks.CL.ExecuteTool(String pathToTool, String responseFileCommands, String commandLineCommands) [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\MSBuild\\Microsoft\\VC\\v180\\Microsoft.CppCommon.targets(790,5): error MSB6001:    ╨▓ Microsoft.Build.Utilities.ToolTask.Execute() [C:\\Code\\C++\\ActivityTracking\\build\\CMakeFiles\\4.4.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj]
+      
+          ╨Я╤А╨╡╨┤╤Г╨┐╤А╨╡╨╢╨┤╨╡╨╜╨╕╨╣: 0
+          ╨Ю╤И╨╕╨▒╨╛╨║: 1
+      
+      ╨Я╤А╨╛╤И╨╗╨╛ ╨▓╤А╨╡╨╝╨╡╨╜╨╕ 00:00:00.40
+      
+      
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:37 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:64 (__resolve_tool_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:102 (__resolve_linker_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "_CMAKE_TOOL_WITH_PATH"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "link"
+    candidate_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0wqD6ti/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Program Files/Zulu/zulu-8/bin/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/altera/91/quartus/bin/"
+      - "C:/Program Files/nodejs/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/Docker/Docker/resources/bin/"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/"
+      - "C:/Users/zuevm/AppData/Roaming/npm/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/86e03341eee51c2e/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.2441.0_x64__2p2nqsd0c76g0/app/resources/"
+    searched_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/link"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0wqD6ti/link.com"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0wqD6ti/link.exe"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0wqD6ti/link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/link"
+      - "C:/Program Files/Zulu/zulu-8/bin/link.com"
+      - "C:/Program Files/Zulu/zulu-8/bin/link.exe"
+      - "C:/Program Files/Zulu/zulu-8/bin/link"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/link.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/link.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/link"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/link.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/link.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/link"
+      - "C:/Windows/System32/link.com"
+      - "C:/Windows/System32/link.exe"
+      - "C:/Windows/System32/link"
+      - "C:/Windows/link.com"
+      - "C:/Windows/link.exe"
+      - "C:/Windows/link"
+      - "C:/Windows/System32/wbem/link.com"
+      - "C:/Windows/System32/wbem/link.exe"
+      - "C:/Windows/System32/wbem/link"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/link.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/link.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/link"
+      - "C:/Windows/System32/OpenSSH/link.com"
+      - "C:/Windows/System32/OpenSSH/link.exe"
+      - "C:/Windows/System32/OpenSSH/link"
+      - "C:/Program Files/Git/cmd/link.com"
+      - "C:/Program Files/Git/cmd/link.exe"
+      - "C:/Program Files/Git/cmd/link"
+      - "C:/Program Files/dotnet/link.com"
+      - "C:/Program Files/dotnet/link.exe"
+      - "C:/Program Files/dotnet/link"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/link.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/link.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/link"
+      - "C:/altera/91/quartus/bin/link.com"
+      - "C:/altera/91/quartus/bin/link.exe"
+      - "C:/altera/91/quartus/bin/link"
+      - "C:/Program Files/nodejs/link.com"
+      - "C:/Program Files/nodejs/link.exe"
+      - "C:/Program Files/nodejs/link"
+      - "C:/Program Files/CMake/bin/link.com"
+      - "C:/Program Files/CMake/bin/link.exe"
+      - "C:/Program Files/CMake/bin/link"
+      - "C:/Program Files/Docker/Docker/resources/bin/link.com"
+      - "C:/Program Files/Docker/Docker/resources/bin/link.exe"
+      - "C:/Program Files/Docker/Docker/resources/bin/link"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/link.com"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/link.exe"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/link"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/link.com"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/link.exe"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/link"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/link.com"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/link.exe"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/link"
+      - "C:/Users/zuevm/AppData/Roaming/npm/link.com"
+      - "C:/Users/zuevm/AppData/Roaming/npm/link.exe"
+      - "C:/Users/zuevm/AppData/Roaming/npm/link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/link"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/86e03341eee51c2e/link.com"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/86e03341eee51c2e/link.exe"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/86e03341eee51c2e/link"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.2441.0_x64__2p2nqsd0c76g0/app/resources/link.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.2441.0_x64__2p2nqsd0c76g0/app/resources/link.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.2441.0_x64__2p2nqsd0c76g0/app/resources/link"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\.codex\\tmp\\arg0\\codex-arg0wqD6ti"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\Program Files\\Zulu\\zulu-8\\bin\\"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\java8path"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "c:\\altera\\91\\quartus\\bin"
+        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files\\Docker\\Docker\\resources\\bin"
+        - "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\zuevm\\AppData\\Local\\JetBrains\\Toolbox\\scripts"
+        - "C:\\Users\\zuevm\\AppData\\Roaming\\npm"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\zuevm\\AppData\\Local\\OpenAI\\Codex\\bin\\86e03341eee51c2e"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.2441.0_x64__2p2nqsd0c76g0\\app\\resources"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/ClashBot"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:37 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:64 (__resolve_tool_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:103 (__resolve_linker_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "_CMAKE_TOOL_WITH_PATH"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "lld-link"
+    candidate_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0wqD6ti/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Program Files/Zulu/zulu-8/bin/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/altera/91/quartus/bin/"
+      - "C:/Program Files/nodejs/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/Docker/Docker/resources/bin/"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/"
+      - "C:/Users/zuevm/AppData/Roaming/npm/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/86e03341eee51c2e/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.2441.0_x64__2p2nqsd0c76g0/app/resources/"
+    searched_directories:
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lld-link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lld-link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lld-link"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0wqD6ti/lld-link.com"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0wqD6ti/lld-link.exe"
+      - "C:/Users/zuevm/.codex/tmp/arg0/codex-arg0wqD6ti/lld-link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lld-link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lld-link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lld-link"
+      - "C:/Program Files/Zulu/zulu-8/bin/lld-link.com"
+      - "C:/Program Files/Zulu/zulu-8/bin/lld-link.exe"
+      - "C:/Program Files/Zulu/zulu-8/bin/lld-link"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/lld-link.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/lld-link.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/java8path/lld-link"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/lld-link.com"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/lld-link.exe"
+      - "C:/Program Files (x86)/Common Files/Oracle/Java/javapath/lld-link"
+      - "C:/Windows/System32/lld-link.com"
+      - "C:/Windows/System32/lld-link.exe"
+      - "C:/Windows/System32/lld-link"
+      - "C:/Windows/lld-link.com"
+      - "C:/Windows/lld-link.exe"
+      - "C:/Windows/lld-link"
+      - "C:/Windows/System32/wbem/lld-link.com"
+      - "C:/Windows/System32/wbem/lld-link.exe"
+      - "C:/Windows/System32/wbem/lld-link"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link"
+      - "C:/Windows/System32/OpenSSH/lld-link.com"
+      - "C:/Windows/System32/OpenSSH/lld-link.exe"
+      - "C:/Windows/System32/OpenSSH/lld-link"
+      - "C:/Program Files/Git/cmd/lld-link.com"
+      - "C:/Program Files/Git/cmd/lld-link.exe"
+      - "C:/Program Files/Git/cmd/lld-link"
+      - "C:/Program Files/dotnet/lld-link.com"
+      - "C:/Program Files/dotnet/lld-link.exe"
+      - "C:/Program Files/dotnet/lld-link"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link"
+      - "C:/altera/91/quartus/bin/lld-link.com"
+      - "C:/altera/91/quartus/bin/lld-link.exe"
+      - "C:/altera/91/quartus/bin/lld-link"
+      - "C:/Program Files/nodejs/lld-link.com"
+      - "C:/Program Files/nodejs/lld-link.exe"
+      - "C:/Program Files/nodejs/lld-link"
+      - "C:/Program Files/CMake/bin/lld-link.com"
+      - "C:/Program Files/CMake/bin/lld-link.exe"
+      - "C:/Program Files/CMake/bin/lld-link"
+      - "C:/Program Files/Docker/Docker/resources/bin/lld-link.com"
+      - "C:/Program Files/Docker/Docker/resources/bin/lld-link.exe"
+      - "C:/Program Files/Docker/Docker/resources/bin/lld-link"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/lld-link.com"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/lld-link.exe"
+      - "C:/Program Files/Cloudflare/Cloudflare WARP/lld-link"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/lld-link.com"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/lld-link.exe"
+      - "C:/Users/zuevm/AppData/Local/Microsoft/WindowsApps/lld-link"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/lld-link.com"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/lld-link.exe"
+      - "C:/Users/zuevm/AppData/Local/JetBrains/Toolbox/scripts/lld-link"
+      - "C:/Users/zuevm/AppData/Roaming/npm/lld-link.com"
+      - "C:/Users/zuevm/AppData/Roaming/npm/lld-link.exe"
+      - "C:/Users/zuevm/AppData/Roaming/npm/lld-link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lld-link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lld-link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lld-link"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lld-link.com"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lld-link.exe"
+      - "C:/Users/zuevm/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lld-link"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/86e03341eee51c2e/lld-link.com"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/86e03341eee51c2e/lld-link.exe"
+      - "C:/Users/zuevm/AppData/Local/OpenAI/Codex/bin/86e03341eee51c2e/lld-link"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.2441.0_x64__2p2nqsd0c76g0/app/resources/lld-link.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.2441.0_x64__2p2nqsd0c76g0/app/resources/lld-link.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.2441.0_x64__2p2nqsd0c76g0/app/resources/lld-link"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\.codex\\tmp\\arg0\\codex-arg0wqD6ti"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\Program Files\\Zulu\\zulu-8\\bin\\"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\java8path"
+        - "C:\\Program Files (x86)\\Common Files\\Oracle\\Java\\javapath"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "c:\\altera\\91\\quartus\\bin"
+        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files\\Docker\\Docker\\resources\\bin"
+        - "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\zuevm\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\zuevm\\AppData\\Local\\JetBrains\\Toolbox\\scripts"
+        - "C:\\Users\\zuevm\\AppData\\Roaming\\npm"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\zuevm\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\zuevm\\AppData\\Local\\OpenAI\\Codex\\bin\\86e03341eee51c2e"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.2441.0_x64__2p2nqsd0c76g0\\app\\resources"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/ClashBot"
+...
