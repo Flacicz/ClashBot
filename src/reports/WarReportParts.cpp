@@ -71,21 +71,28 @@ namespace war_report
     {
         const bool hasNoViolations =
             disciplineStats.playersWithoutAttacks == 0 &&
-            disciplineStats.playersWithOneAttack == 0 &&
             disciplineStats.firstAttacksNotOnMirror == 0;
 
         report << "🎯 <b>ДИСЦИПЛИНА</b>\n";
 
         if (hasNoViolations)
         {
-            report << "✅ Все участники использовали атаки по правилам!";
-            return;
+            report << "✅ Нарушений не обнаружено!\n";
+        }
+        else
+        {
+            report << "⚠️ Есть замечания:\n";
+            report << "Без атак: " << disciplineStats.playersWithoutAttacks << "\n";
+            report << "Атаки не по зеркалу: "
+                << disciplineStats.firstAttacksNotOnMirror << "\n";
         }
 
-        report << "⚠️ Есть замечания:\n";
-        report << "Без атак: " << disciplineStats.playersWithoutAttacks << "\n";
-        report << "Без второй атаки: " << disciplineStats.playersWithOneAttack << "\n";
-        report << "Атаки не по зеркалу: " << disciplineStats.firstAttacksNotOnMirror << "\n";
+        if (disciplineStats.playersWithOneAttack > 0)
+        {
+            report << "\nАктивность:\n";
+            report << "Ровно одна атака: "
+                << disciplineStats.playersWithOneAttack << "\n";
+        }
     }
 
     void appendBestAttacks(std::ostream& report,

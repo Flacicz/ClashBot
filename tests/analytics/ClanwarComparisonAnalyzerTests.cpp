@@ -39,7 +39,7 @@ namespace
     ClanwarHistoricalAverages makeHistoricalAverages(
         const double averageStarsPerAttack,
         const double averageDestruction,
-        const double averageMissedAttacksRate,
+        const double averagePlayersWithoutAttacksRate,
         const double averagePlayersWithOneAttackRate,
         const double averageFirstAttacksNotOnMirrorRate)
     {
@@ -48,9 +48,11 @@ namespace
             .averageStarsPerAttack = averageStarsPerAttack,
             .averageDestruction = averageDestruction,
             .averageMissedAttacks = 0.0,
+            .averagePlayersWithoutAttacks = 0.0,
             .averagePlayersWithOneAttack = 0.0,
             .averageFirstAttacksNotOnMirror = 0.0,
-            .averageMissedAttacksRate = averageMissedAttacksRate,
+            .averageMissedAttacksRate = 0.0,
+            .averagePlayersWithoutAttacksRate = averagePlayersWithoutAttacksRate,
             .averagePlayersWithOneAttackRate = averagePlayersWithOneAttackRate,
             .averageFirstAttacksNotOnMirrorRate = averageFirstAttacksNotOnMirrorRate
         };
@@ -128,6 +130,11 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, WarCountWithNotFullPreviosWars)
         tolerance
     );
     EXPECT_NEAR(
+        0.5,
+        averages->averagePlayersWithoutAttacks,
+        tolerance
+    );
+    EXPECT_NEAR(
         2.5,
         averages->averagePlayersWithOneAttack,
         tolerance
@@ -140,6 +147,11 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, WarCountWithNotFullPreviosWars)
     EXPECT_NEAR(
         0.083333,
         averages->averageMissedAttacksRate,
+        tolerance
+    );
+    EXPECT_NEAR(
+        0.033333,
+        averages->averagePlayersWithoutAttacksRate,
         tolerance
     );
     EXPECT_NEAR(
@@ -260,6 +272,11 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, CalculatesAveragesForFourWars)
         tolerance
     );
     EXPECT_NEAR(
+        0.75,
+        averages->averagePlayersWithoutAttacks,
+        tolerance
+    );
+    EXPECT_NEAR(
         1.0,
         averages->averageFirstAttacksNotOnMirror,
         tolerance
@@ -267,6 +284,11 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, CalculatesAveragesForFourWars)
     EXPECT_NEAR(
         0.129167,
         averages->averageMissedAttacksRate,
+        tolerance
+    );
+    EXPECT_NEAR(
+        0.058333,
+        averages->averagePlayersWithoutAttacksRate,
         tolerance
     );
     EXPECT_NEAR(
@@ -311,9 +333,11 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, HandlesWarWithoutAttacks)
     EXPECT_DOUBLE_EQ(0.0, averages->averageStarsPerAttack);
     EXPECT_DOUBLE_EQ(0.0, averages->averageDestruction);
     EXPECT_DOUBLE_EQ(30.0, averages->averageMissedAttacks);
+    EXPECT_DOUBLE_EQ(15.0, averages->averagePlayersWithoutAttacks);
     EXPECT_DOUBLE_EQ(0.0, averages->averagePlayersWithOneAttack);
     EXPECT_DOUBLE_EQ(0.0, averages->averageFirstAttacksNotOnMirror);
     EXPECT_DOUBLE_EQ(1.0, averages->averageMissedAttacksRate);
+    EXPECT_DOUBLE_EQ(1.0, averages->averagePlayersWithoutAttacksRate);
     EXPECT_DOUBLE_EQ(0.0, averages->averagePlayersWithOneAttackRate);
     EXPECT_DOUBLE_EQ(0.0, averages->averageFirstAttacksNotOnMirrorRate);
 }
@@ -437,8 +461,13 @@ TEST(ClanwarAnalyzerPerformanceComparisonTest, ReturnsBetterWhenMostMetricsImpro
     );
 
     EXPECT_EQ(ClanwarPerformanceTrend::Better, comparison.trend);
-    EXPECT_EQ(5, comparison.improvedMetrics);
+    EXPECT_EQ(4, comparison.improvedMetrics);
     EXPECT_EQ(0, comparison.worsenedMetrics);
+    EXPECT_EQ(0, comparison.unchangedMetrics);
+    EXPECT_EQ(4, comparison.totalMetrics);
+    EXPECT_DOUBLE_EQ(1.0, comparison.improvedMetricsRate);
+    EXPECT_DOUBLE_EQ(0.0, comparison.worsenedMetricsRate);
+    EXPECT_DOUBLE_EQ(0.0, comparison.unchangedMetricsRate);
 }
 
 TEST(ClanwarAnalyzerPerformanceComparisonTest, ReturnsWorseWhenMostMetricsWorsen)
@@ -451,7 +480,7 @@ TEST(ClanwarAnalyzerPerformanceComparisonTest, ReturnsWorseWhenMostMetricsWorsen
         30,
         27,
         15,
-        0,
+        1,
         3,
         2
     );
@@ -470,7 +499,12 @@ TEST(ClanwarAnalyzerPerformanceComparisonTest, ReturnsWorseWhenMostMetricsWorsen
 
     EXPECT_EQ(ClanwarPerformanceTrend::Worse, comparison.trend);
     EXPECT_EQ(0, comparison.improvedMetrics);
-    EXPECT_EQ(5, comparison.worsenedMetrics);
+    EXPECT_EQ(4, comparison.worsenedMetrics);
+    EXPECT_EQ(0, comparison.unchangedMetrics);
+    EXPECT_EQ(4, comparison.totalMetrics);
+    EXPECT_DOUBLE_EQ(0.0, comparison.improvedMetricsRate);
+    EXPECT_DOUBLE_EQ(1.0, comparison.worsenedMetricsRate);
+    EXPECT_DOUBLE_EQ(0.0, comparison.unchangedMetricsRate);
 }
 
 TEST(ClanwarAnalyzerPerformanceComparisonTest, ReturnsSimilarWhenMetricsAreEqual)
@@ -490,7 +524,7 @@ TEST(ClanwarAnalyzerPerformanceComparisonTest, ReturnsSimilarWhenMetricsAreEqual
     const auto historicalAverages = makeHistoricalAverages(
         2.0,
         80.0,
-        0.1,
+        0.0,
         0.2,
         2.0 / 15.0
     );
@@ -503,4 +537,9 @@ TEST(ClanwarAnalyzerPerformanceComparisonTest, ReturnsSimilarWhenMetricsAreEqual
     EXPECT_EQ(ClanwarPerformanceTrend::Similar, comparison.trend);
     EXPECT_EQ(0, comparison.improvedMetrics);
     EXPECT_EQ(0, comparison.worsenedMetrics);
+    EXPECT_EQ(4, comparison.unchangedMetrics);
+    EXPECT_EQ(4, comparison.totalMetrics);
+    EXPECT_DOUBLE_EQ(0.0, comparison.improvedMetricsRate);
+    EXPECT_DOUBLE_EQ(0.0, comparison.worsenedMetricsRate);
+    EXPECT_DOUBLE_EQ(1.0, comparison.unchangedMetricsRate);
 }

@@ -222,10 +222,12 @@ struct ClanwarHistoricalAverages
     double averageStarsPerAttack;
     double averageDestruction;
     double averageMissedAttacks;
+    double averagePlayersWithoutAttacks;
     double averagePlayersWithOneAttack;
     double averageFirstAttacksNotOnMirror;
 
     double averageMissedAttacksRate;
+    double averagePlayersWithoutAttacksRate;
     double averagePlayersWithOneAttackRate;
     double averageFirstAttacksNotOnMirrorRate;
 };
@@ -239,9 +241,19 @@ enum class ClanwarPerformanceTrend
 
 struct ClanwarPerformanceComparison
 {
+    // The score uses four primary metrics:
+    // stars per attack, destruction, players without attacks
+    // and first attacks not on mirror.
+    // Players with one attack are shown as activity context because a second
+    // attack is not automatically a violation.
     ClanwarPerformanceTrend trend;
     int improvedMetrics;
     int worsenedMetrics;
+    int unchangedMetrics;
+    int totalMetrics;
+    double improvedMetricsRate;
+    double worsenedMetricsRate;
+    double unchangedMetricsRate;
 };
 
 struct ClanwarComparisonData
