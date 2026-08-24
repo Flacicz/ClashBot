@@ -137,14 +137,14 @@ void NotificationService::handleEvent(const WarEndedEvent& event) const
                                             comparisonMessage);
     }
 
-    const auto rosterMessage = clanwarRosterFormatter.format(event);
-    if (rosterMessage.empty()) return;
-
-    sendToDestinationsWithDeduplication(event.clanTag,
-                                        ClanwarRosterFormatter::EventType,
-                                        event.key(),
-                                        "ClanwarRosterFormatter",
-                                        rosterMessage);
+    // const auto rosterMessage = clanwarRosterFormatter.format(event);
+    // if (rosterMessage.empty()) return;
+    //
+    // sendToDestinationsWithDeduplication(event.clanTag,
+    //                                     ClanwarRosterFormatter::EventType,
+    //                                     event.key(),
+    //                                     "ClanwarRosterFormatter",
+    //                                     rosterMessage);
 }
 
 void NotificationService::handleEvent(const ClanwarsLeagueRoundEndedEvent& event) const
