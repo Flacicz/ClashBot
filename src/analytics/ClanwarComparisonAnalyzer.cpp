@@ -70,7 +70,7 @@ std::optional<ClanwarHistoricalAverages> clanwar_analytics::calculateHistoricalA
         .averageFirstAttacksNotOnMirror = totalFirstAttacksNotOnMirror / warCount,
         .averageMissedAttacksRate = totalMissedAttacksRate / warCount,
         .averagePlayersWithoutAttacksRate =
-            totalPlayersWithoutAttacksRate / warCount,
+        totalPlayersWithoutAttacksRate / warCount,
         .averagePlayersWithOneAttackRate = totalPlayersWithOneAttackRate / warCount,
         .averageFirstAttacksNotOnMirrorRate =
         totalFirstAttacksNotOnMirrorRate / warCount
@@ -198,13 +198,6 @@ ClanwarPerformanceComparison clanwar_analytics::compareWithHistoricalAverage(
     );
 
     const auto totalMetrics = improvedMetrics + worsenedMetrics + unchangedMetrics;
-    const auto metricRate = [totalMetrics](const int metricCount)
-    {
-        return totalMetrics == 0
-                   ? 0.0
-                   : static_cast<double>(metricCount) / totalMetrics;
-    };
-
     const auto makeComparison = [&](const ClanwarPerformanceTrend trend)
     {
         return ClanwarPerformanceComparison{
@@ -213,9 +206,9 @@ ClanwarPerformanceComparison clanwar_analytics::compareWithHistoricalAverage(
             .worsenedMetrics = worsenedMetrics,
             .unchangedMetrics = unchangedMetrics,
             .totalMetrics = totalMetrics,
-            .improvedMetricsRate = metricRate(improvedMetrics),
-            .worsenedMetricsRate = metricRate(worsenedMetrics),
-            .unchangedMetricsRate = metricRate(unchangedMetrics)
+            .improvedMetricsRate = calculateRate(improvedMetrics, totalMetrics),
+            .worsenedMetricsRate = calculateRate(worsenedMetrics, totalMetrics),
+            .unchangedMetricsRate = calculateRate(unchangedMetrics, totalMetrics)
         };
     };
 

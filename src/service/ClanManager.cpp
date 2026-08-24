@@ -126,10 +126,10 @@ void ClanManager::syncAll()
         }
 
 
-        spdlog::info("[Manager] Cycle finished. Sleeping for 30 minutes...");
+        spdlog::info("[Manager] Cycle finished. Sleeping for 15 minutes...");
 
         std::unique_lock lock(mtx);
-        cv.wait_for(lock, std::chrono::minutes(30), [this] { return !isRunning.load(); });
+        cv.wait_for(lock, std::chrono::minutes(15), [this] { return !isRunning.load(); });
     }
 
     spdlog::info("[Manager] Synchronization cycle stopped gracefully.");

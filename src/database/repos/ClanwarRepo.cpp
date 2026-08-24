@@ -616,7 +616,11 @@ ClanwarWarStats ClanwarRepo::getClanwarStats(const ClanwarReference& reference) 
         .teamSize = attackStats.teamSize,
         .totalAttackStars = attackStats.totalAttackStars,
         .averageStarsPerAttack = attackStats.averageStars,
-        .disciplineStats = disciplineStats
+        .disciplineStats = disciplineStats,
+        .homeClanTag = home.clanTag,
+        .homeClanName = home.clanName,
+        .opponentClanTag = opponent.clanTag,
+        .opponentClanName = opponent.clanName
     };
 }
 

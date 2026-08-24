@@ -30,8 +30,7 @@ namespace clanwar_analytics
         {
             statsByTag[currentMember.tag] = PlayerRosterStats{
                 .playerTag = currentMember.tag,
-                .playerName = currentMember.name,
-                .includedWars = 0
+                .playerName = currentMember.name
             };
         }
 
@@ -78,10 +77,7 @@ namespace clanwar_analytics
         {
             statsByTag[currentMember.tag] = PlayerAttackAccumulator{
                 .playerTag = currentMember.tag,
-                .playerName = currentMember.name,
-                .attacksUsed = 0,
-                .totalStars = 0,
-                .totalDestruction = 0.0
+                .playerName = currentMember.name
             };
         }
 
@@ -91,12 +87,12 @@ namespace clanwar_analytics
             {
                 const auto it = statsByTag.find(attacker.playerTag);
 
-                if (it != statsByTag.end())
-                {
-                    it->second.attacksUsed++;
-                    it->second.totalStars += attacker.stars;
-                    it->second.totalDestruction += attacker.destructionPercentage;
-                }
+                if (it == statsByTag.end())
+                    continue;
+
+                it->second.attacksUsed++;
+                it->second.totalStars += attacker.stars;
+                it->second.totalDestruction += attacker.destructionPercentage;
             }
         }
 
@@ -147,10 +143,10 @@ namespace clanwar_analytics
             {
                 const auto it = statsByTag.find(attacker.playerTag);
 
-                if (it != statsByTag.end())
-                {
-                    it->second.warsWithOneAttack++;
-                }
+                if (it == statsByTag.end())
+                    continue;
+
+                it->second.warsWithOneAttack++;
             }
         }
 
@@ -160,10 +156,10 @@ namespace clanwar_analytics
             {
                 const auto it = statsByTag.find(attacker.playerTag);
 
-                if (it != statsByTag.end())
-                {
-                    it->second.warsWithoutAttacks++;
-                }
+                if (it == statsByTag.end())
+                    continue;
+
+                it->second.warsWithoutAttacks++;
             }
         }
 
@@ -173,10 +169,10 @@ namespace clanwar_analytics
             {
                 const auto it = statsByTag.find(attacker.attackerTag);
 
-                if (it != statsByTag.end())
-                {
-                    it->second.firstAttacksNotOnMirror++;
-                }
+                if (it == statsByTag.end())
+                    continue;
+
+                it->second.firstAttacksNotOnMirror++;
             }
         }
 

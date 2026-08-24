@@ -7,6 +7,7 @@
 #include <fmt/format.h>
 
 #include "analytics/ClanwarComparisonAnalyzer.h"
+#include "common/StringUtils.h"
 
 namespace
 {
@@ -95,6 +96,17 @@ namespace
             stats.homeStars,
             stats.opponentStars
         );
+    }
+
+    void appendWarParticipants(std::ostream& report,
+                               const ClanwarWarStats& stats)
+    {
+        report << "🏠 Наш клан: " << utils::escapeHTML(stats.homeClanName)
+            << " (<code>" << utils::escapeHTML(stats.homeClanTag)
+            << "</code>)\n";
+        report << "⚔️ Соперник: " << utils::escapeHTML(stats.opponentClanName)
+            << " (<code>" << utils::escapeHTML(stats.opponentClanTag)
+            << "</code>)\n";
     }
 
     std::string formatPreviousWarsPeriod(const int warsCount)
@@ -387,8 +399,12 @@ std::string ClanwarComparisonFormatter::buildReport(
 
     std::ostringstream report;
     report << "📈 <b>ДИНАМИКА ВОЙНЫ</b>\n\n";
-    report << formatWarLabel("Текущая война", currentWar) << "\n";
-    report << formatWarLabel("Предыдущая", previousWar) << "\n\n";
+    report << formatWarLabel("Последняя война", currentWar) << "\n";
+    appendWarParticipants(report, currentWar);
+    report << "\n";
+    report << formatWarLabel("Предыдущая война", previousWar) << "\n";
+    appendWarParticipants(report, previousWar);
+    report << "\n";
 
     report << "Изменение результата:\n";
     report << outcomeName(previousWar.result)

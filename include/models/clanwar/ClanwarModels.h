@@ -213,6 +213,11 @@ struct ClanwarWarStats
     double averageStarsPerAttack;
 
     ClanwarDisciplineStats disciplineStats;
+
+    std::string homeClanTag;
+    std::string homeClanName;
+    std::string opponentClanTag;
+    std::string opponentClanName;
 };
 
 struct ClanwarHistoricalAverages
