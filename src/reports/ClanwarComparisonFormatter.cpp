@@ -131,6 +131,67 @@ namespace
         return fmt::format("за последние {} войну", warsCount);
     }
 
+    std::string formatRecentWarsLabel(const std::size_t warsCount)
+    {
+        if (warsCount == 1) return "Последняя война";
+
+        const auto lastTwoDigits = warsCount % 100;
+        const auto lastDigit = warsCount % 10;
+
+        if (lastTwoDigits >= 11 && lastTwoDigits <= 14)
+        {
+            return fmt::format("Последние {} войн", warsCount);
+        }
+
+        if (lastDigit >= 2 && lastDigit <= 4)
+        {
+            return fmt::format("Последние {} войны", warsCount);
+        }
+
+        if (lastDigit == 1)
+        {
+            return fmt::format("Последние {} война", warsCount);
+        }
+
+        return fmt::format("Последние {} войн", warsCount);
+    }
+
+    std::string formatHistoricalAveragesLabel(const int warsCount)
+    {
+        const auto absoluteValue = std::abs(warsCount);
+        const auto lastTwoDigits = absoluteValue % 100;
+        const auto lastDigit = absoluteValue % 10;
+
+        if (lastTwoDigits >= 11 && lastTwoDigits <= 14)
+        {
+            return fmt::format(
+                "📉 <b>СРАВНЕНИЕ СО СРЕДНИМ ЗА {} ПРЕДЫДУЩИХ ВОЙН</b>",
+                warsCount
+            );
+        }
+
+        if (lastDigit == 1)
+        {
+            return fmt::format(
+                "📉 <b>СРАВНЕНИЕ СО СРЕДНИМ ЗА {} ПРЕДЫДУЩУЮ ВОЙНУ</b>",
+                warsCount
+            );
+        }
+
+        if (lastDigit >= 2 && lastDigit <= 4)
+        {
+            return fmt::format(
+                "📉 <b>СРАВНЕНИЕ СО СРЕДНИМ ЗА {} ПРЕДЫДУЩИЕ ВОЙНЫ</b>",
+                warsCount
+            );
+        }
+
+        return fmt::format(
+            "📉 <b>СРАВНЕНИЕ СО СРЕДНИМ ЗА {} ПРЕДЫДУЩИХ ВОЙН</b>",
+            warsCount
+        );
+    }
+
     void appendDisciplineChange(std::ostream& report,
                                 const ClanwarWarStats& currentWar,
                                 const ClanwarWarStats& previousWar)
@@ -234,15 +295,12 @@ namespace
             currentWar.teamSize - currentWar.disciplineStats.playersWithoutAttacks
         );
 
-        report << "📉 <b>СРАВНЕНИЕ СО СРЕДНИМ ЗА "
-            << average.warsCount << " ПРЕДЫДУЩИЕ ВОЙНЫ</b>\n";
+        report << formatHistoricalAveragesLabel(average.warsCount) << "\n";
         report << "Изменение указано в процентных пунктах (п.п.).\n";
         report << "\n📌 Основные метрики:\n";
+        report << "⭐ Средние звёзды за атаку:\n";
         report << fmt::format(
-            "⭐ Средние звёзды за атаку: {:.2f} → {:.2f} ({}) {}\n"
-            "💥 Разрушение: {:.2f}% → {:.2f}% ({} п.п.) {}\n"
-            "Без атак: {:.1f}% ({:.1f}) → {:.1f}% ({}) ({}; {})\n"
-            "Атаки не по зеркалу: {:.1f}% ({:.1f}) → {:.1f}% ({}) ({}; {})\n",
+            "{:.2f} → {:.2f} ({}; {})\n",
             average.averageStarsPerAttack,
             currentWar.averageStarsPerAttack,
             formatSignedDouble(
@@ -250,70 +308,102 @@ namespace
             formatMetricStatus(
                 average.averageStarsPerAttack,
                 currentWar.averageStarsPerAttack,
-                true),
-            average.averageDestruction,
-            currentWar.homeDestruction,
+                true)
+        );
+
+        report << "💥 Среднее разрушение за атаку:\n";
+        report << fmt::format(
+            "{:.2f}% → {:.2f}% ({} п.п.; {})\n",
+            average.averageDestructionPerAttack,
+            currentWar.averageDestructionPerAttack,
             formatSignedDouble(
-                currentWar.homeDestruction - average.averageDestruction),
+                currentWar.averageDestructionPerAttack -
+                average.averageDestructionPerAttack),
             formatMetricStatus(
-                average.averageDestruction,
-                currentWar.homeDestruction,
-                true),
-            average.averagePlayersWithoutAttacksRate * 100.0,
-            average.averagePlayersWithoutAttacks,
-            currentPlayersWithoutAttacksRate * 100.0,
-            currentWar.disciplineStats.playersWithoutAttacks,
-            formatRateDelta(
+                average.averageDestructionPerAttack,
+                currentWar.averageDestructionPerAttack,
+                true)
+        );
+
+        report << "🎯 Дисциплина:\n";
+        report << "Без атак: "
+            << formatRate(average.averagePlayersWithoutAttacksRate)
+            << " → " << formatRate(currentPlayersWithoutAttacksRate)
+            << " (" << formatRateDelta(
                 average.averagePlayersWithoutAttacksRate,
-                currentPlayersWithoutAttacksRate),
-            formatMetricStatus(
+                currentPlayersWithoutAttacksRate)
+            << "; " << fmt::format(
+                "{:.1f} → {}",
+                average.averagePlayersWithoutAttacks,
+                currentWar.disciplineStats.playersWithoutAttacks)
+            << "; " << formatMetricStatus(
                 average.averagePlayersWithoutAttacksRate,
                 currentPlayersWithoutAttacksRate,
-                false),
-            average.averageFirstAttacksNotOnMirrorRate * 100.0,
-            average.averageFirstAttacksNotOnMirror,
-            currentFirstAttacksNotOnMirrorRate * 100.0,
-            currentWar.disciplineStats.firstAttacksNotOnMirror,
-            formatRateDelta(
+                false)
+            << ")\n";
+
+        report << "Атаки не по зеркалу: "
+            << formatRate(average.averageFirstAttacksNotOnMirrorRate)
+            << " → " << formatRate(currentFirstAttacksNotOnMirrorRate)
+            << " (" << formatRateDelta(
                 average.averageFirstAttacksNotOnMirrorRate,
-                currentFirstAttacksNotOnMirrorRate),
-            formatMetricStatus(
+                currentFirstAttacksNotOnMirrorRate)
+            << "; " << fmt::format(
+                "{:.1f} → {}",
+                average.averageFirstAttacksNotOnMirror,
+                currentWar.disciplineStats.firstAttacksNotOnMirror)
+            << "; " << formatMetricStatus(
                 average.averageFirstAttacksNotOnMirrorRate,
                 currentFirstAttacksNotOnMirrorRate,
                 false)
-        );
+            << ")\n";
 
         report << "\n📈 Активность (не входит в итоговую оценку):\n";
-        report << fmt::format(
-            "Использование атак: {:.1f}% → {:.1f}% ({}; {}/{} сейчас) {}\n"
-            "Ровно одна атака: {:.1f}% ({:.1f}) → {:.1f}% ({}) ({})\n"
-            "Пропущенные атаки (доля): {:.1f}% → {:.1f}% ({}; "
-            "{:.1f} → {} сейчас) {}\n",
-            averageAttackUsageRate * 100.0,
-            currentAttackUsageRate * 100.0,
-            formatRateDelta(averageAttackUsageRate, currentAttackUsageRate),
-            currentWar.attacksUsed,
-            currentWar.maxAttacks,
-            formatMetricStatus(averageAttackUsageRate, currentAttackUsageRate, true),
-            average.averagePlayersWithOneAttackRate * 100.0,
-            average.averagePlayersWithOneAttack,
-            currentPlayersWithOneAttackRate * 100.0,
-            currentWar.disciplineStats.playersWithOneAttack,
-            formatRateDelta(
-                average.averagePlayersWithOneAttackRate,
-                currentPlayersWithOneAttackRate),
-            average.averageMissedAttacksRate * 100.0,
-            currentMissedAttacksRate * 100.0,
-            formatRateDelta(
+        report << "Использование атак:\n";
+        report << formatRate(averageAttackUsageRate)
+            << " → " << formatRate(currentAttackUsageRate)
+            << " (" << formatRateDelta(
+                averageAttackUsageRate,
+                currentAttackUsageRate)
+            << "; " << fmt::format(
+                "{:.1f}/{:.1f} → {}/{}",
+                average.averageAttacksUsed,
+                average.averageMaxAttacks,
+                currentWar.attacksUsed,
+                currentWar.maxAttacks)
+            << "; " << formatMetricStatus(
+                averageAttackUsageRate,
+                currentAttackUsageRate,
+                true)
+            << ")\n";
+
+        report << "Пропущенные атаки:\n";
+        report << formatRate(average.averageMissedAttacksRate)
+            << " → " << formatRate(currentMissedAttacksRate)
+            << " (" << formatRateDelta(
                 average.averageMissedAttacksRate,
-                currentMissedAttacksRate),
-            average.averageMissedAttacks,
-            currentWar.maxAttacks - currentWar.attacksUsed,
-            formatMetricStatus(
+                currentMissedAttacksRate)
+            << "; " << fmt::format(
+                "{:.1f} → {}",
+                average.averageMissedAttacks,
+                currentWar.maxAttacks - currentWar.attacksUsed)
+            << "; " << formatMetricStatus(
                 average.averageMissedAttacksRate,
                 currentMissedAttacksRate,
                 false)
-        );
+            << ")\n";
+
+        report << "Ровно одна атака: "
+            << formatRate(average.averagePlayersWithOneAttackRate)
+            << " → " << formatRate(currentPlayersWithOneAttackRate)
+            << " (" << formatRateDelta(
+                average.averagePlayersWithOneAttackRate,
+                currentPlayersWithOneAttackRate)
+            << "; " << fmt::format(
+                "{:.1f} → {}",
+                average.averagePlayersWithOneAttack,
+                currentWar.disciplineStats.playersWithOneAttack)
+            << ")\n";
     }
 
     void appendPerformanceComparison(std::ostream& report,
@@ -435,15 +525,17 @@ std::string ClanwarComparisonFormatter::buildReport(
             true)
         << ")\n";
 
-    report << "💥 Разрушение:\n";
+    report << "💥 Среднее разрушение за атаку:\n";
     report << fmt::format("{:.2f}% → {:.2f}% (",
-                          previousWar.homeDestruction,
-                          currentWar.homeDestruction)
-        << formatSignedDouble(currentWar.homeDestruction - previousWar.homeDestruction)
+                          previousWar.averageDestructionPerAttack,
+                          currentWar.averageDestructionPerAttack)
+        << formatSignedDouble(
+            currentWar.averageDestructionPerAttack -
+            previousWar.averageDestructionPerAttack)
         << " п.п.; "
         << formatMetricStatus(
-            previousWar.homeDestruction,
-            currentWar.homeDestruction,
+            previousWar.averageDestructionPerAttack,
+            currentWar.averageDestructionPerAttack,
             true)
         << ")\n";
 
@@ -482,7 +574,7 @@ std::string ClanwarComparisonFormatter::buildReport(
             true)
         << ")\n";
 
-    report << "Пропущенные атаки (доля):\n";
+    report << "Пропущенные атаки:\n";
     report << formatRate(previousMissedAttacksRate)
         << " → " << formatRate(currentMissedAttacksRate)
         << " (" << formatRateDelta(
@@ -500,7 +592,7 @@ std::string ClanwarComparisonFormatter::buildReport(
     report << "\n";
     if (!reportData.recentWarResults.empty())
     {
-        report << "Последние " << reportData.recentWarResults.size() << " войн:\n";
+        report << formatRecentWarsLabel(reportData.recentWarResults.size()) << ":\n";
         for (const auto outcome : reportData.recentWarResults)
         {
             report << outcomeIcon(outcome) << ' ';
@@ -511,5 +603,5 @@ std::string ClanwarComparisonFormatter::buildReport(
     appendHistoricalAverages(report, reportData);
     appendPerformanceComparison(report, reportData);
 
-    return report.str();
+    return utils::removeTrailingNewlines(report.str());
 }

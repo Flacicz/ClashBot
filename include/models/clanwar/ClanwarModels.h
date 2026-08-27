@@ -173,7 +173,6 @@ struct ClanwarResultReportData
 
     ClanwarAttackStats attackStats;
     std::vector<BestAttack> bestAttacks;
-    ClanwarDisciplineStats disciplineStats;
 };
 
 struct WarRoundDetails
@@ -183,8 +182,6 @@ struct WarRoundDetails
 
     ClanwarAttackStats attack_stats;
     std::vector<BestAttack> best_attacks;
-    std::vector<ClanwarSlacker> missedAttack;
-    std::vector<NotMirrorAttack> notMirrorAttacks;
 };
 
 // Analytics models.
@@ -200,6 +197,7 @@ struct ClanwarWarStats
     int homeStars;
     int opponentStars;
 
+    // Total clan destruction from the API, used for the war result tie-breaker.
     double homeDestruction;
     double opponentDestruction;
 
@@ -211,6 +209,7 @@ struct ClanwarWarStats
 
     int totalAttackStars;
     double averageStarsPerAttack;
+    double averageDestructionPerAttack;
 
     ClanwarDisciplineStats disciplineStats;
 
@@ -225,7 +224,9 @@ struct ClanwarHistoricalAverages
     int warsCount;
 
     double averageStarsPerAttack;
-    double averageDestruction;
+    double averageDestructionPerAttack;
+    double averageAttacksUsed;
+    double averageMaxAttacks;
     double averageMissedAttacks;
     double averagePlayersWithoutAttacks;
     double averagePlayersWithOneAttack;

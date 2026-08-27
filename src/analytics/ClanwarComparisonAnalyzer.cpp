@@ -18,6 +18,7 @@ std::optional<ClanwarHistoricalAverages> clanwar_analytics::calculateHistoricalA
 
     double totalAttackStars = 0;
     double totalAttacks = 0;
+    double totalMaxAttacks = 0;
     double totalDestruction = 0;
     double totalMissedAttacks = 0;
     double totalPlayersWithoutAttacks = 0;
@@ -32,7 +33,8 @@ std::optional<ClanwarHistoricalAverages> clanwar_analytics::calculateHistoricalA
     {
         totalAttackStars += war.totalAttackStars;
         totalAttacks += war.attacksUsed;
-        totalDestruction += war.homeDestruction;
+        totalMaxAttacks += war.maxAttacks;
+        totalDestruction += war.averageDestructionPerAttack * war.attacksUsed;
         totalMissedAttacks += war.maxAttacks - war.attacksUsed;
         totalPlayersWithoutAttacks += war.disciplineStats.playersWithoutAttacks;
         totalPlayersWithOneAttack += war.disciplineStats.playersWithOneAttack;
@@ -63,7 +65,11 @@ std::optional<ClanwarHistoricalAverages> clanwar_analytics::calculateHistoricalA
         .averageStarsPerAttack = totalAttacks == 0
                                      ? 0.0
                                      : totalAttackStars / totalAttacks,
-        .averageDestruction = totalDestruction / warCount,
+        .averageDestructionPerAttack = totalAttacks == 0
+                                           ? 0.0
+                                           : totalDestruction / totalAttacks,
+        .averageAttacksUsed = totalAttacks / warCount,
+        .averageMaxAttacks = totalMaxAttacks / warCount,
         .averageMissedAttacks = totalMissedAttacks / warCount,
         .averagePlayersWithoutAttacks = totalPlayersWithoutAttacks / warCount,
         .averagePlayersWithOneAttack = totalPlayersWithOneAttack / warCount,
@@ -182,8 +188,8 @@ ClanwarPerformanceComparison clanwar_analytics::compareWithHistoricalAverage(
         historicalAverages.averageStarsPerAttack
     );
     compareHigherIsBetter(
-        currentWar.homeDestruction,
-        historicalAverages.averageDestruction
+        currentWar.averageDestructionPerAttack,
+        historicalAverages.averageDestructionPerAttack
     );
     // The missed-attacks rate is kept as an activity context metric in the
     // report. It describes overall attack usage and is not part of the

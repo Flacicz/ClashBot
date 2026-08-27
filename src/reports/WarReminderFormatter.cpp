@@ -27,7 +27,7 @@ std::string WarReminderFormatter::formatStartOfWarReminder(const WarReminderEven
     std::ostringstream message;
     message << "⚔️ <b>Война кланов началась!</b>\n\n";
     appendWarDetails(message, event);
-    message << "Не забудьте использовать свои атаки.";
+    message << "🎯 Участники войны, не забудьте использовать свои атаки.";
     return message.str();
 }
 
@@ -36,7 +36,7 @@ std::string WarReminderFormatter::formatSixHoursLeftReminder(const WarReminderEv
     std::ostringstream message;
     message << "⏳ <b>До окончания войны осталось 6 часов</b>\n\n";
     appendWarDetails(message, event);
-    message << "📢 Участники войны, не забудьте использовать свои атаки до окончания войны!";
+    message << "📢 Участники войны, используйте оставшиеся атаки, пока есть время!";
     return message.str();
 }
 
@@ -45,33 +45,33 @@ std::string WarReminderFormatter::formatOneHourLeftReminder(const WarReminderEve
     std::ostringstream message;
     message << "🚨 <b>До окончания войны остался 1 час</b>\n\n";
     appendWarDetails(message, event);
-    message << "Завершите оставшиеся атаки.";
+    message << "⏰ Участники войны, завершите все оставшиеся атаки!";
     return message.str();
 }
 
 std::string WarReminderFormatter::formatStartOfCwlReminder(const WarReminderEvent& event)
 {
     std::ostringstream message;
-    message << "⚔️ <b>Раунд CWL начался!</b>\n\n";
+    message << "⚔️ <b>Раунд ЛВК начался!</b>\n\n";
     appendWarDetails(message, event);
-    message << "Участники раунда, не забудьте использовать свои атаки.";
+    message << "🎯 Участники раунда ЛВК, не забудьте использовать свои атаки.";
     return message.str();
 }
 
 std::string WarReminderFormatter::formatSixHoursLeftCwlReminder(const WarReminderEvent& event)
 {
     std::ostringstream message;
-    message << "⏳ <b>До окончания раунда CWL осталось 6 часов</b>\n\n";
+    message << "⏳ <b>До окончания раунда ЛВК осталось 6 часов</b>\n\n";
     appendWarDetails(message, event);
-    message << "📢 Участники раунда, не забудьте использовать свои атаки до окончания раунда!";
+    message << "📢 Участники раунда ЛВК, используйте оставшиеся атаки, пока есть время!";
     return message.str();
 }
 
 std::string WarReminderFormatter::formatOneHourLeftCwlReminder(const WarReminderEvent& event)
 {
     std::ostringstream message;
-    message << "🚨 <b>До окончания раунда CWL остался 1 час</b>\n\n";
+    message << "🚨 <b>До окончания раунда ЛВК остался 1 час</b>\n\n";
     appendWarDetails(message, event);
-    message << "Участники раунда, завершите оставшиеся атаки.";
+    message << "⏰ Участники раунда ЛВК, завершите все оставшиеся атаки!";
     return message.str();
 }

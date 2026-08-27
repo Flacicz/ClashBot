@@ -616,6 +616,7 @@ ClanwarWarStats ClanwarRepo::getClanwarStats(const ClanwarReference& reference) 
         .teamSize = attackStats.teamSize,
         .totalAttackStars = attackStats.totalAttackStars,
         .averageStarsPerAttack = attackStats.averageStars,
+        .averageDestructionPerAttack = attackStats.averageDestruction,
         .disciplineStats = disciplineStats,
         .homeClanTag = home.clanTag,
         .homeClanName = home.clanName,
@@ -750,14 +751,12 @@ ClanwarResultReportData ClanwarRepo::getClanwarResultReportData(
 
     const auto clanwarAttackStats = getClanwarAttackStats(reference);
     auto bestAttacks = getBestAttacks(reference);
-    const auto disciplineStats = getClanwarDisciplineStats(reference);
 
     return ClanwarResultReportData{
         .home = std::move(home),
         .opponent = std::move(opponent),
         .attackStats = clanwarAttackStats,
-        .bestAttacks = std::move(bestAttacks),
-        .disciplineStats = disciplineStats
+        .bestAttacks = std::move(bestAttacks)
     };
 }
 
@@ -767,15 +766,10 @@ WarRoundDetails ClanwarRepo::getWarRoundDetails(const ClanwarReference& referenc
     const auto attackStats = getClanwarAttackStats(reference);
     auto bestAttacks = getBestAttacks(reference);
 
-    auto noAttack = getSlackersWithNoAttacks(reference);
-    auto notMirrorAttacks = getPlayersWithFirstAttackNotOnMirror(reference);
-
     return WarRoundDetails{
         .home = std::move(home),
         .opponent = std::move(opponent),
         .attack_stats = attackStats,
-        .best_attacks = std::move(bestAttacks),
-        .missedAttack = std::move(noAttack),
-        .notMirrorAttacks = std::move(notMirrorAttacks)
+        .best_attacks = std::move(bestAttacks)
     };
 }

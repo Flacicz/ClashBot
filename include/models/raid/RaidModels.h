@@ -82,5 +82,4 @@ struct RaidReportData
 
     RaidStats stats;
     std::vector<RaidMemberStats> bestMembers;
-    std::vector<RaidSlacker> slackers;
 };

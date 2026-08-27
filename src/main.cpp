@@ -32,10 +32,13 @@
 #include "service/ClanManager.h"
 
 #include "reports/RaidsEndedFormatter.h"
+#include "reports/RaidsViolationsFormatter.h"
 #include "reports/ClanwarsLeagueRoundEndedFormatter.h"
+#include "reports/ClanwarsLeagueRoundViolationsFormatter.h"
 #include "reports/ClanwarComparisonFormatter.h"
 #include "reports/ClanwarEndedFormatter.h"
 #include "reports/ClanwarRosterFormatter.h"
+#include "reports/ClanwarViolationsFormatter.h"
 
 #include "notifications/TelegramNotifier.h"
 #include "notifications/NotificationService.h"
@@ -133,10 +136,13 @@ int main(const int argc, char* argv[])
         PlayerLeftFormatter playerLeftFormatter(db.clans());
         PlayerRoleChangedFormatter playerRoleChangedFormatter(db.clans());
         RaidsEndedFormatter raidsEndedFormatter(db.clans(), db.raids());
+        RaidsViolationsFormatter raidsViolationsFormatter(db.raids());
         ClanwarEndedFormatter clanwarEndedFormatter(db.war());
+        ClanwarViolationsFormatter clanwarViolationsFormatter(db.war());
         ClanwarComparisonFormatter clanwarComparisonFormatter(db.war());
         ClanwarRosterFormatter clanwarRosterFormatter(db.clans(), db.war());
         ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(db.leagueWar(), db.war());
+        ClanwarsLeagueRoundViolationsFormatter clanwarsLeagueRoundViolationsFormatter(db.leagueWar(), db.war());
 
         auto notificationService = NotificationService(
             db.notifications(),
@@ -146,10 +152,13 @@ int main(const int argc, char* argv[])
             playerLeftFormatter,
             playerRoleChangedFormatter,
             raidsEndedFormatter,
+            raidsViolationsFormatter,
             clanwarEndedFormatter,
+            clanwarViolationsFormatter,
             clanwarComparisonFormatter,
             clanwarRosterFormatter,
-            clanwarsLeagueRoundEndedFormatter
+            clanwarsLeagueRoundEndedFormatter,
+            clanwarsLeagueRoundViolationsFormatter
         );
 
         auto eventDispatcher = EventDispatcher(notificationService);

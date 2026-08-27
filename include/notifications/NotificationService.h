@@ -9,12 +9,15 @@
 #include "reports/ClanwarComparisonFormatter.h"
 #include "reports/ClanwarEndedFormatter.h"
 #include "reports/ClanwarRosterFormatter.h"
+#include "reports/ClanwarViolationsFormatter.h"
 #include "reports/ClanwarsLeagueRoundEndedFormatter.h"
+#include "reports/ClanwarsLeagueRoundViolationsFormatter.h"
 #include "reports/PlayerJoinedFormatter.h"
 #include "reports/PlayerLeftFormatter.h"
 #include "reports/PlayerRoleChangedFormatter.h"
 #include "reports/RaidsEndedFormatter.h"
 #include "reports/RaidReminderFormatter.h"
+#include "reports/RaidsViolationsFormatter.h"
 
 
 class NotificationService
@@ -28,20 +31,25 @@ class NotificationService
     PlayerLeftFormatter playerLeftFormatter;
     PlayerRoleChangedFormatter playerRoleChangedFormatter;
     RaidsEndedFormatter raidsEndedFormatter;
+    RaidsViolationsFormatter raidsViolationsFormatter;
     ClanwarEndedFormatter clanwarEndedFormatter;
+    ClanwarViolationsFormatter clanwarViolationsFormatter;
     ClanwarComparisonFormatter clanwarComparisonFormatter;
     ClanwarRosterFormatter clanwarRosterFormatter;
     ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter;
+    ClanwarsLeagueRoundViolationsFormatter clanwarLeagueRoundViolationsFormatter;
 
     void sendToDestinations(std::string_view clanTag,
                             std::string_view eventName,
-                            const std::string& message) const;
+                            const std::string& message,
+                            Audience audience) const;
 
     void sendToDestinationsWithDeduplication(std::string_view clanTag,
                                              std::string_view eventType,
                                              std::string_view eventId,
                                              std::string_view eventName,
-                                             const std::string& message) const;
+                                             const std::string& message,
+                                             Audience audience) const;
 
 public:
     NotificationService(NotificationRepo& notification_repo,
@@ -51,10 +59,13 @@ public:
                         PlayerLeftFormatter playerLeftFormatter,
                         PlayerRoleChangedFormatter playerRoleChangedFormatter,
                         RaidsEndedFormatter raidsEndedFormatter,
+                        RaidsViolationsFormatter raidsViolationsFormatter,
                         ClanwarEndedFormatter clanwarEndedFormatter,
+                        ClanwarViolationsFormatter clanwarViolationsFormatter,
                         ClanwarComparisonFormatter clanwarComparisonFormatter,
                         ClanwarRosterFormatter clanwarRosterFormatter,
-                        ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter);
+                        ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter,
+                        ClanwarsLeagueRoundViolationsFormatter clanwarLeagueRoundViolationsFormatter);
 
     void handle(const ApplicationEvent& application_event);
 

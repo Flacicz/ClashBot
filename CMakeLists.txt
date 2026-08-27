@@ -35,6 +35,25 @@ add_library(ClashBotCore STATIC
         src/common/SyncResult.cpp
         src/analytics/ClanwarComparisonAnalyzer.cpp
         src/analytics/ClanwarRosterAnalyzer.cpp
+        src/database/SQLiteHelpers.cpp
+        src/database/repos/ClansRepo.cpp
+        src/database/repos/RaidRepo.cpp
+        src/database/repos/ClanwarRepo.cpp
+        src/database/repos/ClanwarsLeagueRepo.cpp
+        src/reports/PlayerJoinedFormatter.cpp
+        src/reports/PlayerLeftFormatter.cpp
+        src/reports/PlayerRoleChangedFormatter.cpp
+        src/reports/RaidReminderFormatter.cpp
+        src/reports/RaidsViolationsFormatter.cpp
+        src/reports/SystemAlertReportFormatter.cpp
+        src/reports/WarReminderFormatter.cpp
+        src/reports/ClanwarViolationsFormatter.cpp
+        src/reports/WarReportParts.cpp
+        src/reports/ClanwarsLeagueRoundViolationsFormatter.cpp
+        src/reports/RaidsEndedFormatter.cpp
+        src/reports/ClanwarsLeagueRoundEndedFormatter.cpp
+        src/reports/ClanwarEndedFormatter.cpp
+        src/reports/ClanwarComparisonFormatter.cpp
 )
 
 target_include_directories(ClashBotCore PUBLIC
@@ -51,10 +70,6 @@ add_executable(${PROJECT_NAME}
         src/api/APIClient.cpp
         src/config/ConfigLoader.cpp
         src/database/Database.cpp
-        src/database/repos/ClansRepo.cpp
-        src/database/repos/ClanwarRepo.cpp
-        src/database/repos/RaidRepo.cpp
-        src/database/repos/ClanwarsLeagueRepo.cpp
         src/models/clan/ClanModels.cpp
         src/models/raid/RaidModels.cpp
         src/models/clanwar/ClanwarModels.cpp
@@ -65,24 +80,12 @@ add_executable(${PROJECT_NAME}
         src/service/ClanwarService.cpp
         src/service/ClanwarLeagueService.cpp
         src/notifications/TelegramNotifier.cpp
-        src/reports/RaidsEndedFormatter.cpp
         src/notifications/NotificationService.cpp
-        src/reports/ClanwarEndedFormatter.cpp
-        src/reports/ClanwarComparisonFormatter.cpp
         src/reports/ClanwarRosterFormatter.cpp
-        src/reports/ClanwarsLeagueRoundEndedFormatter.cpp
-        src/reports/WarReportParts.cpp
         src/database/MigratorManager.cpp
         src/database/repos/SubscriptionRepo.cpp
         src/events/EventDispatcher.cpp
-        src/reports/PlayerJoinedFormatter.cpp
-        src/reports/PlayerLeftFormatter.cpp
         src/database/repos/NotificationsRepo.cpp
-        src/reports/PlayerRoleChangedFormatter.cpp
-        src/database/SQLiteHelpers.cpp
-        src/reports/SystemAlertReportFormatter.cpp
-        src/reports/WarReminderFormatter.cpp
-        src/reports/RaidReminderFormatter.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -107,6 +110,20 @@ add_executable(ClashBotTests
         tests/common/TimeParserTests.cpp
         tests/common/SyncResultTests.cpp
         tests/analytics/ClanwarComparisonAnalyzerTests.cpp
+        tests/reports/PlayerJoinedFormatterTests.cpp
+        tests/reports/PlayerLeftFormatterTests.cpp
+        tests/reports/PlayerRoleChangedFormatterTests.cpp
+        tests/reports/RaidsViolationsFormatterTests.cpp
+        tests/reports/RaidReminderFormatterTests.cpp
+        tests/reports/SystemAlertReportFormatterTests.cpp
+        tests/reports/WarReminderFormatterTests.cpp
+        tests/reports/ClanwarViolationsFormatterTests.cpp
+        tests/reports/ClanwarsLeagueRoundViolationsFormatterTests.cpp
+        tests/reports/RaidsEndedFormatterTests.cpp
+        tests/reports/ClanwarEndedFormatterTests.cpp
+        tests/reports/ClanwarsLeagueRoundEndedFormatterTests.cpp
+        tests/reports/ClanwarComparisonFormatterTests.cpp
+        tests/reports/WarReportPartsTests.cpp
 )
 
 target_include_directories(ClashBotTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -116,6 +133,7 @@ if (MSVC)
 endif ()
 
 target_link_libraries(ClashBotTests PRIVATE
+        SQLite3::SQLite3
         ClashBotCore
         GTest::gtest_main
 )

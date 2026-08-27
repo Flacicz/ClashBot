@@ -1,8 +1,27 @@
 #include "reports/RaidsEndedFormatter.h"
 
 #include <sstream>
+#include <string_view>
 
 #include "common/StringUtils.h"
+
+namespace
+{
+    std::string_view attackWord(const int count)
+    {
+        switch (count)
+        {
+        case 1:
+            return "атака";
+        case 2:
+        case 3:
+        case 4:
+            return "атаки";
+        default:
+            return "атак";
+        }
+    }
+}
 
 RaidsEndedFormatter::RaidsEndedFormatter(ClansRepo& clansRepo, RaidRepo& raidRepo) : clansRepo(clansRepo),
     raidRepo(raidRepo)
@@ -15,8 +34,7 @@ std::string RaidsEndedFormatter::format(const RaidsEndedEvent& event) const
         .clanTag = event.clanTag,
         .clanName = clansRepo.getClanNameByTag(event.clanTag),
         .stats = raidRepo.getRaidStats(event.raidsId),
-        .bestMembers = raidRepo.getBestRaidMembers(event.raidsId),
-        .slackers = raidRepo.getRaidSlackers(event.raidsId)
+        .bestMembers = raidRepo.getBestRaidMembers(event.raidsId)
     };
 
     return buildReport(reportData);
@@ -26,7 +44,6 @@ std::string RaidsEndedFormatter::buildReport(const RaidReportData& reportData)
 {
     const auto& stats = reportData.stats;
     const auto& bestMembers = reportData.bestMembers;
-    const auto& slackers = reportData.slackers;
 
     std::ostringstream report;
     report << "🏰 <b>ОТЧЕТ ПО РЕЙДАМ</b>\n";
@@ -38,8 +55,8 @@ std::string RaidsEndedFormatter::buildReport(const RaidReportData& reportData)
     report << "Завершено рейдов: " << stats.raidsCompleted << "\n";
     report << "Использовано атак: " << stats.totalAttacks << "\n";
     report << "Уничтожено районов: " << stats.enemyDistrictsDestroyed << "\n";
-    report << "Наступательная награда: " << stats.offensiveReward << "\n";
-    report << "Оборонительная награда: " << stats.defensiveReward << "\n\n";
+    report << "Награда за нападение: " << stats.offensiveReward << "\n";
+    report << "Награда за оборону: " << stats.defensiveReward << "\n\n";
 
     if (!bestMembers.empty())
     {
@@ -51,11 +68,11 @@ std::string RaidsEndedFormatter::buildReport(const RaidReportData& reportData)
             report << memberNumber++ << ". "
                 << utils::escapeHTML(member.playerName)
                 << " — " << member.totalLoot << " золота, "
-                << member.attacksCount << " атак";
+                << member.attacksCount << ' ' << attackWord(member.attacksCount);
 
             if (member.bonusAttacks > 0)
             {
-                report << ", " << member.bonusAttacks << " бонусных";
+                report << ", " << member.bonusAttacks << " бонусная атака";
             }
 
             report << "\n";
@@ -64,46 +81,5 @@ std::string RaidsEndedFormatter::buildReport(const RaidReportData& reportData)
         report << "\n";
     }
 
-    bool hasAnyProblems = false;
-
-    std::ostringstream incompleteAttacks;
-    std::ostringstream noAttacks;
-
-    for (const auto& slacker : slackers)
-    {
-        constexpr int BASE_ATTACKS = 5;
-        const int maxAttacks = BASE_ATTACKS + slacker.bonusAttacks;
-
-        if (slacker.attacksCount == 0)
-        {
-            noAttacks << "• " << utils::escapeHTML(slacker.playerName)
-                << " [0/" << maxAttacks << "]\n";
-            hasAnyProblems = true;
-        }
-        else if (slacker.attacksCount < maxAttacks)
-        {
-            incompleteAttacks << "• " << utils::escapeHTML(slacker.playerName)
-                << " [" << slacker.attacksCount << "/" << maxAttacks << "]\n";
-            hasAnyProblems = true;
-        }
-    }
-
-    if (!hasAnyProblems)
-    {
-        report << "✅ <b>Все участники использовали все доступные атаки!</b>\n";
-        report << "<i>Отличная работа!</i>";
-        return report.str();
-    }
-
-    if (!incompleteAttacks.str().empty())
-    {
-        report << "🟡 <b>Не использовали все атаки:</b>\n" << incompleteAttacks.str() << "\n";
-    }
-
-    if (!noAttacks.str().empty())
-    {
-        report << "🔴 <b>Не сделали ни одной атаки:</b>\n" << noAttacks.str();
-    }
-
-    return report.str();
+    return utils::removeTrailingNewlines(report.str());
 }

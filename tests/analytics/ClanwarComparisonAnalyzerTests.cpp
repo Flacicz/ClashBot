@@ -15,7 +15,8 @@ namespace
         const int teamSize = 15,
         const int playersWithoutAttacks = 0,
         const int playersWithOneAttack = 0,
-        const int firstAttacksNotOnMirror = 0)
+        const int firstAttacksNotOnMirror = 0,
+        const double averageDestructionPerAttack = -1.0)
     {
         return ClanwarWarStats{
             .homeStars = 0,
@@ -28,6 +29,9 @@ namespace
             .teamSize = teamSize,
             .totalAttackStars = totalAttackStars,
             .averageStarsPerAttack = averageStarsPerAttack,
+            .averageDestructionPerAttack = averageDestructionPerAttack < 0.0
+                                               ? homeDestruction
+                                               : averageDestructionPerAttack,
             .disciplineStats = ClanwarDisciplineStats{
                 .playersWithoutAttacks = playersWithoutAttacks,
                 .playersWithOneAttack = playersWithOneAttack,
@@ -38,7 +42,7 @@ namespace
 
     ClanwarHistoricalAverages makeHistoricalAverages(
         const double averageStarsPerAttack,
-        const double averageDestruction,
+        const double averageDestructionPerAttack,
         const double averagePlayersWithoutAttacksRate,
         const double averagePlayersWithOneAttackRate,
         const double averageFirstAttacksNotOnMirrorRate)
@@ -46,7 +50,7 @@ namespace
         return ClanwarHistoricalAverages{
             .warsCount = 3,
             .averageStarsPerAttack = averageStarsPerAttack,
-            .averageDestruction = averageDestruction,
+            .averageDestructionPerAttack = averageDestructionPerAttack,
             .averageMissedAttacks = 0.0,
             .averagePlayersWithoutAttacks = 0.0,
             .averagePlayersWithOneAttack = 0.0,
@@ -81,6 +85,7 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, WarCountWithNotFullPreviosWars)
             .teamSize = 15,
             .totalAttackStars = 75,
             .averageStarsPerAttack = 75.0 / 28.0,
+            .averageDestructionPerAttack = 85.0,
             .disciplineStats = ClanwarDisciplineStats{
                 .playersWithoutAttacks = 1,
                 .playersWithOneAttack = 2,
@@ -98,6 +103,7 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, WarCountWithNotFullPreviosWars)
             .teamSize = 15,
             .totalAttackStars = 68,
             .averageStarsPerAttack = 68.0 / 27.0,
+            .averageDestructionPerAttack = 78.0,
             .disciplineStats = ClanwarDisciplineStats{
                 .playersWithoutAttacks = 0,
                 .playersWithOneAttack = 3,
@@ -120,13 +126,23 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, WarCountWithNotFullPreviosWars)
         tolerance
     );
     EXPECT_NEAR(
-        83.5,
-        averages->averageDestruction,
+        81.563636,
+        averages->averageDestructionPerAttack,
         tolerance
     );
     EXPECT_NEAR(
         2.5,
         averages->averageMissedAttacks,
+        tolerance
+    );
+    EXPECT_NEAR(
+        27.5,
+        averages->averageAttacksUsed,
+        tolerance
+    );
+    EXPECT_NEAR(
+        30.0,
+        averages->averageMaxAttacks,
         tolerance
     );
     EXPECT_NEAR(
@@ -181,6 +197,7 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, CalculatesAveragesForFourWars)
             .teamSize = 10,
             .totalAttackStars = 35,
             .averageStarsPerAttack = 35.0 / 13.0,
+            .averageDestructionPerAttack = 100.00,
             .disciplineStats = ClanwarDisciplineStats{
                 .playersWithoutAttacks = 1,
                 .playersWithOneAttack = 2,
@@ -199,6 +216,7 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, CalculatesAveragesForFourWars)
             .teamSize = 15,
             .totalAttackStars = 75,
             .averageStarsPerAttack = 75.0 / 28.0,
+            .averageDestructionPerAttack = 87.0,
             .disciplineStats = ClanwarDisciplineStats{
                 .playersWithoutAttacks = 1,
                 .playersWithOneAttack = 2,
@@ -217,6 +235,7 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, CalculatesAveragesForFourWars)
             .teamSize = 15,
             .totalAttackStars = 82,
             .averageStarsPerAttack = 82.0 / 30.0,
+            .averageDestructionPerAttack = 91.5,
             .disciplineStats = ClanwarDisciplineStats{
                 .playersWithoutAttacks = 0,
                 .playersWithOneAttack = 1,
@@ -235,6 +254,7 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, CalculatesAveragesForFourWars)
             .teamSize = 15,
             .totalAttackStars = 68,
             .averageStarsPerAttack = 68.0 / 27.0,
+            .averageDestructionPerAttack = 83.4,
             .disciplineStats = ClanwarDisciplineStats{
                 .playersWithoutAttacks = 1,
                 .playersWithOneAttack = 3,
@@ -257,13 +277,23 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, CalculatesAveragesForFourWars)
         tolerance
     );
     EXPECT_NEAR(
-        90.475,
-        averages->averageDestruction,
+        89.110204,
+        averages->averageDestructionPerAttack,
         tolerance
     );
     EXPECT_NEAR(
         3.0,
         averages->averageMissedAttacks,
+        tolerance
+    );
+    EXPECT_NEAR(
+        24.5,
+        averages->averageAttacksUsed,
+        tolerance
+    );
+    EXPECT_NEAR(
+        27.5,
+        averages->averageMaxAttacks,
         tolerance
     );
     EXPECT_NEAR(
@@ -317,6 +347,7 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, HandlesWarWithoutAttacks)
             .teamSize = 15,
             .totalAttackStars = 0,
             .averageStarsPerAttack = 0.0,
+            .averageDestructionPerAttack = 0.0,
             .disciplineStats = ClanwarDisciplineStats{
                 .playersWithoutAttacks = 15,
                 .playersWithOneAttack = 0,
@@ -331,8 +362,10 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, HandlesWarWithoutAttacks)
     ASSERT_TRUE(averages.has_value());
     EXPECT_EQ(1, averages->warsCount);
     EXPECT_DOUBLE_EQ(0.0, averages->averageStarsPerAttack);
-    EXPECT_DOUBLE_EQ(0.0, averages->averageDestruction);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageDestructionPerAttack);
     EXPECT_DOUBLE_EQ(30.0, averages->averageMissedAttacks);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageAttacksUsed);
+    EXPECT_DOUBLE_EQ(30.0, averages->averageMaxAttacks);
     EXPECT_DOUBLE_EQ(15.0, averages->averagePlayersWithoutAttacks);
     EXPECT_DOUBLE_EQ(0.0, averages->averagePlayersWithOneAttack);
     EXPECT_DOUBLE_EQ(0.0, averages->averageFirstAttacksNotOnMirror);
@@ -425,7 +458,7 @@ TEST(ClanwarAnalyzerComparisonDataTest, BuildsDataFromPreviousWars)
     EXPECT_EQ(3, comparisonData.previousWarsAverage->warsCount);
     EXPECT_NEAR(
         85.0,
-        comparisonData.previousWarsAverage->averageDestruction,
+        comparisonData.previousWarsAverage->averageDestructionPerAttack,
         0.001
     );
 
@@ -542,4 +575,178 @@ TEST(ClanwarAnalyzerPerformanceComparisonTest, ReturnsSimilarWhenMetricsAreEqual
     EXPECT_DOUBLE_EQ(0.0, comparison.improvedMetricsRate);
     EXPECT_DOUBLE_EQ(0.0, comparison.worsenedMetricsRate);
     EXPECT_DOUBLE_EQ(1.0, comparison.unchangedMetricsRate);
+}
+
+TEST(ClanwarAnalyzerPerformanceComparisonTest, ReturnsBetterWhenThreeMetricsImprove)
+{
+    const auto currentWar = makeWarStats(
+        ClanwarOutcome::Victory,
+        90.0,
+        0,
+        3.0,
+        30,
+        30,
+        15,
+        0,
+        0,
+        0,
+        70.0
+    );
+    const auto historicalAverages = makeHistoricalAverages(
+        2.0,
+        80.0,
+        0.1,
+        0.0,
+        0.1
+    );
+
+    const auto comparison = clanwar_analytics::compareWithHistoricalAverage(
+        currentWar,
+        historicalAverages
+    );
+
+    EXPECT_EQ(ClanwarPerformanceTrend::Better, comparison.trend);
+    EXPECT_EQ(3, comparison.improvedMetrics);
+    EXPECT_EQ(1, comparison.worsenedMetrics);
+    EXPECT_EQ(0, comparison.unchangedMetrics);
+    EXPECT_EQ(4, comparison.totalMetrics);
+}
+
+TEST(ClanwarAnalyzerPerformanceComparisonTest, ReturnsWorseWhenThreeMetricsWorsen)
+{
+    const auto currentWar = makeWarStats(
+        ClanwarOutcome::Defeat,
+        90.0,
+        0,
+        1.0,
+        30,
+        30,
+        15,
+        3,
+        0,
+        3,
+        90.0
+    );
+    const auto historicalAverages = makeHistoricalAverages(
+        2.0,
+        80.0,
+        0.1,
+        0.0,
+        0.1
+    );
+
+    const auto comparison = clanwar_analytics::compareWithHistoricalAverage(
+        currentWar,
+        historicalAverages
+    );
+
+    EXPECT_EQ(ClanwarPerformanceTrend::Worse, comparison.trend);
+    EXPECT_EQ(1, comparison.improvedMetrics);
+    EXPECT_EQ(3, comparison.worsenedMetrics);
+    EXPECT_EQ(0, comparison.unchangedMetrics);
+    EXPECT_EQ(4, comparison.totalMetrics);
+}
+
+TEST(ClanwarAnalyzerPerformanceComparisonTest, ReturnsSimilarWhenTwoMetricsImproveAndTwoWorsen)
+{
+    const auto currentWar = makeWarStats(
+        ClanwarOutcome::Victory,
+        90.0,
+        0,
+        3.0,
+        30,
+        30,
+        15,
+        0,
+        0,
+        3,
+        70.0
+    );
+    const auto historicalAverages = makeHistoricalAverages(
+        2.0,
+        80.0,
+        0.1,
+        0.0,
+        0.1
+    );
+
+    const auto comparison = clanwar_analytics::compareWithHistoricalAverage(
+        currentWar,
+        historicalAverages
+    );
+
+    EXPECT_EQ(ClanwarPerformanceTrend::Similar, comparison.trend);
+    EXPECT_EQ(2, comparison.improvedMetrics);
+    EXPECT_EQ(2, comparison.worsenedMetrics);
+    EXPECT_EQ(0, comparison.unchangedMetrics);
+    EXPECT_EQ(4, comparison.totalMetrics);
+}
+
+TEST(ClanwarAnalyzerPerformanceComparisonTest, ReturnsSimilarWhenOneMetricImprovesAndOneWorsens)
+{
+    const auto currentWar = makeWarStats(
+        ClanwarOutcome::Victory,
+        90.0,
+        0,
+        3.0,
+        30,
+        30,
+        15,
+        0,
+        0,
+        0,
+        70.0
+    );
+    const auto historicalAverages = makeHistoricalAverages(
+        2.0,
+        80.0,
+        0.0,
+        0.0,
+        0.0
+    );
+
+    const auto comparison = clanwar_analytics::compareWithHistoricalAverage(
+        currentWar,
+        historicalAverages
+    );
+
+    EXPECT_EQ(ClanwarPerformanceTrend::Similar, comparison.trend);
+    EXPECT_EQ(1, comparison.improvedMetrics);
+    EXPECT_EQ(1, comparison.worsenedMetrics);
+    EXPECT_EQ(2, comparison.unchangedMetrics);
+    EXPECT_EQ(4, comparison.totalMetrics);
+}
+
+TEST(ClanwarAnalyzerPerformanceComparisonTest, UsesAverageDestructionPerAttack)
+{
+    const auto currentWar = makeWarStats(
+        ClanwarOutcome::Victory,
+        99.0,
+        0,
+        2.0,
+        30,
+        30,
+        15,
+        0,
+        0,
+        0,
+        75.0
+    );
+    const auto historicalAverages = makeHistoricalAverages(
+        2.0,
+        80.0,
+        0.0,
+        0.0,
+        0.0
+    );
+
+    const auto comparison = clanwar_analytics::compareWithHistoricalAverage(
+        currentWar,
+        historicalAverages
+    );
+
+    EXPECT_EQ(ClanwarPerformanceTrend::Worse, comparison.trend);
+    EXPECT_EQ(0, comparison.improvedMetrics);
+    EXPECT_EQ(1, comparison.worsenedMetrics);
+    EXPECT_EQ(3, comparison.unchangedMetrics);
 }

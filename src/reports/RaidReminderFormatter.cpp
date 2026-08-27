@@ -23,7 +23,7 @@ std::string RaidReminderFormatter::formatStartOfRaidReminder(const RaidReminderE
     std::ostringstream message;
     message << "🏰 <b>Рейдовые выходные начались!</b>\n\n";
     appendRaidDetails(message, event);
-    message << "Участники рейда, не забудьте использовать свои атаки.";
+    message << "⚔️ Участники рейда, не забудьте использовать свои атаки.";
     return message.str();
 }
 
@@ -32,7 +32,7 @@ std::string RaidReminderFormatter::formatFortyEightHoursLeftReminder(const RaidR
     std::ostringstream message;
     message << "⏳ <b>До окончания рейдовых выходных осталось 48 часов</b>\n\n";
     appendRaidDetails(message, event);
-    message << "Участники рейда, проверьте, что вы начали использовать свои атаки.";
+    message << "📢 Участники рейда, проверьте, что вы начали использовать свои атаки.";
     return message.str();
 }
 
@@ -41,7 +41,7 @@ std::string RaidReminderFormatter::formatTwentyFourHoursLeftReminder(const RaidR
     std::ostringstream message;
     message << "⏳ <b>До окончания рейдовых выходных осталось 24 часа</b>\n\n";
     appendRaidDetails(message, event);
-    message << "Участники рейда, не забудьте использовать оставшиеся атаки.";
+    message << "📢 Участники рейда, не забудьте использовать оставшиеся атаки.";
     return message.str();
 }
 
@@ -50,7 +50,7 @@ std::string RaidReminderFormatter::formatSixHoursLeftReminder(const RaidReminder
     std::ostringstream message;
     message << "🚨 <b>До окончания рейдовых выходных осталось 6 часов</b>\n\n";
     appendRaidDetails(message, event);
-    message << "Участники рейда, завершите оставшиеся атаки.";
+    message << "⚔️ Участники рейда, завершите оставшиеся атаки.";
     return message.str();
 }
 
@@ -59,6 +59,6 @@ std::string RaidReminderFormatter::formatOneHourLeftReminder(const RaidReminderE
     std::ostringstream message;
     message << "🚨 <b>До окончания рейдовых выходных остался 1 час</b>\n\n";
     appendRaidDetails(message, event);
-    message << "Последнее напоминание: используйте оставшиеся атаки!";
+    message << "⏰ Участники рейда, это последнее напоминание — завершите оставшиеся атаки!";
     return message.str();
 }

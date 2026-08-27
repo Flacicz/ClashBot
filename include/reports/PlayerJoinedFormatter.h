@@ -18,6 +18,8 @@ public:
     explicit PlayerJoinedFormatter(ClansRepo& clansRepo);
 
     [[nodiscard]] std::string format(const PlayerJoinedClanEvent& event) const;
+    [[nodiscard]] static std::string buildReport(std::string_view clanName, std::string_view clanTag,
+                                                 std::string_view playerName, std::string_view playerTag);
 };
 
 #endif //CLASHBOT_PLAYERJOINEDFORMATTER_H

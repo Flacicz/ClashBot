@@ -66,35 +66,6 @@ namespace war_report
             << "0⭐ — " << attackStats.zeroStarAttacks << "\n\n";
     }
 
-    void appendDisciplineSummary(std::ostream& report,
-                                 const ClanwarDisciplineStats& disciplineStats)
-    {
-        const bool hasNoViolations =
-            disciplineStats.playersWithoutAttacks == 0 &&
-            disciplineStats.firstAttacksNotOnMirror == 0;
-
-        report << "🎯 <b>ДИСЦИПЛИНА</b>\n";
-
-        if (hasNoViolations)
-        {
-            report << "✅ Нарушений не обнаружено!\n";
-        }
-        else
-        {
-            report << "⚠️ Есть замечания:\n";
-            report << "Без атак: " << disciplineStats.playersWithoutAttacks << "\n";
-            report << "Атаки не по зеркалу: "
-                << disciplineStats.firstAttacksNotOnMirror << "\n";
-        }
-
-        if (disciplineStats.playersWithOneAttack > 0)
-        {
-            report << "\nАктивность:\n";
-            report << "Ровно одна атака: "
-                << disciplineStats.playersWithOneAttack << "\n";
-        }
-    }
-
     void appendBestAttacks(std::ostream& report,
                            const std::vector<BestAttack>& bestAttacks)
     {
@@ -116,12 +87,47 @@ namespace war_report
         report << "\n";
     }
 
+    void appendNoAttackPlayers(std::ostream& report,
+                               const std::vector<ClanwarSlacker>& players,
+                               const std::string_view sectionTitle,
+                               const bool includeAttackLimit)
+    {
+        if (players.empty()) return;
+
+        report << "\n🔴 <b>" << sectionTitle << ":</b>\n";
+
+        for (const auto& player : players)
+        {
+            report << "• " << utils::escapeHTML(player.playerName);
+
+            if (includeAttackLimit)
+            {
+                report << " [0/1]";
+            }
+
+            report << "\n";
+        }
+    }
+
+    void appendOneAttackPlayers(std::ostream& report,
+                                const std::vector<ClanwarSlacker>& players)
+    {
+        if (players.empty()) return;
+
+        report << "\n🟡 <b>Сделали только одну атаку:</b>\n";
+
+        for (const auto& player : players)
+        {
+            report << "• " << utils::escapeHTML(player.playerName) << "\n";
+        }
+    }
+
     void appendNotMirrorAttacks(std::ostream& report,
                                 const std::vector<NotMirrorAttack>& attacks)
     {
         if (attacks.empty()) return;
 
-        report << "\n🎯 <b>Атаки не по зеркалу (" << attacks.size() << "):</b>\n";
+        report << "\n🎯 <b>Атаки не по зеркалу:</b>\n";
 
         for (const auto& attack : attacks)
         {

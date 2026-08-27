@@ -16,18 +16,23 @@ class SubscriptionRepo : public BaseRepository
 public:
     explicit SubscriptionRepo(sqlite3* db);
 
-    [[nodiscard]] std::vector<TelegramDestination> getDestinationsForClan(std::string_view clanTag) const;
+    [[nodiscard]] std::vector<TelegramDestination> getDestinationsForClan(
+        std::string_view clanTag,
+        Audience audience) const;
     [[nodiscard]] std::vector<std::string> getClanTagsForChat(
         long long chatId,
-        long long messageThreadId) const;
+        long long messageThreadId,
+        Audience audience) const;
     void subscribeToChat(
         long long chatId,
         long long messageThreadId,
-        std::string_view clanTag) const;
+        std::string_view clanTag,
+        Audience audience) const;
     void unsubscribeFromChat(
         long long chatId,
         long long messageThreadId,
-        std::string_view clanTag) const;
+        std::string_view clanTag,
+        Audience audience) const;
 };
 
 #endif //CLASHBOT_SUBSCRIPTIONREPO_H

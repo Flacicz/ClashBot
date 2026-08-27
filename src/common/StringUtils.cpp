@@ -65,4 +65,14 @@ namespace utils
 
         return result;
     }
+
+    std::string removeTrailingNewlines(std::string str)
+    {
+        while (!str.empty() && str.back() == '\n')
+        {
+            str.pop_back();
+        }
+
+        return str;
+    }
 }

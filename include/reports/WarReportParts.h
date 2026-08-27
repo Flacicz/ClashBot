@@ -2,6 +2,7 @@
 #define CLASHBOT_WARREPORTPARTS_H
 
 #include <iosfwd>
+#include <string_view>
 #include <vector>
 
 #include "models/clanwar/ClanwarModels.h"
@@ -17,11 +18,16 @@ namespace war_report
     void appendAttackStatistics(std::ostream& report,
                                 const ClanwarAttackStats& attackStats);
 
-    void appendDisciplineSummary(std::ostream& report,
-                                 const ClanwarDisciplineStats& disciplineStats);
-
     void appendBestAttacks(std::ostream& report,
                            const std::vector<BestAttack>& bestAttacks);
+
+    void appendNoAttackPlayers(std::ostream& report,
+                               const std::vector<ClanwarSlacker>& players,
+                               std::string_view sectionTitle,
+                               bool includeAttackLimit);
+
+    void appendOneAttackPlayers(std::ostream& report,
+                                const std::vector<ClanwarSlacker>& players);
 
     void appendNotMirrorAttacks(std::ostream& report,
                                 const std::vector<NotMirrorAttack>& attacks);

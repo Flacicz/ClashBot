@@ -10,6 +10,8 @@ namespace utils
     std::string getCurrentDateString();
 
     std::string escapeHTML(std::string_view str);
+
+    std::string removeTrailingNewlines(std::string str);
 }
 
 #endif //CLASHBOT_STRINGUTILS_H

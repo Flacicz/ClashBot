@@ -71,3 +71,25 @@ TEST(EscapeHtmlTest, EscapesEmptyString)
         )
     );
 }
+
+TEST(RemoveTrailingNewlinesTest, RemovesAllTrailingNewlines)
+{
+    EXPECT_EQ(
+        "Отчет",
+        utils::removeTrailingNewlines("Отчет\n\n\n")
+    );
+}
+
+TEST(RemoveTrailingNewlinesTest, PreservesInternalNewlines)
+{
+    EXPECT_EQ(
+        "Первая строка\n\nВторая строка",
+        utils::removeTrailingNewlines("Первая строка\n\nВторая строка\n")
+    );
+}
+
+TEST(RemoveTrailingNewlinesTest, HandlesEmptyAndAlreadyTrimmedStrings)
+{
+    EXPECT_EQ("", utils::removeTrailingNewlines(""));
+    EXPECT_EQ("Отчет", utils::removeTrailingNewlines("Отчет"));
+}
