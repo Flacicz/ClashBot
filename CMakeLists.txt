@@ -34,6 +34,7 @@ add_library(ClashBotCore STATIC
         src/common/TimeParser.cpp
         src/common/SyncResult.cpp
         src/analytics/ClanwarComparisonAnalyzer.cpp
+        src/analytics/RaidComparisonAnalyzer.cpp
         src/analytics/ClanwarRosterAnalyzer.cpp
         src/database/SQLiteHelpers.cpp
         src/database/repos/ClansRepo.cpp
@@ -51,6 +52,7 @@ add_library(ClashBotCore STATIC
         src/reports/WarReportParts.cpp
         src/reports/ClanwarsLeagueRoundViolationsFormatter.cpp
         src/reports/RaidsEndedFormatter.cpp
+        src/reports/RaidsComparisonFormatter.cpp
         src/reports/ClanwarsLeagueRoundEndedFormatter.cpp
         src/reports/ClanwarEndedFormatter.cpp
         src/reports/ClanwarComparisonFormatter.cpp
@@ -110,6 +112,7 @@ add_executable(ClashBotTests
         tests/common/TimeParserTests.cpp
         tests/common/SyncResultTests.cpp
         tests/analytics/ClanwarComparisonAnalyzerTests.cpp
+        tests/analytics/RaidComparisonAnalyzerTests.cpp
         tests/reports/PlayerJoinedFormatterTests.cpp
         tests/reports/PlayerLeftFormatterTests.cpp
         tests/reports/PlayerRoleChangedFormatterTests.cpp
@@ -120,6 +123,7 @@ add_executable(ClashBotTests
         tests/reports/ClanwarViolationsFormatterTests.cpp
         tests/reports/ClanwarsLeagueRoundViolationsFormatterTests.cpp
         tests/reports/RaidsEndedFormatterTests.cpp
+        tests/reports/RaidsComparisonFormatterTests.cpp
         tests/reports/ClanwarEndedFormatterTests.cpp
         tests/reports/ClanwarsLeagueRoundEndedFormatterTests.cpp
         tests/reports/ClanwarComparisonFormatterTests.cpp

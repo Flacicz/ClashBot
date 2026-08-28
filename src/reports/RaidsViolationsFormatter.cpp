@@ -10,7 +10,7 @@ RaidsViolationsFormatter::RaidsViolationsFormatter(RaidRepo& raidRepo) : raidRep
 
 std::string RaidsViolationsFormatter::format(const RaidsEndedEvent& event) const
 {
-    return buildReport(event.clanTag, raidRepo.getRaidSlackers(event.raidsId));
+    return buildReport(event.clanTag, raidRepo.getRaidSlackers(event.raidReference));
 }
 
 std::string RaidsViolationsFormatter::buildReport(

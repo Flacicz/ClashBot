@@ -16,14 +16,25 @@ class RaidRepo : public BaseRepository
 public:
     explicit RaidRepo(sqlite3* db);
 
-    [[nodiscard]] long long saveCompleteRaidData(const ClanRaid& clanRaid,
-                                                 const std::vector<PlayerRaidSnapshot>& playerRaidSnapshots) const;
+    [[nodiscard]] RaidReference saveCompleteRaidData(
+        const ClanRaid& clanRaid,
+        const std::vector<PlayerRaidSnapshot>& playerRaidSnapshots) const;
 
-    [[nodiscard]] long long saveRaid(const ClanRaid& clanRaid) const;
-    void saveRaidPlayerSnapshots(long long raidId,
-                                 const std::vector<PlayerRaidSnapshot>& members) const;
+    [[nodiscard]] RaidReference saveRaid(const ClanRaid& clanRaid) const;
+    void saveRaidPlayerSnapshots(
+        const RaidReference& reference,
+        const std::vector<PlayerRaidSnapshot>& members) const;
 
-    [[nodiscard]] RaidStats getRaidStats(long long raidId) const;
-    [[nodiscard]] std::vector<RaidMemberStats> getBestRaidMembers(long long raidId) const;
-    [[nodiscard]] std::vector<RaidSlacker> getRaidSlackers(long long raidId) const;
+    [[nodiscard]] RaidStats getRaidStats(const RaidReference& reference) const;
+    [[nodiscard]] std::vector<RaidMemberStats> getBestRaidMembers(
+        const RaidReference& reference) const;
+    [[nodiscard]] std::vector<RaidSlacker> getRaidSlackers(
+        const RaidReference& reference) const;
+
+    [[nodiscard]] RaidComparisonStats getRaidComparisonStats(
+        const RaidReference& reference) const;
+
+    [[nodiscard]] std::vector<RaidReference> getPreviousRaids(
+        const RaidReference& currentRaid,
+        int limit) const;
 };

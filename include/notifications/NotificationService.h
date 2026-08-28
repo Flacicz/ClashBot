@@ -15,6 +15,7 @@
 #include "reports/PlayerJoinedFormatter.h"
 #include "reports/PlayerLeftFormatter.h"
 #include "reports/PlayerRoleChangedFormatter.h"
+#include "reports/RaidsComparisonFormatter.h"
 #include "reports/RaidsEndedFormatter.h"
 #include "reports/RaidReminderFormatter.h"
 #include "reports/RaidsViolationsFormatter.h"
@@ -31,6 +32,7 @@ class NotificationService
     PlayerLeftFormatter playerLeftFormatter;
     PlayerRoleChangedFormatter playerRoleChangedFormatter;
     RaidsEndedFormatter raidsEndedFormatter;
+    RaidsComparisonFormatter raidsComparisonFormatter;
     RaidsViolationsFormatter raidsViolationsFormatter;
     ClanwarEndedFormatter clanwarEndedFormatter;
     ClanwarViolationsFormatter clanwarViolationsFormatter;
@@ -59,6 +61,7 @@ public:
                         PlayerLeftFormatter playerLeftFormatter,
                         PlayerRoleChangedFormatter playerRoleChangedFormatter,
                         RaidsEndedFormatter raidsEndedFormatter,
+                        RaidsComparisonFormatter raidsComparisonFormatter,
                         RaidsViolationsFormatter raidsViolationsFormatter,
                         ClanwarEndedFormatter clanwarEndedFormatter,
                         ClanwarViolationsFormatter clanwarViolationsFormatter,

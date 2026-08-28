@@ -32,19 +32,19 @@ void RaidService::ensurePlayersExist(const std::vector<PlayerRaidSnapshot>& play
 
 std::vector<ApplicationEvent> RaidService::generateEvents(const std::string_view clanTag,
                                                           const ClanRaid& clanRaid,
-                                                          const long long raidId)
+                                                          const RaidReference& reference)
 {
     std::vector<ApplicationEvent> events;
 
     const auto now = std::chrono::system_clock::to_time_t(
         std::chrono::system_clock::now());
 
-    const auto addReminder = [&events, clanTag, raidId, endTime = clanRaid.endTime]
+    const auto addReminder = [&events, clanTag, reference, endTime = clanRaid.endTime]
     (const RaidReminderEvent::RaidReminderKind kind)
     {
         events.emplace_back(RaidReminderEvent{
             .clanTag = std::string(clanTag),
-            .raidId = raidId,
+            .raidReference = reference,
             .endTime = endTime,
             .kind = kind
         });
@@ -77,9 +77,10 @@ std::vector<ApplicationEvent> RaidService::generateEvents(const std::string_view
 
     if (clanRaid.state == "ended")
     {
-        events.emplace_back(
-            RaidsEndedEvent(std::string(clanTag), raidId)
-        );
+        events.emplace_back(RaidsEndedEvent{
+            .clanTag = std::string(clanTag),
+            .raidReference = reference
+        });
     }
 
     return events;
@@ -109,12 +110,13 @@ SyncResult RaidService::updateData(std::string_view tag)
 
         ensurePlayersExist(playerRaidSnapshots);
 
-        const long long lastRaidId = raid_repo_.saveCompleteRaidData(clanRaid, playerRaidSnapshots);
+        const RaidReference reference =
+            raid_repo_.saveCompleteRaidData(clanRaid, playerRaidSnapshots);
 
         syncResult = SyncResult::success(
             svc,
             std::string(tag),
-            generateEvents(tag, clanRaid, lastRaidId));
+            generateEvents(tag, clanRaid, reference));
 
         transaction.commit();
 

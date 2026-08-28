@@ -6,6 +6,7 @@
 #include <variant>
 
 #include "models/clanwar/ClanwarModels.h"
+#include "models/raid/RaidModels.h"
 
 struct PlayerJoinedClanEvent
 {
@@ -46,13 +47,13 @@ struct WarEndedEvent
 struct RaidsEndedEvent
 {
     std::string clanTag;
-    long long raidsId;
+    RaidReference raidReference;
 
     static constexpr auto Type = "raids_ended";
 
     [[nodiscard]] std::string key() const
     {
-        return std::to_string(raidsId);
+        return std::to_string(raidReference.raidId);
     }
 };
 
@@ -139,7 +140,7 @@ struct RaidReminderEvent
     };
 
     std::string clanTag;
-    long long raidId;
+    RaidReference raidReference;
     long long endTime;
     RaidReminderKind kind;
 
@@ -165,7 +166,7 @@ struct RaidReminderEvent
 
     [[nodiscard]] std::string key() const
     {
-        return std::to_string(raidId) + ":" + std::string(kindName(kind));
+        return std::to_string(raidReference.raidId) + ":" + std::string(kindName(kind));
     }
 };
 

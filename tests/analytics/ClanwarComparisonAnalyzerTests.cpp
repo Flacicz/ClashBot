@@ -176,7 +176,7 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, WarCountWithNotFullPreviosWars)
         tolerance
     );
     EXPECT_NEAR(
-        0.102381,
+        3.0 / 29.0,
         averages->averageFirstAttacksNotOnMirrorRate,
         tolerance
     );
@@ -312,22 +312,22 @@ TEST(ClanwarAnalyzerHistoricalAveragesTest, CalculatesAveragesForFourWars)
         tolerance
     );
     EXPECT_NEAR(
-        0.129167,
+        12.0 / 110.0,
         averages->averageMissedAttacksRate,
         tolerance
     );
     EXPECT_NEAR(
-        0.058333,
+        3.0 / 55.0,
         averages->averagePlayersWithoutAttacksRate,
         tolerance
     );
     EXPECT_NEAR(
-        0.15,
+        8.0 / 55.0,
         averages->averagePlayersWithOneAttackRate,
         tolerance
     );
     EXPECT_NEAR(
-        0.081349,
+        4.0 / 52.0,
         averages->averageFirstAttacksNotOnMirrorRate,
         tolerance
     );

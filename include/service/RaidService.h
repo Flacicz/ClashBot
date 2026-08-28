@@ -15,7 +15,7 @@ class RaidService : public ISyncService
     void ensurePlayersExist(const std::vector<PlayerRaidSnapshot>& players) const;
     static std::vector<ApplicationEvent> generateEvents(std::string_view clanTag,
                                                         const ClanRaid& clanRaid,
-                                                        long long raidId);
+                                                        const RaidReference& reference);
 
 public:
     RaidService(ClansRepo& clans_repo,

@@ -33,8 +33,8 @@ std::string RaidsEndedFormatter::format(const RaidsEndedEvent& event) const
     const RaidReportData reportData{
         .clanTag = event.clanTag,
         .clanName = clansRepo.getClanNameByTag(event.clanTag),
-        .stats = raidRepo.getRaidStats(event.raidsId),
-        .bestMembers = raidRepo.getBestRaidMembers(event.raidsId)
+        .stats = raidRepo.getRaidStats(event.raidReference),
+        .bestMembers = raidRepo.getBestRaidMembers(event.raidReference)
     };
 
     return buildReport(reportData);

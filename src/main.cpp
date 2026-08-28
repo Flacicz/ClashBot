@@ -136,6 +136,7 @@ int main(const int argc, char* argv[])
         PlayerLeftFormatter playerLeftFormatter(db.clans());
         PlayerRoleChangedFormatter playerRoleChangedFormatter(db.clans());
         RaidsEndedFormatter raidsEndedFormatter(db.clans(), db.raids());
+        RaidsComparisonFormatter raidsComparisonFormatter(db.clans(), db.raids());
         RaidsViolationsFormatter raidsViolationsFormatter(db.raids());
         ClanwarEndedFormatter clanwarEndedFormatter(db.war());
         ClanwarViolationsFormatter clanwarViolationsFormatter(db.war());
@@ -152,6 +153,7 @@ int main(const int argc, char* argv[])
             playerLeftFormatter,
             playerRoleChangedFormatter,
             raidsEndedFormatter,
+            raidsComparisonFormatter,
             raidsViolationsFormatter,
             clanwarEndedFormatter,
             clanwarViolationsFormatter,

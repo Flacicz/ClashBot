@@ -11,7 +11,7 @@ namespace
     {
         return RaidReminderEvent{
             .clanTag = "#2J8PJ9VLG",
-            .raidId = 42,
+            .raidReference = RaidReference{.raidId = 42},
             .endTime = 1704067200,
             .kind = RaidReminderEvent::RaidReminderKind::Started
         };

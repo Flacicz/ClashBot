@@ -416,7 +416,7 @@ TEST(ClanwarComparisonFormatterTest, ReportsImprovedDestruction)
     EXPECT_NE(
         report.find(
             "💥 Среднее разрушение за атаку:\n"
-            "88.75% → 92.50% (+3.75 п.п.; ✅ лучше)\n"
+            "88.75% → 92.50% (+3.8 п.п.; ✅ лучше)\n"
         ),
         std::string::npos
     );
@@ -448,7 +448,7 @@ TEST(ClanwarComparisonFormatterTest, ReportsWorsenedDestruction)
     EXPECT_NE(
         report.find(
             "💥 Среднее разрушение за атаку:\n"
-            "92.50% → 85.00% (−7.50 п.п.; ⚠️ хуже)\n"
+            "92.50% → 85.00% (−7.5 п.п.; ⚠️ хуже)\n"
         ),
         std::string::npos
     );
@@ -472,7 +472,7 @@ TEST(ClanwarComparisonFormatterTest, ReportsUnchangedDestruction)
     EXPECT_NE(
         report.find(
             "💥 Среднее разрушение за атаку:\n"
-            "90.00% → 90.00% (0.00 п.п.; ➖ без изменений)\n"
+            "90.00% → 90.00% (0.0 п.п.; ➖ без изменений)\n"
         ),
         std::string::npos
     );
@@ -506,7 +506,7 @@ TEST(ClanwarComparisonFormatterTest, UsesAverageDestructionPerAttack)
     EXPECT_NE(
         report.find(
             "💥 Среднее разрушение за атаку:\n"
-            "80.00% → 85.00% (+5.00 п.п.; ✅ лучше)\n"
+            "80.00% → 85.00% (+5.0 п.п.; ✅ лучше)\n"
         ),
         std::string::npos
     );
@@ -549,8 +549,12 @@ TEST(ClanwarComparisonFormatterTest, ReportsImprovedDiscipline)
     EXPECT_NE(
         report.find(
             "🎯 Дисциплина:\n"
-            "Без атак: 20.0% → 6.7% (−13.33 п.п.; 3 → 1; ✅ лучше)\n"
-            "Атаки не по зеркалу: 16.7% → 7.1% (−9.52 п.п.; 2 → 1; ✅ лучше)\n"
+            "Без атак\n"
+            "(среди всех участников):\n"
+            "20.0% → 6.7% (−13.3 п.п.; 3 → 1; ✅ лучше)\n"
+            "Атаки не по зеркалу\n"
+            "(среди участников с атаками):\n"
+            "16.7% → 7.1% (−9.5 п.п.; 2 → 1; ✅ лучше)\n"
         ),
         std::string::npos
     );
@@ -593,8 +597,12 @@ TEST(ClanwarComparisonFormatterTest, ReportsWorsenedDiscipline)
     EXPECT_NE(
         report.find(
             "🎯 Дисциплина:\n"
-            "Без атак: 6.7% → 20.0% (+13.33 п.п.; 1 → 3; ⚠️ хуже)\n"
-            "Атаки не по зеркалу: 7.1% → 16.7% (+9.52 п.п.; 1 → 2; ⚠️ хуже)\n"
+            "Без атак\n"
+            "(среди всех участников):\n"
+            "6.7% → 20.0% (+13.3 п.п.; 1 → 3; ⚠️ хуже)\n"
+            "Атаки не по зеркалу\n"
+            "(среди участников с атаками):\n"
+            "7.1% → 16.7% (+9.5 п.п.; 1 → 2; ⚠️ хуже)\n"
         ),
         std::string::npos
     );
@@ -623,8 +631,12 @@ TEST(ClanwarComparisonFormatterTest, ReportsUnchangedDiscipline)
     EXPECT_NE(
         report.find(
             "🎯 Дисциплина:\n"
-            "Без атак: 13.3% → 13.3% (0.00 п.п.; 2 → 2; ➖ без изменений)\n"
-            "Атаки не по зеркалу: 7.7% → 7.7% (0.00 п.п.; 1 → 1; ➖ без изменений)\n"
+            "Без атак\n"
+            "(среди всех участников):\n"
+            "13.3% → 13.3% (0.0 п.п.; 2 → 2; ➖ без изменений)\n"
+            "Атаки не по зеркалу\n"
+            "(среди участников с атаками):\n"
+            "7.7% → 7.7% (0.0 п.п.; 1 → 1; ➖ без изменений)\n"
         ),
         std::string::npos
     );
@@ -673,8 +685,12 @@ TEST(ClanwarComparisonFormatterTest, ReportsDisciplineAsRatesForDifferentTeamSiz
     EXPECT_NE(
         report.find(
             "🎯 Дисциплина:\n"
-            "Без атак: 20.0% → 20.0% (0.00 п.п.; 2 → 4; ➖ без изменений)\n"
-            "Атаки не по зеркалу: 25.0% → 25.0% (0.00 п.п.; 2 → 4; ➖ без изменений)\n"
+            "Без атак\n"
+            "(среди всех участников):\n"
+            "20.0% → 20.0% (0.0 п.п.; 2 → 4; ➖ без изменений)\n"
+            "Атаки не по зеркалу\n"
+            "(среди участников с атаками):\n"
+            "25.0% → 25.0% (0.0 п.п.; 2 → 4; ➖ без изменений)\n"
         ),
         std::string::npos
     );
@@ -710,7 +726,7 @@ TEST(ClanwarComparisonFormatterTest, ReportsImprovedAttackUsage)
         report.find(
             "⚔️ Активность (не входит в итоговую оценку):\n"
             "Использование атак:\n"
-            "80.0% → 90.0% (+10.00 п.п.; 24/30 → 27/30; ✅ лучше)\n"
+            "80.0% → 90.0% (+10.0 п.п.; 24/30 → 27/30; ✅ лучше)\n"
         ),
         std::string::npos
     );
@@ -746,7 +762,7 @@ TEST(ClanwarComparisonFormatterTest, ReportsWorsenedAttackUsage)
         report.find(
             "⚔️ Активность (не входит в итоговую оценку):\n"
             "Использование атак:\n"
-            "90.0% → 80.0% (−10.00 п.п.; 27/30 → 24/30; ⚠️ хуже)\n"
+            "90.0% → 80.0% (−10.0 п.п.; 27/30 → 24/30; ⚠️ хуже)\n"
         ),
         std::string::npos
     );
@@ -772,7 +788,7 @@ TEST(ClanwarComparisonFormatterTest, ReportsUnchangedAttackUsage)
         report.find(
             "⚔️ Активность (не входит в итоговую оценку):\n"
             "Использование атак:\n"
-            "80.0% → 80.0% (0.00 п.п.; 24/30 → 24/30; ➖ без изменений)\n"
+            "80.0% → 80.0% (0.0 п.п.; 24/30 → 24/30; ➖ без изменений)\n"
         ),
         std::string::npos
     );
@@ -809,8 +825,10 @@ TEST(ClanwarComparisonFormatterTest, ReportsImprovedAttackActivity)
     EXPECT_NE(
         report.find(
             "Пропущенные атаки:\n"
-            "20.0% → 10.0% (−10.00 п.п.; 6 → 3; ✅ лучше)\n"
-            "Ровно одна атака: 20.0% → 6.7% (−13.33 п.п.; 3 → 1)"
+            "20.0% → 10.0% (−10.0 п.п.; 6 → 3; ✅ лучше)\n"
+            "Ровно одна атака\n"
+            "(среди всех участников):\n"
+            "20.0% → 6.7% (−13.3 п.п.; 3 → 1; ✅ лучше)"
         ),
         std::string::npos
     );
@@ -847,8 +865,10 @@ TEST(ClanwarComparisonFormatterTest, ReportsWorsenedAttackActivity)
     EXPECT_NE(
         report.find(
             "Пропущенные атаки:\n"
-            "10.0% → 20.0% (+10.00 п.п.; 3 → 6; ⚠️ хуже)\n"
-            "Ровно одна атака: 6.7% → 20.0% (+13.33 п.п.; 1 → 3)"
+            "10.0% → 20.0% (+10.0 п.п.; 3 → 6; ⚠️ хуже)\n"
+            "Ровно одна атака\n"
+            "(среди всех участников):\n"
+            "6.7% → 20.0% (+13.3 п.п.; 1 → 3; ⚠️ хуже)"
         ),
         std::string::npos
     );
@@ -874,8 +894,10 @@ TEST(ClanwarComparisonFormatterTest, ReportsUnchangedAttackActivity)
     EXPECT_NE(
         report.find(
             "Пропущенные атаки:\n"
-            "20.0% → 20.0% (0.00 п.п.; 6 → 6; ➖ без изменений)\n"
-            "Ровно одна атака: 13.3% → 13.3% (0.00 п.п.; 2 → 2)"
+            "20.0% → 20.0% (0.0 п.п.; 6 → 6; ➖ без изменений)\n"
+            "Ровно одна атака\n"
+            "(среди всех участников):\n"
+            "13.3% → 13.3% (0.0 п.п.; 2 → 2; ➖ без изменений)"
         ),
         std::string::npos
     );
@@ -917,10 +939,12 @@ TEST(ClanwarComparisonFormatterTest, ReportsActivityAsRatesForDifferentTeamSizes
         report.find(
             "⚔️ Активность (не входит в итоговую оценку):\n"
             "Использование атак:\n"
-            "50.0% → 50.0% (0.00 п.п.; 10/20 → 20/40; ➖ без изменений)\n"
+            "50.0% → 50.0% (0.0 п.п.; 10/20 → 20/40; ➖ без изменений)\n"
             "Пропущенные атаки:\n"
-            "50.0% → 50.0% (0.00 п.п.; 10 → 20; ➖ без изменений)\n"
-            "Ровно одна атака: 20.0% → 20.0% (0.00 п.п.; 2 → 4)"
+            "50.0% → 50.0% (0.0 п.п.; 10 → 20; ➖ без изменений)\n"
+            "Ровно одна атака\n"
+            "(среди всех участников):\n"
+            "20.0% → 20.0% (0.0 п.п.; 2 → 4; ➖ без изменений)"
         ),
         std::string::npos
     );
@@ -1051,6 +1075,35 @@ TEST(ClanwarComparisonFormatterTest, OmitsRecentWarResultsWhenEmpty)
     EXPECT_EQ(report.find("Последние "), std::string::npos);
 }
 
+TEST(ClanwarComparisonFormatterTest, ReturnsEmptyReportWithoutPreviousWar)
+{
+    auto comparisonData = makeComparisonData(
+        makeWarStats(
+            ClanwarOutcome::Victory,
+            45,
+            42,
+            92.5,
+            88.75,
+            2.5
+        ),
+        makeWarStats(
+            ClanwarOutcome::Defeat,
+            42,
+            45,
+            88.75,
+            92.5,
+            2.0
+        )
+    );
+    comparisonData.previousWar.reset();
+
+    const auto report = ClanwarComparisonFormatter::buildReport(
+        comparisonData
+    );
+
+    EXPECT_TRUE(report.empty());
+}
+
 TEST(ClanwarComparisonFormatterTest, OmitsHistoricalAveragesWhenMissing)
 {
     const auto currentWar = makeWarStats(
@@ -1078,6 +1131,97 @@ TEST(ClanwarComparisonFormatterTest, OmitsHistoricalAveragesWhenMissing)
         report.find("📉 <b>СРАВНЕНИЕ СО СРЕДНИМ"),
         std::string::npos
     );
+}
+
+TEST(ClanwarComparisonFormatterTest, FormatsHistoricalComparisonWithoutPerformanceComparison)
+{
+    const auto currentWar = makeWarStats(
+        ClanwarOutcome::Victory,
+        45,
+        42,
+        92.5,
+        88.75,
+        2.5
+    );
+    const auto previousWar = makeWarStats(
+        ClanwarOutcome::Defeat,
+        42,
+        45,
+        88.75,
+        92.5,
+        2.0
+    );
+
+    auto comparisonData = makeComparisonData(currentWar, previousWar);
+    comparisonData.previousWarsAverage = ClanwarHistoricalAverages{
+        .warsCount = 3,
+        .averageStarsPerAttack = 2.0,
+        .averageDestructionPerAttack = 80.0,
+        .averageAttacksUsed = 24.0,
+        .averageMaxAttacks = 30.0,
+        .averageMissedAttacks = 6.0,
+        .averagePlayersWithoutAttacks = 1.0,
+        .averagePlayersWithOneAttack = 0.0,
+        .averageFirstAttacksNotOnMirror = 0.0,
+        .averageMissedAttacksRate = 0.2,
+        .averagePlayersWithoutAttacksRate = 0.1,
+        .averagePlayersWithOneAttackRate = 0.0,
+        .averageFirstAttacksNotOnMirrorRate = 0.0
+    };
+
+    const auto report = ClanwarComparisonFormatter::buildReport(
+        comparisonData
+    );
+
+    EXPECT_NE(
+        report.find("📉 <b>СРАВНЕНИЕ СО СРЕДНИМ ЗА 3 ПРЕДЫДУЩИЕ ВОЙНЫ</b>"),
+        std::string::npos
+    );
+    EXPECT_EQ(report.find("Динамика лучше среднего"), std::string::npos);
+    EXPECT_EQ(report.find("Динамика хуже среднего"), std::string::npos);
+    EXPECT_EQ(
+        report.find("Динамика примерно на уровне среднего"),
+        std::string::npos
+    );
+}
+
+TEST(ClanwarComparisonFormatterTest, HandlesZeroDenominatorsForCurrentAndPreviousWars)
+{
+    auto currentWar = makeWarStats(
+        ClanwarOutcome::Draw,
+        0,
+        0,
+        0.0,
+        0.0,
+        2.5
+    );
+    currentWar.teamSize = 0;
+    currentWar.maxAttacks = 0;
+    currentWar.attacksUsed = 0;
+
+    auto previousWar = makeWarStats(
+        ClanwarOutcome::Draw,
+        0,
+        0,
+        0.0,
+        0.0,
+        2.5
+    );
+    previousWar.teamSize = 0;
+    previousWar.maxAttacks = 0;
+    previousWar.attacksUsed = 0;
+
+    const auto report = ClanwarComparisonFormatter::buildReport(
+        makeComparisonData(currentWar, previousWar)
+    );
+
+    EXPECT_NE(report.find("Использование атак:\n0.0% → 0.0%"), std::string::npos);
+    EXPECT_NE(report.find("Пропущенные атаки:\n0.0% → 0.0%"), std::string::npos);
+    EXPECT_NE(report.find("Без атак\n(среди всех участников):\n0.0% → 0.0%"), std::string::npos);
+    EXPECT_NE(report.find("Атаки не по зеркалу\n(среди участников с атаками):\n0.0% → 0.0%"), std::string::npos);
+    EXPECT_NE(report.find("Ровно одна атака\n(среди всех участников):\n0.0% → 0.0%"), std::string::npos);
+    EXPECT_EQ(report.find("nan"), std::string::npos);
+    EXPECT_EQ(report.find("inf"), std::string::npos);
 }
 
 TEST(ClanwarComparisonFormatterTest, ReportsHistoricalAveragesAndCurrentActivity)
@@ -1128,21 +1272,27 @@ TEST(ClanwarComparisonFormatterTest, ReportsHistoricalAveragesAndCurrentActivity
     EXPECT_NE(
         report.find(
             "📉 <b>СРАВНЕНИЕ СО СРЕДНИМ ЗА 3 ПРЕДЫДУЩИЕ ВОЙНЫ</b>\n"
-            "Изменение указано в процентных пунктах (п.п.).\n"
+            "Для долевых метрик изменение указано в процентных пунктах (п.п.).\n"
             "\n📌 Основные метрики:\n"
             "⭐ Средние звёзды за атаку:\n"
             "2.25 → 2.50 (+0.25; ✅ лучше)\n"
             "💥 Среднее разрушение за атаку:\n"
-            "88.50% → 92.50% (+4.00 п.п.; ✅ лучше)\n"
-            "🎯 Дисциплина:\n"
-            "Без атак: 20.0% → 6.7% (−13.33 п.п.; 2.0 → 1; ✅ лучше)\n"
-            "Атаки не по зеркалу: 15.0% → 7.1% (−7.86 п.п.; 3.0 → 1; ✅ лучше)\n"
-            "\n📈 Активность (не входит в итоговую оценку):\n"
+            "88.50% → 92.50% (+4.0 п.п.; ✅ лучше)\n"
+            "\n🎯 Дисциплина:\n"
+            "Без атак\n"
+            "(среди всех участников):\n"
+            "20.0% → 6.7% (−13.3 п.п.; 2.0 → 1; ✅ лучше)\n"
+            "Атаки не по зеркалу\n"
+            "(среди участников с атаками):\n"
+            "15.0% → 7.1% (−7.9 п.п.; 3.0 → 1; ✅ лучше)\n"
+            "\n⚔️ Активность (не входит в итоговую оценку):\n"
             "Использование атак:\n"
-            "80.0% → 90.0% (+10.00 п.п.; 16.0/20.0 → 27/30; ✅ лучше)\n"
+            "80.0% → 90.0% (+10.0 п.п.; 16.0/20.0 → 27/30; ✅ лучше)\n"
             "Пропущенные атаки:\n"
-            "20.0% → 10.0% (−10.00 п.п.; 4.0 → 3; ✅ лучше)\n"
-            "Ровно одна атака: 10.0% → 20.0% (+10.00 п.п.; 1.0 → 3)"
+            "20.0% → 10.0% (−10.0 п.п.; 4.0 → 3; ✅ лучше)\n"
+            "Ровно одна атака\n"
+            "(среди всех участников):\n"
+            "10.0% → 20.0% (+10.0 п.п.; 1.0 → 3; ⚠️ хуже)"
         ),
         std::string::npos
     );
@@ -1200,10 +1350,14 @@ TEST(ClanwarComparisonFormatterTest, ReportsWorsenedHistoricalMetrics)
         report.find(
             "2.50 → 2.00 (−0.50; ⚠️ хуже)\n"
             "💥 Среднее разрушение за атаку:\n"
-            "85.00% → 80.00% (−5.00 п.п.; ⚠️ хуже)\n"
-            "🎯 Дисциплина:\n"
-            "Без атак: 10.0% → 20.0% (+10.00 п.п.; 1.0 → 3; ⚠️ хуже)\n"
-            "Атаки не по зеркалу: 10.0% → 16.7% (+6.67 п.п.; 1.0 → 2; ⚠️ хуже)"
+            "85.00% → 80.00% (−5.0 п.п.; ⚠️ хуже)\n"
+            "\n🎯 Дисциплина:\n"
+            "Без атак\n"
+            "(среди всех участников):\n"
+            "10.0% → 20.0% (+10.0 п.п.; 1.0 → 3; ⚠️ хуже)\n"
+            "Атаки не по зеркалу\n"
+            "(среди участников с атаками):\n"
+            "10.0% → 16.7% (+6.7 п.п.; 1.0 → 2; ⚠️ хуже)"
         ),
         std::string::npos
     );
@@ -1258,10 +1412,14 @@ TEST(ClanwarComparisonFormatterTest, ReportsUnchangedHistoricalMetrics)
         report.find(
             "2.50 → 2.50 (0.00; ➖ без изменений)\n"
             "💥 Среднее разрушение за атаку:\n"
-            "90.00% → 90.00% (0.00 п.п.; ➖ без изменений)\n"
-            "🎯 Дисциплина:\n"
-            "Без атак: 0.0% → 0.0% (0.00 п.п.; 0.0 → 0; ➖ без изменений)\n"
-            "Атаки не по зеркалу: 0.0% → 0.0% (0.00 п.п.; 0.0 → 0; ➖ без изменений)"
+            "90.00% → 90.00% (0.0 п.п.; ➖ без изменений)\n"
+            "\n🎯 Дисциплина:\n"
+            "Без атак\n"
+            "(среди всех участников):\n"
+            "0.0% → 0.0% (0.0 п.п.; 0.0 → 0; ➖ без изменений)\n"
+            "Атаки не по зеркалу\n"
+            "(среди участников с атаками):\n"
+            "0.0% → 0.0% (0.0 п.п.; 0.0 → 0; ➖ без изменений)"
         ),
         std::string::npos
     );
@@ -1311,9 +1469,9 @@ TEST(ClanwarComparisonFormatterTest, ReportsWorsenedHistoricalActivity)
     EXPECT_NE(
         report.find(
             "Использование атак:\n"
-            "80.0% → 50.0% (−30.00 п.п.; 24.0/30.0 → 15/30; ⚠️ хуже)\n"
+            "80.0% → 50.0% (−30.0 п.п.; 24.0/30.0 → 15/30; ⚠️ хуже)\n"
             "Пропущенные атаки:\n"
-            "20.0% → 50.0% (+30.00 п.п.; 6.0 → 15; ⚠️ хуже)"
+            "20.0% → 50.0% (+30.0 п.п.; 6.0 → 15; ⚠️ хуже)"
         ),
         std::string::npos
     );
@@ -1363,9 +1521,9 @@ TEST(ClanwarComparisonFormatterTest, ReportsUnchangedHistoricalActivity)
     EXPECT_NE(
         report.find(
             "Использование атак:\n"
-            "80.0% → 80.0% (0.00 п.п.; 24.0/30.0 → 24/30; ➖ без изменений)\n"
+            "80.0% → 80.0% (0.0 п.п.; 24.0/30.0 → 24/30; ➖ без изменений)\n"
             "Пропущенные атаки:\n"
-            "20.0% → 20.0% (0.00 п.п.; 6.0 → 6; ➖ без изменений)"
+            "20.0% → 20.0% (0.0 п.п.; 6.0 → 6; ➖ без изменений)"
         ),
         std::string::npos
     );
@@ -1486,7 +1644,7 @@ TEST(ClanwarComparisonFormatterTest, OmitsPerformanceComparisonWhenHistoricalAve
     const auto report = ClanwarComparisonFormatter::buildReport(comparisonData);
 
     EXPECT_EQ(
-        report.find("Результат лучше среднего"),
+        report.find("Динамика лучше среднего"),
         std::string::npos
     );
 }
@@ -1502,15 +1660,15 @@ TEST(ClanwarComparisonFormatterTest, ReportsAllPerformanceTrends)
     constexpr std::array cases{
         PerformanceCase{
             ClanwarPerformanceTrend::Better,
-            "✅ Результат лучше среднего за последние 3 войны\n"
+            "✅ Динамика лучше среднего за последние 3 войны\n"
         },
         PerformanceCase{
             ClanwarPerformanceTrend::Worse,
-            "⚠️ Результат хуже среднего за последние 3 войны\n"
+            "⚠️ Динамика хуже среднего за последние 3 войны\n"
         },
         PerformanceCase{
             ClanwarPerformanceTrend::Similar,
-            "⚖️ Результат примерно на уровне среднего за последние 3 войны\n"
+            "⚖️ Динамика примерно на уровне среднего за последние 3 войны\n"
         }
     };
 
@@ -1565,8 +1723,10 @@ TEST(ClanwarComparisonFormatterTest, ReportsAllPerformanceTrends)
         EXPECT_NE(
             report.find(
                 std::string(testCase.expectedTrend)
-                + "Итог по 4 метрикам: улучшились 2 (50.0%), "
-                "ухудшились 1 (25.0%), без изменений 1 (25.0%)."
+                + "\nИтог по 4 основным метрикам:\n"
+                "Улучшились: 2 (50.0%)\n"
+                "Ухудшились: 1 (25.0%)\n"
+                "Без изменений: 1 (25.0%)."
             ),
             std::string::npos
         );
@@ -1639,7 +1799,7 @@ TEST(ClanwarComparisonFormatterTest, FormatsPerformanceComparisonPeriod)
 
         EXPECT_NE(
             report.find(
-                "✅ Результат лучше среднего "
+                "✅ Динамика лучше среднего "
                 + std::string(testCase.expectedPeriod) + "\n"
             ),
             std::string::npos

@@ -12,6 +12,7 @@ NotificationService::NotificationService(NotificationRepo& notification_repo,
                                          const PlayerLeftFormatter playerLeftFormatter,
                                          const PlayerRoleChangedFormatter playerRoleChangedFormatter,
                                          const RaidsEndedFormatter raidsEndedFormatter,
+                                         const RaidsComparisonFormatter raidsComparisonFormatter,
                                          const RaidsViolationsFormatter raidsViolationsFormatter,
                                          const ClanwarEndedFormatter clanwarEndedFormatter,
                                          const ClanwarViolationsFormatter clanwarViolationsFormatter,
@@ -27,6 +28,7 @@ NotificationService::NotificationService(NotificationRepo& notification_repo,
     playerLeftFormatter(playerLeftFormatter),
     playerRoleChangedFormatter(playerRoleChangedFormatter),
     raidsEndedFormatter(raidsEndedFormatter),
+    raidsComparisonFormatter(raidsComparisonFormatter),
     raidsViolationsFormatter(raidsViolationsFormatter),
     clanwarEndedFormatter(clanwarEndedFormatter),
     clanwarViolationsFormatter(clanwarViolationsFormatter),
@@ -126,6 +128,19 @@ void NotificationService::handleEvent(const RaidsEndedEvent& event) const
                                         "RaidsReport",
                                         message,
                                         Audience::Players);
+
+    const auto comparisonMessage = raidsComparisonFormatter.format(event);
+    if (!comparisonMessage.empty())
+    {
+        sendToDestinationsWithDeduplication(
+            event.clanTag,
+            RaidsComparisonFormatter::EventType,
+            event.key(),
+            "RaidsComparisonReport",
+            comparisonMessage,
+            Audience::Players
+        );
+    }
 
     const auto violationsMessage = raidsViolationsFormatter.format(event);
     sendToDestinationsWithDeduplication(event.clanTag,

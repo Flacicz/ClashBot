@@ -4,10 +4,10 @@
 
 namespace
 {
-    double calculateRate(const int value, const int total)
+    double calculateRate(const double value, const double total)
     {
         if (total <= 0) return 0.0;
-        return static_cast<double>(value) / total;
+        return value / total;
     }
 }
 
@@ -24,10 +24,8 @@ std::optional<ClanwarHistoricalAverages> clanwar_analytics::calculateHistoricalA
     double totalPlayersWithoutAttacks = 0;
     double totalPlayersWithOneAttack = 0;
     double totalFirstAttacksNotOnMirror = 0;
-    double totalMissedAttacksRate = 0;
-    double totalPlayersWithoutAttacksRate = 0;
-    double totalPlayersWithOneAttackRate = 0;
-    double totalFirstAttacksNotOnMirrorRate = 0;
+    double totalTeamSize = 0;
+    double totalParticipantsWithAttacks = 0;
 
     for (const auto& war : previousWars)
     {
@@ -39,23 +37,9 @@ std::optional<ClanwarHistoricalAverages> clanwar_analytics::calculateHistoricalA
         totalPlayersWithoutAttacks += war.disciplineStats.playersWithoutAttacks;
         totalPlayersWithOneAttack += war.disciplineStats.playersWithOneAttack;
         totalFirstAttacksNotOnMirror += war.disciplineStats.firstAttacksNotOnMirror;
-
-        totalMissedAttacksRate += calculateRate(
-            war.maxAttacks - war.attacksUsed,
-            war.maxAttacks
-        );
-        totalPlayersWithoutAttacksRate += calculateRate(
-            war.disciplineStats.playersWithoutAttacks,
-            war.teamSize
-        );
-        totalPlayersWithOneAttackRate += calculateRate(
-            war.disciplineStats.playersWithOneAttack,
-            war.teamSize
-        );
-        totalFirstAttacksNotOnMirrorRate += calculateRate(
-            war.disciplineStats.firstAttacksNotOnMirror,
-            war.teamSize - war.disciplineStats.playersWithoutAttacks
-        );
+        totalTeamSize += war.teamSize;
+        totalParticipantsWithAttacks +=
+            war.teamSize - war.disciplineStats.playersWithoutAttacks;
     }
 
     const auto warCount = static_cast<double>(previousWars.size());
@@ -74,12 +58,24 @@ std::optional<ClanwarHistoricalAverages> clanwar_analytics::calculateHistoricalA
         .averagePlayersWithoutAttacks = totalPlayersWithoutAttacks / warCount,
         .averagePlayersWithOneAttack = totalPlayersWithOneAttack / warCount,
         .averageFirstAttacksNotOnMirror = totalFirstAttacksNotOnMirror / warCount,
-        .averageMissedAttacksRate = totalMissedAttacksRate / warCount,
+        .averageMissedAttacksRate = calculateRate(
+            totalMissedAttacks,
+            totalMaxAttacks
+        ),
         .averagePlayersWithoutAttacksRate =
-        totalPlayersWithoutAttacksRate / warCount,
-        .averagePlayersWithOneAttackRate = totalPlayersWithOneAttackRate / warCount,
+        calculateRate(
+            totalPlayersWithoutAttacks,
+            totalTeamSize
+        ),
+        .averagePlayersWithOneAttackRate = calculateRate(
+            totalPlayersWithOneAttack,
+            totalTeamSize
+        ),
         .averageFirstAttacksNotOnMirrorRate =
-        totalFirstAttacksNotOnMirrorRate / warCount
+        calculateRate(
+            totalFirstAttacksNotOnMirror,
+            totalParticipantsWithAttacks
+        )
     };
 }
 

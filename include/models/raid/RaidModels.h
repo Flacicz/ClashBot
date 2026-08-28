@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -47,6 +48,11 @@ struct CompleteRaidData
     std::vector<PlayerRaidSnapshot> playerRaidSnapshots;
 };
 
+struct RaidReference
+{
+    long long raidId;
+};
+
 // Report models.
 struct RaidStats
 {
@@ -82,4 +88,81 @@ struct RaidReportData
 
     RaidStats stats;
     std::vector<RaidMemberStats> bestMembers;
+};
+
+struct RaidComparisonStats
+{
+    long long startTime;
+
+    int totalLoot;
+    int raidsCompleted;
+    int usedAttacks;
+    int availableAttacks;
+
+    // Active participants are players present in the API response.
+    int activeParticipants;
+    // Eligible participants include active participants and players without attacks.
+    int eligibleParticipants;
+    int participantsWithAllAttacksUsed;
+    int participantsWithoutAttacks;
+
+    int enemyDistrictsDestroyed;
+    int offensiveReward;
+    int defensiveReward;
+};
+
+struct RaidHistoricalAverages
+{
+    int raidsCount;
+
+    double averageLootPerUsedAttack;
+    double averageParticipantsWithAllAttacksUsedRate;
+    double averageParticipantsWithoutAttacksRate;
+
+    double averageAttackUsageRate;
+    double averageActiveParticipants;
+    double averageEligibleParticipants;
+    double averageParticipantsWithAllAttacksUsed;
+    double averageParticipantsWithoutAttacks;
+    double averageUsedAttacks;
+    double averageAvailableAttacks;
+
+    double averageTotalLoot;
+    double averageRaidsCompleted;
+    double averageEnemyDistrictsDestroyed;
+    double averageOffensiveReward;
+    double averageDefensiveReward;
+};
+
+enum class RaidPerformanceTrend
+{
+    Better,
+    Worse,
+    Similar
+};
+
+struct RaidPerformanceComparison
+{
+    // The score uses three metrics:
+    // loot per used attack, full attack rate among active participants
+    // and the rate of eligible participants without attacks.
+    RaidPerformanceTrend trend;
+    int improvedMetrics;
+    int worsenedMetrics;
+    int unchangedMetrics;
+    int totalMetrics;
+    double improvedMetricsRate;
+    double worsenedMetricsRate;
+    double unchangedMetricsRate;
+};
+
+struct RaidComparisonData
+{
+    std::string clanTag;
+    std::string clanName;
+
+    RaidComparisonStats currentRaid;
+    std::optional<RaidComparisonStats> previousRaid;
+    std::optional<RaidHistoricalAverages> previousRaidsAverage;
+    std::optional<RaidPerformanceComparison> performanceComparison;
 };

@@ -148,7 +148,7 @@ Clash of Clans Analytics Bot — это автономное серверное 
 * результаты завершенных войн;
 * результаты раундов CWL;
 * результаты рейдовых выходных;
-* сравнительная динамика войн;
+* сравнительная динамика войн и рейдов;
 * временные напоминания.
 
 Для руководства (`management`) отправляются:
@@ -203,9 +203,15 @@ Clash of Clans Analytics Bot — это автономное серверное 
 Отчетные модели:
 
 * RaidReportData
+* RaidComparisonStats
+* RaidHistoricalAverages
+* RaidComparisonData
+* RaidPerformanceComparison
 * ClanwarResultReportData
 * ClanwarsLeagueRoundReportData
 * ClanwarComparisonData
+* ClanwarHistoricalAverages
+* ClanwarPerformanceComparison
 * ClanwarRosterReportData
 
 Каждая сущность отвечает за парсинг собственных данных из JSON через статические методы fromJson() или parse().
@@ -426,11 +432,16 @@ Telegram-чатов и тем форумных групп.
 * ClanwarsLeagueRoundEndedFormatter
 * ClanwarsLeagueRoundViolationsFormatter
 * RaidsEndedFormatter
+* RaidsComparisonFormatter
 * RaidsViolationsFormatter
 * RaidReminderFormatter
 * ClanwarComparisonFormatter
 * ClanwarRosterFormatter
 * SystemAlertReportFormatter
+
+`RaidsComparisonFormatter` получает статистику текущего и предыдущих рейдов через репозитории, передаёт её в аналитический
+слой и формирует сравнительную динамику. Для исторического среднего используются не более трёх предыдущих рейдов;
+если предыдущего рейда нет, сравнительный отчёт не формируется.
 
 Общие части итоговых отчетов о войнах и раундах CWL вынесены в `WarReportParts`: результат, статистика и распределение
 атак, лучшие атаки. Этот же модуль содержит общие секции управленческих отчетов о пропусках атак и нарушениях зеркальной
@@ -471,6 +482,9 @@ Telegram-чатов и тем форумных групп.
 о нарушениях, надежности состава и системные уведомления направляются в аудиторию `management`. Для одного Domain Event
 могут быть сформированы несколько сообщений: например, завершение обычной войны порождает отчет о результате для
 участников, отчет о нарушениях и отчет о надежности состава для руководства, а также сравнительный отчет для участников.
+Завершение рейдовых выходных (`RaidsEndedEvent`) порождает обычный и сравнительный отчеты для аудитории `players`, а
+также отчет о нарушениях для `management`. Эти сообщения используют независимые типы событий (`raids_ended`,
+`raids_comparison` и `raids_violations`) при дедупликации.
 
 **TelegramNotifier**
 
