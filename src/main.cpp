@@ -42,6 +42,7 @@
 
 #include "notifications/TelegramNotifier.h"
 #include "notifications/NotificationService.h"
+#include "service/TelegramBotService.h"
 
 std::atomic g_shutdown_requested{false};
 
@@ -149,7 +150,7 @@ int main(const int argc, char* argv[])
         auto notificationService = NotificationService(
             db.notifications(),
             db.subscriptions(),
-            std::move(telegramNotifier),
+            telegramNotifier,
             playerJoinedFormatter,
             playerLeftFormatter,
             playerRoleChangedFormatter,
@@ -196,6 +197,15 @@ int main(const int argc, char* argv[])
             }
         });
 
+        TelegramBotService telegramBotService(telegramApiClient);
+
+        std::thread telegramThread(
+            [&telegramBotService]
+            {
+                telegramBotService.updateLoop();
+            }
+        );
+
         spdlog::info("[Main] Bot is running. Press Ctrl+C or send SIGTERM to stop.");
 
         while (!g_shutdown_requested.load())
@@ -209,6 +219,12 @@ int main(const int argc, char* argv[])
         if (syncThread.joinable())
         {
             syncThread.join();
+        }
+
+        telegramBotService.stopLoop();
+        if (telegramThread.joinable())
+        {
+            telegramThread.join();
         }
 
         spdlog::info("[Main] Shutdown completed successfully.");

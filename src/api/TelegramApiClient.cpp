@@ -87,3 +87,72 @@ bool TelegramApiClient::sendMessage(long long chatId, const std::string& message
 
     return false;
 }
+
+std::vector<nlohmann::json> TelegramApiClient::getUpdates(long long offset, int timeout) const
+{
+    if (botToken.empty())
+    {
+        spdlog::warn(
+            "[Telegram] Bot token is not configured. Updates were not requested.");
+        return {};
+    }
+
+    const std::string url = "https://api.telegram.org/bot" + botToken + "/getUpdates";
+
+    nlohmann::json jsonBody = {
+        {"offset", offset},
+        {"timeout", timeout},
+        {"allowed_updates", {"message", "callback_query"}}
+    };
+
+    cpr::Response response = cpr::Post(
+        cpr::Url{url},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{jsonBody.dump()}
+    );
+
+    if (response.status_code == 0)
+    {
+        spdlog::error(
+            "[Telegram] Network error: {}",
+            response.error.message);
+        return {};
+    }
+
+    try
+    {
+        const auto responseJson = nlohmann::json::parse(response.text);
+
+        if (response.status_code != 200)
+        {
+            spdlog::error(
+                "[Telegram] getUpdates failed with HTTP {}: {}",
+                response.status_code,
+                responseJson.value("description", "Unknown HTTP error"));
+            return {};
+        }
+
+        if (!responseJson.value("ok", false))
+        {
+            spdlog::error(
+                "[Telegram] getUpdates failed: {}",
+                responseJson.value("description", "Unknown error"));
+
+            return {};
+        }
+
+        const auto updates = responseJson.at("result").get<std::vector<nlohmann::json>>();
+
+        spdlog::debug(
+            "[Telegram] getUpdates succeeded. Received {} update(s).",
+            updates.size());
+
+        return updates;
+    }
+    catch (const nlohmann::json::exception& error)
+    {
+        spdlog::error("[Telegram] Invalid getUpdates response: {}", error.what());
+    }
+
+    return {};
+}
