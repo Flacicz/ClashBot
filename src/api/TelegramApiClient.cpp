@@ -4,26 +4,26 @@
 
 #include "api/TelegramApiClient.h"
 
+#include "core/Exceptions.h"
+
 #include <nlohmann/json_fwd.hpp>
 
 #include <utility>
 #include <cpr/api.h>
 #include <cpr/response.h>
-#include <spdlog/spdlog.h>
 
 TelegramApiClient::TelegramApiClient(std::string botToken) : botToken(std::move(botToken))
 {
 }
 
-bool TelegramApiClient::sendMessage(long long chatId, const std::string& message, long long messageThreadId,
+void TelegramApiClient::sendMessage(long long chatId, const std::string& message, long long messageThreadId,
                                     const nlohmann::json& replyMarkup) const
 {
     if (botToken.empty())
     {
-        spdlog::warn(
-            "[Telegram] Bot token is not configured. Message to chat {} was not sent.",
-            chatId);
-        return false;
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            "Telegram bot token is not configured");
     }
 
     const std::string url = "https://api.telegram.org/bot" + botToken + "/sendMessage";
@@ -52,10 +52,9 @@ bool TelegramApiClient::sendMessage(long long chatId, const std::string& message
 
     if (response.status_code == 0)
     {
-        spdlog::error(
-            "[Telegram] Network error: {}",
-            response.error.message);
-        return false;
+        throw ApiException(
+            ApiError::Network,
+            std::string("Telegram network error: ") + response.error.message);
     }
 
     try
@@ -65,36 +64,96 @@ bool TelegramApiClient::sendMessage(long long chatId, const std::string& message
         if (response.status_code == 200 &&
             responseJson.value("ok", false))
         {
-            spdlog::debug(
-                "[Telegram] Message sent successfully to chat {}.",
-                chatId);
-            return true;
+            return;
         }
 
-        if (!responseJson.value("ok", false))
-        {
-            spdlog::error(
-                "[Telegram] API request failed for chat {}. HTTP {}: {}",
-                chatId,
-                response.status_code,
-                responseJson.value("description", "Unknown Telegram API error"));
-        }
+        const auto description =
+            responseJson.value("description", std::string("Unknown Telegram API error"));
+
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            std::string("Telegram sendMessage failed: ") + description);
     }
     catch (const nlohmann::json::parse_error& error)
     {
-        spdlog::error("[Telegram] Invalid response JSON: {}", error.what());
+        throw ApiException(
+            ApiError::InvalidJSON,
+            std::string("Invalid Telegram sendMessage response: ") + error.what());
+    }
+}
+
+void TelegramApiClient::editMessageText(long long chatId,
+                                        long long messageId,
+                                        const std::string& text,
+                                        const nlohmann::json& replyMarkup) const
+{
+    if (botToken.empty())
+    {
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            "Telegram bot token is not configured");
     }
 
-    return false;
+    const std::string url =
+        "https://api.telegram.org/bot" + botToken + "/editMessageText";
+
+    nlohmann::json jsonBody = {
+        {"chat_id", chatId},
+        {"message_id", messageId},
+        {"text", text},
+        {"parse_mode", "HTML"}
+    };
+
+    if (!replyMarkup.empty())
+    {
+        jsonBody["reply_markup"] = replyMarkup;
+    }
+
+    const cpr::Response response = cpr::Post(
+        cpr::Url{url},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{jsonBody.dump()}
+    );
+
+    if (response.status_code == 0)
+    {
+        throw ApiException(
+            ApiError::Network,
+            std::string("Telegram network error: ") + response.error.message);
+    }
+
+    try
+    {
+        const auto responseJson = nlohmann::json::parse(response.text);
+
+        if (response.status_code == 200 &&
+            responseJson.value("ok", false))
+        {
+            return;
+        }
+
+        const auto description =
+            responseJson.value("description", std::string("Unknown Telegram API error"));
+
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            std::string("Telegram editMessageText failed: ") + description);
+    }
+    catch (const nlohmann::json::parse_error& error)
+    {
+        throw ApiException(
+            ApiError::InvalidJSON,
+            std::string("Invalid Telegram editMessageText response: ") + error.what());
+    }
 }
 
 std::vector<nlohmann::json> TelegramApiClient::getUpdates(long long offset, int timeout) const
 {
     if (botToken.empty())
     {
-        spdlog::warn(
-            "[Telegram] Bot token is not configured. Updates were not requested.");
-        return {};
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            "Telegram bot token is not configured");
     }
 
     const std::string url = "https://api.telegram.org/bot" + botToken + "/getUpdates";
@@ -113,10 +172,9 @@ std::vector<nlohmann::json> TelegramApiClient::getUpdates(long long offset, int 
 
     if (response.status_code == 0)
     {
-        spdlog::error(
-            "[Telegram] Network error: {}",
-            response.error.message);
-        return {};
+        throw ApiException(
+            ApiError::Network,
+            std::string("Telegram network error: ") + response.error.message);
     }
 
     try
@@ -125,34 +183,81 @@ std::vector<nlohmann::json> TelegramApiClient::getUpdates(long long offset, int 
 
         if (response.status_code != 200)
         {
-            spdlog::error(
-                "[Telegram] getUpdates failed with HTTP {}: {}",
-                response.status_code,
-                responseJson.value("description", "Unknown HTTP error"));
-            return {};
+            throw ApiException(
+                ApiError::UnexpectedResponse,
+                std::string("Telegram getUpdates failed with HTTP ") +
+                std::to_string(response.status_code) + ": " +
+                responseJson.value("description", std::string("Unknown HTTP error")));
         }
 
         if (!responseJson.value("ok", false))
         {
-            spdlog::error(
-                "[Telegram] getUpdates failed: {}",
-                responseJson.value("description", "Unknown error"));
-
-            return {};
+            throw ApiException(
+                ApiError::UnexpectedResponse,
+                std::string("Telegram getUpdates failed: ") +
+                responseJson.value("description", std::string("Unknown Telegram API error")));
         }
 
-        const auto updates = responseJson.at("result").get<std::vector<nlohmann::json>>();
-
-        spdlog::debug(
-            "[Telegram] getUpdates succeeded. Received {} update(s).",
-            updates.size());
-
-        return updates;
+        return responseJson.at("result").get<std::vector<nlohmann::json>>();
     }
     catch (const nlohmann::json::exception& error)
     {
-        spdlog::error("[Telegram] Invalid getUpdates response: {}", error.what());
+        throw ApiException(
+            ApiError::InvalidJSON,
+            std::string("Invalid Telegram getUpdates response: ") + error.what());
+    }
+}
+
+void TelegramApiClient::answerCallbackQuery(const std::string& callbackQueryId) const
+{
+    if (botToken.empty())
+    {
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            "Telegram bot token is not configured");
     }
 
-    return {};
+    const std::string url =
+        "https://api.telegram.org/bot" + botToken + "/answerCallbackQuery";
+
+    const nlohmann::json jsonBody = {
+        {"callback_query_id", callbackQueryId}
+    };
+
+    const cpr::Response response = cpr::Post(
+        cpr::Url{url},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{jsonBody.dump()}
+    );
+
+    if (response.status_code == 0)
+    {
+        throw ApiException(
+            ApiError::Network,
+            std::string("Telegram network error: ") + response.error.message);
+    }
+
+    try
+    {
+        const auto responseJson = nlohmann::json::parse(response.text);
+
+        if (response.status_code == 200 &&
+            responseJson.value("ok", false))
+        {
+            return;
+        }
+
+        const auto description =
+            responseJson.value("description", std::string("Unknown Telegram API error"));
+
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            std::string("Telegram answerCallbackQuery failed: ") + description);
+    }
+    catch (const nlohmann::json::parse_error& error)
+    {
+        throw ApiException(
+            ApiError::InvalidJSON,
+            std::string("Invalid Telegram answerCallbackQuery response: ") + error.what());
+    }
 }

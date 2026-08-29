@@ -1,4 +1,5 @@
 #include "notifications/NotificationService.h"
+#include "core/Exceptions.h"
 #include <spdlog/spdlog.h>
 
 #include "reports/SystemAlertReportFormatter.h"
@@ -48,11 +49,18 @@ void NotificationService::sendToDestinations(const std::string_view clanTag,
 
     for (const auto& [chatId, messageThreadId] : destinations)
     {
-        if (!telegramNotifier.sendMessage(chatId, message, messageThreadId))
+        try
+        {
+            telegramNotifier.sendMessage(chatId, message, messageThreadId);
+        }
+        catch (const ApiException& error)
         {
             spdlog::error(
-                "[NotificationService] Failed to send {} message. ClanTag - {}, Chat ID - {}",
-                eventName, clanTag, chatId);
+                "[NotificationService] Failed to send {} message. ClanTag - {}, Chat ID - {}, Error - {}",
+                eventName,
+                clanTag,
+                chatId,
+                error.what());
         }
     }
 }
@@ -74,18 +82,23 @@ void NotificationService::sendToDestinationsWithDeduplication(const std::string_
                                        messageThreadId))
             continue;
 
-        if (telegramNotifier.sendMessage(chatId, message, messageThreadId))
+        try
         {
+            telegramNotifier.sendMessage(chatId, message, messageThreadId);
+
             notification_repo_.markAsSent(eventType,
                                           eventId,
                                           chatId,
                                           messageThreadId);
         }
-        else
+        catch (const ApiException& error)
         {
             spdlog::error(
-                "[NotificationService] Failed to send {} message. ClanTag - {}, Chat ID - {}",
-                eventName, clanTag, chatId);
+                "[NotificationService] Failed to send {} message. ClanTag - {}, Chat ID - {}, Error - {}",
+                eventName,
+                clanTag,
+                chatId,
+                error.what());
         }
     }
 }

@@ -11,7 +11,7 @@ class TelegramNotifier
 public:
     explicit TelegramNotifier(TelegramApiClient& telegram_api_client);
 
-    [[nodiscard]] bool sendMessage(
+    void sendMessage(
         long long chatId,
         const std::string& message,
         long long messageThreadId = 0) const;

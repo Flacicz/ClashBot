@@ -202,7 +202,7 @@ int main(const int argc, char* argv[])
         std::thread telegramThread(
             [&telegramBotService]
             {
-                telegramBotService.updateLoop();
+                telegramBotService.loop();
             }
         );
 
