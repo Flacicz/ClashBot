@@ -2,15 +2,17 @@
 
 #include <string>
 
+#include "api/TelegramApiClient.h"
+
 class TelegramNotifier
 {
-    std::string botToken;
+    TelegramApiClient& telegram_api_client_;
 
 public:
-    explicit TelegramNotifier(std::string token);
+    explicit TelegramNotifier(TelegramApiClient& telegram_api_client);
 
     [[nodiscard]] bool sendMessage(
-        const std::string& message,
         long long chatId,
+        const std::string& message,
         long long messageThreadId = 0) const;
 };

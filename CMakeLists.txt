@@ -88,6 +88,8 @@ add_executable(${PROJECT_NAME}
         src/database/repos/SubscriptionRepo.cpp
         src/events/EventDispatcher.cpp
         src/database/repos/NotificationsRepo.cpp
+        src/api/TelegramApiClient.cpp
+        src/service/TelegramBotService.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

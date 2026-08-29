@@ -48,7 +48,7 @@ void NotificationService::sendToDestinations(const std::string_view clanTag,
 
     for (const auto& [chatId, messageThreadId] : destinations)
     {
-        if (!telegramNotifier.sendMessage(message, chatId, messageThreadId))
+        if (!telegramNotifier.sendMessage(chatId, message, messageThreadId))
         {
             spdlog::error(
                 "[NotificationService] Failed to send {} message. ClanTag - {}, Chat ID - {}",
@@ -74,7 +74,7 @@ void NotificationService::sendToDestinationsWithDeduplication(const std::string_
                                        messageThreadId))
             continue;
 
-        if (telegramNotifier.sendMessage(message, chatId, messageThreadId))
+        if (telegramNotifier.sendMessage(chatId, message, messageThreadId))
         {
             notification_repo_.markAsSent(eventType,
                                           eventId,

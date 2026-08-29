@@ -131,7 +131,8 @@ int main(const int argc, char* argv[])
         spdlog::info("[Main] Target clans: {}", targetClans.size());
 
 
-        auto telegramNotifier = TelegramNotifier(std::move(config.telegramToken));
+        auto telegramApiClient = TelegramApiClient(std::move(config.telegramToken));
+        auto telegramNotifier = TelegramNotifier(telegramApiClient);
         PlayerJoinedFormatter playerJoinedFormatter(db.clans());
         PlayerLeftFormatter playerLeftFormatter(db.clans());
         PlayerRoleChangedFormatter playerRoleChangedFormatter(db.clans());
