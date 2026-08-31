@@ -82,6 +82,68 @@ void TelegramApiClient::sendMessage(long long chatId, const std::string& message
     }
 }
 
+void TelegramApiClient::sendVideo(long long chatId, const std::string& videoFileId, const std::string& caption,
+                                  const nlohmann::json& replyMarkup) const
+{
+    if (botToken.empty())
+    {
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            "Telegram bot token is not configured");
+    }
+
+    const std::string url = "https://api.telegram.org/bot" + botToken + "/sendVideo";
+
+    nlohmann::json jsonBody = {
+        {"chat_id", chatId},
+        {"video", videoFileId},
+        {"caption", caption},
+        {"parse_mode", "HTML"}
+    };
+
+    if (!replyMarkup.empty())
+    {
+        jsonBody["reply_markup"] = replyMarkup;
+    }
+
+    cpr::Response response = cpr::Post(
+        cpr::Url{url},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{jsonBody.dump()}
+    );
+
+    if (response.status_code == 0)
+    {
+        throw ApiException(
+            ApiError::Network,
+            std::string("Telegram network error: ") + response.error.message);
+    }
+
+    try
+    {
+        const auto responseJson = nlohmann::json::parse(response.text);
+
+        if (response.status_code == 200 &&
+            responseJson.value("ok", false))
+        {
+            return;
+        }
+
+        const auto description =
+            responseJson.value("description", std::string("Unknown Telegram API error"));
+
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            std::string("Telegram sendVideo failed: ") + description);
+    }
+    catch (const nlohmann::json::parse_error& error)
+    {
+        throw ApiException(
+            ApiError::InvalidJSON,
+            std::string("Invalid Telegram sendVideo response: ") + error.what());
+    }
+}
+
 void TelegramApiClient::editMessageText(long long chatId,
                                         long long messageId,
                                         const std::string& text,

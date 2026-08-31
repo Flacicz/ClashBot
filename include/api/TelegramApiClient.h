@@ -22,6 +22,12 @@ public:
         long long messageThreadId = 0,
         const nlohmann::json& replyMarkup = {}) const;
 
+    void sendVideo(
+        long long chatId,
+        const std::string& videoFileId,
+        const std::string& caption,
+        const nlohmann::json& replyMarkup = {}) const;
+
     void editMessageText(
         long long chatId,
         long long messageId,
