@@ -12,18 +12,30 @@
 #include <charconv>
 #include <chrono>
 #include <spdlog/spdlog.h>
-#include <system_error>
 #include <thread>
 
 namespace
 {
     const std::vector<telegram::AttackGuide> attackGuides = {
         {
+            7,
+            "zap_dragons",
+            "🎥 Zap Dragons",
+            "BAACAgIAAxkBAAIDE2qVfU_fnhovMhvByvWCS5XboVryAAJ3pQAC0GmpSFytRSv0g_0bPQQ"
+        },
+        {
             8,
             "zap_dragons",
             "🎥 Zap Dragons",
             "BAACAgIAAxkBAAIC_WqVJGhUnjNokTL1VtaTnbKFa7xfAAIlogAC0GmpSFWiDPfAycuCPQQ"
-        }
+        },
+        {
+            8,
+            "gowipe",
+            "🎥 GoWiPe",
+            "BAACAgIAAxkBAAIDFmqVhTLViMFq53XWt3Zc-jd1Xl2lAALSpQAC0GmpSKYTbFKwwKB8PQQ"
+        },
+
     };
 
     std::optional<int> parseTownHall(
@@ -275,15 +287,13 @@ void TelegramBotService::handleVideoGuideCallback(
 
     const std::string& guideId = callbackData.arguments[1];
 
-    const auto guideIterator = std::find_if(
-        attackGuides.begin(),
-        attackGuides.end(),
-        [townHallLevel = *townHall, &guideId](
-            const telegram::AttackGuide& guide)
-        {
-            return guide.townHall == townHallLevel &&
-                   guide.id == guideId;
-        });
+    const auto guideIterator = std::ranges::find_if(attackGuides,
+                                                    [townHallLevel = *townHall, &guideId](
+                                                    const telegram::AttackGuide& guide)
+                                                    {
+                                                        return guide.townHall == townHallLevel &&
+                                                            guide.id == guideId;
+                                                    });
 
     if (guideIterator == attackGuides.end())
     {
@@ -306,5 +316,5 @@ void TelegramBotService::handleVideoGuideCallback(
         context.chatId,
         "Хотите вернуться обратно? Выберите раздел:",
         0,
-        telegram::keyboards::makeBackNavigationKeyboard());
+        telegram::keyboards::makeGuideNavigationKeyboard(*townHall));
 }

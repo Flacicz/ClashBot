@@ -12,7 +12,7 @@
 namespace telegram::keyboards
 {
     nlohmann::json makeStartMenuKeyboard();
-    nlohmann::json makeBackNavigationKeyboard();
+    nlohmann::json makeGuideNavigationKeyboard(int townHall);
     nlohmann::json makeTownHallListKeyboard();
     nlohmann::json makeTownHallLevelGuideListKeyboard();
 

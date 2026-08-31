@@ -24,22 +24,30 @@ namespace telegram::keyboards
         };
     }
 
-    nlohmann::json makeBackNavigationKeyboard()
+    nlohmann::json makeGuideNavigationKeyboard(const int townHall)
     {
+        const std::string townHallNumber = std::to_string(townHall);
+
         return {
             {
                 "inline_keyboard", {
                     {
-                        {"text", "⬅️ Другие гайды ТХ 8"},
-                        {"callback_data", "guides:townhall:8"}
+                        {
+                            {"text", "⬅️ Другие гайды ТХ " + townHallNumber},
+                            {"callback_data", "guides:townhall:" + townHallNumber}
+                        }
                     },
                     {
-                        {"text", "⬅️ К выбору ратуши"},
-                        {"callback_data", "guides:townhalls"}
+                        {
+                            {"text", "⬅️ К выбору ратуши"},
+                            {"callback_data", "guides:townhalls"}
+                        }
                     },
                     {
-                        {"text", "🏠 В главное меню"},
-                        {"callback_data", "menu:start"}
+                        {
+                            {"text", "🏠 В главное меню"},
+                            {"callback_data", "menu:start"}
+                        }
                     }
                 }
             }
