@@ -7,12 +7,18 @@
 
 #include <nlohmann/json.hpp>
 
+#include "models/telegram/TelegramModels.h"
+
 namespace telegram::keyboards
 {
     nlohmann::json makeStartMenuKeyboard();
     nlohmann::json makeBackNavigationKeyboard();
-    nlohmann::json makeTownHallKeyboard();
+    nlohmann::json makeTownHallListKeyboard();
     nlohmann::json makeTownHallLevelGuideListKeyboard();
+
+    nlohmann::json makeGuideListKeyboard(
+        int townHall,
+        const std::vector<AttackGuide>& guides);
 }
 
 #endif //CLASHBOT_TELEGRAMKEYBOARDS_H

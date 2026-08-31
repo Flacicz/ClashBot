@@ -6,10 +6,55 @@
 
 #include "core/Exceptions.h"
 #include "telegram/TelegramKeyboards.h"
+#include "telegram/TelegramCallbackData.h"
+
+#include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <spdlog/spdlog.h>
+#include <system_error>
 #include <thread>
-#include <unordered_map>
+
+namespace
+{
+    const std::vector<telegram::AttackGuide> attackGuides = {
+        {
+            8,
+            "zap_dragons",
+            "🎥 Zap Dragons",
+            "BAACAgIAAxkBAAIC_WqVJGhUnjNokTL1VtaTnbKFa7xfAAIlogAC0GmpSFWiDPfAycuCPQQ"
+        }
+    };
+
+    std::optional<int> parseTownHall(
+        const std::string_view value)
+    {
+        if (value.empty())
+        {
+            return std::nullopt;
+        }
+
+        int townHall = 0;
+
+        const auto [end, error] = std::from_chars(
+            value.data(),
+            value.data() + value.size(),
+            townHall);
+
+        if (error != std::errc{} ||
+            end != value.data() + value.size())
+        {
+            return std::nullopt;
+        }
+
+        if (townHall < 7 || townHall > 18)
+        {
+            return std::nullopt;
+        }
+
+        return townHall;
+    }
+}
 
 TelegramBotService::TelegramBotService(TelegramApiClient& telegramApi) : telegram_api_client_(telegramApi)
 {
@@ -90,110 +135,61 @@ void TelegramBotService::handleMessage(const nlohmann::json& update) const
 
 void TelegramBotService::handleCallbackQuery(const nlohmann::json& callbackQuery) const
 {
-    const std::unordered_map<std::string, std::string> videoIds = {
-        {"townhall:8:zap_dragons", "BAACAgIAAxkBAAIC_WqVJGhUnjNokTL1VtaTnbKFa7xfAAIlogAC0GmpSFWiDPfAycuCPQQ"}
-    };
+    const auto context = telegram::parseCallbackContext(callbackQuery);
 
-    const std::string queryId =
-        callbackQuery.at("id").get<std::string>();
-
-    const std::string data =
-        callbackQuery.value("data", "");
-
-    const long long chatId =
-        callbackQuery.at("message")
-                     .at("chat")
-                     .at("id")
-                     .get<long long>();
-
-    const long long messageId =
-        callbackQuery.at("message")
-                     .at("message_id")
-                     .get<long long>();
-
-    if (data == "menu:start")
+    if (!context)
     {
-        try
-        {
-            telegram_api_client_.answerCallbackQuery(queryId);
-        }
-        catch (const ApiException& error)
-        {
-            spdlog::error(
-                "[TelegramBotService] Failed to answer callback query {}: {}",
-                queryId,
-                error.what());
-        }
+        spdlog::warn(
+            "[TelegramBotService] Ignoring invalid callback query: {}",
+            callbackQuery.dump());
 
-        telegram_api_client_.editMessageText(
-            chatId,
-            messageId,
-            "Добро пожаловать! Выберите раздел:",
-            telegram::keyboards::makeStartMenuKeyboard());
+        return;
     }
-    else if (data == "guides")
-    {
-        try
-        {
-            telegram_api_client_.answerCallbackQuery(queryId);
-        }
-        catch (const ApiException& error)
-        {
-            spdlog::error(
-                "[TelegramBotService] Failed to answer callback query {}: {}",
-                queryId,
-                error.what());
-        }
 
-        telegram_api_client_.editMessageText(
-            chatId,
-            messageId,
-            "Выберите ратушу:",
-            telegram::keyboards::makeTownHallKeyboard());
+    answerCallbackQuery(context->queryId);
+
+    const auto callbackData =
+        telegram::parseCallbackData(context->data);
+
+    if (!callbackData)
+    {
+        spdlog::warn(
+            "[TelegramBotService] Ignoring invalid callback data: {}",
+            context->data);
+
+        return;
     }
-    else if (data == "guides:townhall:8")
-    {
-        try
-        {
-            telegram_api_client_.answerCallbackQuery(queryId);
-        }
-        catch (const ApiException& error)
-        {
-            spdlog::error(
-                "[TelegramBotService] Failed to answer callback query {}: {}",
-                queryId,
-                error.what());
-        }
 
-        telegram_api_client_.editMessageText(
-            chatId,
-            messageId,
-            "Выберите гайд:",
-            telegram::keyboards::makeTownHallLevelGuideListKeyboard());
+    if (callbackData->command == "menu:start")
+    {
+        handleMainMenuCallback(*context);
     }
-    else if (data == "guides:townhall:8:zap_dragons")
+    else if (callbackData->command == "guides:townhalls")
     {
-        try
-        {
-            telegram_api_client_.answerCallbackQuery(queryId);
-        }
-        catch (const ApiException& error)
-        {
-            spdlog::error(
-                "[TelegramBotService] Failed to answer callback query: {}",
-                error.what());
-        }
+        handleTownHallListCallback(*context);
+    }
+    else if (callbackData->command == "guides:townhall")
+    {
+        handleGuideListCallback(*context, *callbackData);
+    }
+    else if (callbackData->command == "guides:mix")
+    {
+        handleVideoGuideCallback(*context, *callbackData);
+    }
+}
 
-        telegram_api_client_.sendVideo(
-            chatId,
-            videoIds.at("townhall:8:zap_dragons"),
-            "ТХ 8 — Zap Dragons");
-
-        telegram_api_client_.sendMessage(
-            chatId,
-            "Хотите вернуться обратно? Выберите раздел:",
-            0,
-            telegram::keyboards::makeBackNavigationKeyboard());
+void TelegramBotService::answerCallbackQuery(const std::string& queryId) const
+{
+    try
+    {
+        telegram_api_client_.answerCallbackQuery(queryId);
+    }
+    catch (const ApiException& error)
+    {
+        spdlog::error(
+            "[TelegramBotService] Failed to answer callback query {}: {}",
+            queryId,
+            error.what());
     }
 }
 
@@ -204,4 +200,111 @@ void TelegramBotService::sendStartMenu(const long long chatId) const
         "Добро пожаловать! Выберите раздел:",
         0,
         telegram::keyboards::makeStartMenuKeyboard());
+}
+
+void TelegramBotService::handleMainMenuCallback(const telegram::CallbackContext& context) const
+{
+    telegram_api_client_.editMessageText(
+        context.chatId,
+        context.messageId,
+        "Добро пожаловать! Выберите раздел:",
+        telegram::keyboards::makeStartMenuKeyboard());
+}
+
+void TelegramBotService::handleTownHallListCallback(const telegram::CallbackContext& context) const
+{
+    telegram_api_client_.editMessageText(
+        context.chatId,
+        context.messageId,
+        "Выберите ратушу:",
+        telegram::keyboards::makeTownHallListKeyboard());
+}
+
+void TelegramBotService::handleGuideListCallback(
+    const telegram::CallbackContext& context,
+    const telegram::CallbackData& callbackData) const
+{
+    if (callbackData.arguments.size() != 1)
+    {
+        spdlog::warn(
+            "[TelegramBotService] Invalid town hall callback arguments");
+
+        return;
+    }
+
+    const auto townHall = parseTownHall(callbackData.arguments[0]);
+
+    if (!townHall)
+    {
+        spdlog::warn(
+            "[TelegramBotService] Invalid town hall value: {}",
+            callbackData.arguments[0]);
+
+        return;
+    }
+
+    telegram_api_client_.editMessageText(
+        context.chatId,
+        context.messageId,
+        "Выберите гайд:",
+        telegram::keyboards::makeGuideListKeyboard(*townHall, attackGuides));
+}
+
+void TelegramBotService::handleVideoGuideCallback(
+    const telegram::CallbackContext& context,
+    const telegram::CallbackData& callbackData) const
+{
+    if (callbackData.arguments.size() != 2)
+    {
+        spdlog::warn(
+            "[TelegramBotService] Invalid guide callback arguments");
+
+        return;
+    }
+
+    const auto townHall = parseTownHall(callbackData.arguments[0]);
+
+    if (!townHall)
+    {
+        spdlog::warn(
+            "[TelegramBotService] Invalid town hall value: {}",
+            callbackData.arguments[0]);
+
+        return;
+    }
+
+    const std::string& guideId = callbackData.arguments[1];
+
+    const auto guideIterator = std::find_if(
+        attackGuides.begin(),
+        attackGuides.end(),
+        [townHallLevel = *townHall, &guideId](
+            const telegram::AttackGuide& guide)
+        {
+            return guide.townHall == townHallLevel &&
+                   guide.id == guideId;
+        });
+
+    if (guideIterator == attackGuides.end())
+    {
+        spdlog::warn(
+            "[TelegramBotService] Guide not found: townHall={}, id={}",
+            *townHall,
+            guideId);
+
+        return;
+    }
+
+    const auto& guide = *guideIterator;
+
+    telegram_api_client_.sendVideo(
+        context.chatId,
+        guide.videoFileId,
+        guide.title);
+
+    telegram_api_client_.sendMessage(
+        context.chatId,
+        "Хотите вернуться обратно? Выберите раздел:",
+        0,
+        telegram::keyboards::makeBackNavigationKeyboard());
 }

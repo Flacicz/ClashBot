@@ -7,6 +7,7 @@
 
 #include "BaseRepository.h"
 #include "models/common/CommonModels.h"
+#include "models/telegram/TelegramModels.h"
 
 
 class SubscriptionRepo : public BaseRepository
@@ -16,7 +17,7 @@ class SubscriptionRepo : public BaseRepository
 public:
     explicit SubscriptionRepo(sqlite3* db);
 
-    [[nodiscard]] std::vector<TelegramDestination> getDestinationsForClan(
+    [[nodiscard]] std::vector<telegram::TelegramDestination> getDestinationsForClan(
         std::string_view clanTag,
         Audience audience) const;
     [[nodiscard]] std::vector<std::string> getClanTagsForChat(

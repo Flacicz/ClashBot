@@ -16,7 +16,7 @@ namespace telegram::keyboards
                     {
                         {
                             {"text", "🎥 Гайды по атакам"},
-                            {"callback_data", "guides"}
+                            {"callback_data", "guides:townhalls"}
                         }
                     }
                 }
@@ -35,7 +35,7 @@ namespace telegram::keyboards
                     },
                     {
                         {"text", "⬅️ К выбору ратуши"},
-                        {"callback_data", "guides"}
+                        {"callback_data", "guides:townhalls"}
                     },
                     {
                         {"text", "🏠 В главное меню"},
@@ -46,7 +46,7 @@ namespace telegram::keyboards
         };
     }
 
-    nlohmann::json makeTownHallKeyboard()
+    nlohmann::json makeTownHallListKeyboard()
     {
         constexpr int firstTownHall = 7;
         constexpr int lastTownHall = 18;
@@ -82,11 +82,45 @@ namespace telegram::keyboards
                     {
                         {
                             {"text", "🎥 Zap Dragons"},
-                            {"callback_data", "guides:townhall:8:zap_dragons"}
+                            {"callback_data", "guides:mix:8:zap_dragons"}
                         }
                     }
                 }
             }
         };
+    }
+
+    nlohmann::json makeGuideListKeyboard(
+        const int townHall,
+        const std::vector<AttackGuide>& guides)
+    {
+        nlohmann::json keyboard = {
+            {"inline_keyboard", nlohmann::json::array()}
+        };
+
+        for (const auto& guide : guides)
+        {
+            if (guide.townHall != townHall)
+            {
+                continue;
+            }
+
+            keyboard["inline_keyboard"].push_back({
+                {
+                    {"text", guide.title},
+                    {"callback_data", "guides:mix:" +
+                        std::to_string(townHall) + ":" + guide.id}
+                }
+            });
+        }
+
+        keyboard["inline_keyboard"].push_back({
+            {
+                {"text", "⬅️ К выбору ратуши"},
+                {"callback_data", "guides:townhalls"}
+            }
+        });
+
+        return keyboard;
     }
 }

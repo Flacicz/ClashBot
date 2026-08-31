@@ -9,6 +9,7 @@
 #include <mutex>
 
 #include "api/TelegramApiClient.h"
+#include "models/telegram/TelegramModels.h"
 
 class TelegramBotService
 {
@@ -19,6 +20,16 @@ private:
     void handleMessage(const nlohmann::json& update) const;
 
     void handleCallbackQuery(const nlohmann::json& callbackQuery) const;
+    void answerCallbackQuery(const std::string& queryId) const;
+
+    void handleMainMenuCallback(const telegram::CallbackContext& context) const;
+    void handleTownHallListCallback(const telegram::CallbackContext& context) const;
+    void handleGuideListCallback(
+        const telegram::CallbackContext& context,
+        const telegram::CallbackData& callbackData) const;
+    void handleVideoGuideCallback(
+        const telegram::CallbackContext& context,
+        const telegram::CallbackData& callbackData) const;
 
     void sendStartMenu(long long chatId) const;
 

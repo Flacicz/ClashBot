@@ -6,7 +6,7 @@ SubscriptionRepo::SubscriptionRepo(sqlite3* db) : BaseRepository(db, std::string
 {
 }
 
-std::vector<TelegramDestination> SubscriptionRepo::getDestinationsForClan(
+std::vector<telegram::TelegramDestination> SubscriptionRepo::getDestinationsForClan(
     const std::string_view clanTag,
     const Audience audience) const
 {
@@ -17,15 +17,15 @@ std::vector<TelegramDestination> SubscriptionRepo::getDestinationsForClan(
           AND audience = ?;
     )";
 
-    auto mapper = [](sqlite3_stmt* stmt) -> TelegramDestination
+    auto mapper = [](sqlite3_stmt* stmt) -> telegram::TelegramDestination
     {
-        return TelegramDestination{
+        return telegram::TelegramDestination{
             .chatId = sqlite::getLong(stmt, 0),
             .messageThreadId = sqlite::getLong(stmt, 1)
         };
     };
 
-    return query<TelegramDestination>(sql, "load Telegram destinations by clan tag",
+    return query<telegram::TelegramDestination>(sql, "load Telegram destinations by clan tag",
                                       fmt::format("clan_tag = {}, audience = {}",
                                                   clanTag,
                                                   AudienceUtils::key(audience)),

@@ -89,6 +89,7 @@ add_executable(${PROJECT_NAME}
         src/events/EventDispatcher.cpp
         src/database/repos/NotificationsRepo.cpp
         src/api/TelegramApiClient.cpp
+        src/telegram/TelegramCallbackData.cpp
         src/telegram/TelegramKeyboards.cpp
         src/service/TelegramBotService.cpp
 )

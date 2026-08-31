@@ -2,12 +2,6 @@
 
 #include <string>
 
-struct TelegramDestination
-{
-    long long chatId;
-    long long messageThreadId;
-};
-
 enum class Audience
 {
     Players,
