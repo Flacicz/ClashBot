@@ -22,11 +22,6 @@ private:
 
     void sendStartMenu(long long chatId) const;
 
-    static nlohmann::json makeStartMenuKeyboard();
-    static nlohmann::json makeBackNavigationKeyboard();
-    static nlohmann::json makeTownHallKeyboard();
-    static nlohmann::json makeTownHallLevelGuideListKeyboard();
-
 public:
     explicit TelegramBotService(TelegramApiClient& telegramApi);
 

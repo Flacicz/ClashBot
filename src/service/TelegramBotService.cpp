@@ -5,6 +5,7 @@
 #include "service/TelegramBotService.h"
 
 #include "core/Exceptions.h"
+#include "telegram/TelegramKeyboards.h"
 #include <chrono>
 #include <spdlog/spdlog.h>
 #include <thread>
@@ -128,7 +129,7 @@ void TelegramBotService::handleCallbackQuery(const nlohmann::json& callbackQuery
             chatId,
             messageId,
             "Добро пожаловать! Выберите раздел:",
-            makeStartMenuKeyboard());
+            telegram::keyboards::makeStartMenuKeyboard());
     }
     else if (data == "guides")
     {
@@ -148,7 +149,7 @@ void TelegramBotService::handleCallbackQuery(const nlohmann::json& callbackQuery
             chatId,
             messageId,
             "Выберите ратушу:",
-            makeTownHallKeyboard());
+            telegram::keyboards::makeTownHallKeyboard());
     }
     else if (data == "guides:townhall:8")
     {
@@ -168,7 +169,7 @@ void TelegramBotService::handleCallbackQuery(const nlohmann::json& callbackQuery
             chatId,
             messageId,
             "Выберите гайд:",
-            makeTownHallLevelGuideListKeyboard());
+            telegram::keyboards::makeTownHallLevelGuideListKeyboard());
     }
     else if (data == "guides:townhall:8:zap_dragons")
     {
@@ -192,7 +193,7 @@ void TelegramBotService::handleCallbackQuery(const nlohmann::json& callbackQuery
             chatId,
             "Хотите вернуться обратно? Выберите раздел:",
             0,
-            makeBackNavigationKeyboard());
+            telegram::keyboards::makeBackNavigationKeyboard());
     }
 }
 
@@ -202,93 +203,5 @@ void TelegramBotService::sendStartMenu(const long long chatId) const
         chatId,
         "Добро пожаловать! Выберите раздел:",
         0,
-        makeStartMenuKeyboard());
-}
-
-nlohmann::json TelegramBotService::makeStartMenuKeyboard()
-{
-    const nlohmann::json keyboard = {
-        {
-            "inline_keyboard", {
-                {
-                    {
-                        {"text", "🎥 Гайды по атакам"},
-                        {"callback_data", "guides"}
-                    }
-                }
-            }
-        }
-    };
-
-    return keyboard;
-}
-
-nlohmann::json TelegramBotService::makeBackNavigationKeyboard()
-{
-    const nlohmann::json keyboard = {
-        {
-            "inline_keyboard", {
-                {
-                    {"text", "⬅️ Другие гайды ТХ 8"},
-                    {"callback_data", "guides:townhall:8"}
-                },
-                {
-                    {"text", "⬅️ К выбору ратуши"},
-                    {"callback_data", "guides"}
-                },
-                {
-                    {"text", "🏠 В главное меню"},
-                    {"callback_data", "menu:start"}
-                }
-            }
-        }
-    };
-
-    return keyboard;
-}
-
-nlohmann::json TelegramBotService::makeTownHallKeyboard()
-{
-    constexpr int firstTownHall = 7;
-    constexpr int lastTownHall = 18;
-    constexpr int buttonsPerRow = 3;
-
-    nlohmann::json keyboard = {
-        {"inline_keyboard", nlohmann::json::array()}
-    };
-
-    for (int townHall = firstTownHall; townHall <= lastTownHall; ++townHall)
-    {
-        if ((townHall - firstTownHall) % buttonsPerRow == 0)
-        {
-            keyboard["inline_keyboard"].push_back(nlohmann::json::array());
-        }
-
-        const std::string townHallNumber = std::to_string(townHall);
-
-        keyboard["inline_keyboard"].back().push_back({
-            {"text", "Ратуша " + townHallNumber},
-            {"callback_data", "guides:townhall:" + townHallNumber}
-        });
-    }
-
-    return keyboard;
-}
-
-nlohmann::json TelegramBotService::makeTownHallLevelGuideListKeyboard()
-{
-    const nlohmann::json keyboard = {
-        {
-            "inline_keyboard", {
-                {
-                    {
-                        {"text", "🎥 Zap Dragons"},
-                        {"callback_data", "guides:townhall:8:zap_dragons"}
-                    }
-                }
-            }
-        }
-    };
-
-    return keyboard;
+        telegram::keyboards::makeStartMenuKeyboard());
 }
