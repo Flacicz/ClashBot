@@ -65,6 +65,7 @@ target_include_directories(ClashBotCore PUBLIC
 target_link_libraries(ClashBotCore PUBLIC
         fmt::fmt
         nlohmann_json::nlohmann_json
+        SQLite3::SQLite3
 )
 
 add_executable(${PROJECT_NAME}
@@ -92,6 +93,7 @@ add_executable(${PROJECT_NAME}
         src/telegram/TelegramCallbackData.cpp
         src/telegram/TelegramKeyboards.cpp
         src/service/TelegramBotService.cpp
+        src/telegram/AttackGuideCatalog.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

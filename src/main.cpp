@@ -43,6 +43,7 @@
 #include "notifications/TelegramNotifier.h"
 #include "notifications/NotificationService.h"
 #include "service/TelegramBotService.h"
+#include "telegram/AttackGuideCatalog.h"
 
 std::atomic g_shutdown_requested{false};
 
@@ -133,6 +134,8 @@ int main(const int argc, char* argv[])
 
 
         auto telegramApiClient = TelegramApiClient(std::move(config.telegramToken));
+        const telegram::AttackGuideCatalog attackGuideCatalog(
+            config.attackGuidesPath);
         auto telegramNotifier = TelegramNotifier(telegramApiClient);
         PlayerJoinedFormatter playerJoinedFormatter(db.clans());
         PlayerLeftFormatter playerLeftFormatter(db.clans());
@@ -197,7 +200,9 @@ int main(const int argc, char* argv[])
             }
         });
 
-        TelegramBotService telegramBotService(telegramApiClient);
+        TelegramBotService telegramBotService(
+            telegramApiClient,
+            attackGuideCatalog);
 
         std::thread telegramThread(
             [&telegramBotService]

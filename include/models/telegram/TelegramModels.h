@@ -30,12 +30,24 @@ namespace telegram
         long long messageId;
     };
 
-    struct AttackGuide
+    struct AttackStrategy
     {
-        int townHall;
         std::string id;
         std::string title;
-        std::string videoFileId;
+    };
+
+    struct AttackGuide
+    {
+        std::string id;
+        std::string armyId;
+        std::string armyTitle;
+        std::string variantId;
+        std::string variantTitle;
+        std::string title;
+        std::vector<int> townHalls;
+        std::string youtubeUrl;
+        int sortOrder = 0;
+        bool enabled = true;
     };
 }
 

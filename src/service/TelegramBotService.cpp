@@ -8,7 +8,6 @@
 #include "telegram/TelegramKeyboards.h"
 #include "telegram/TelegramCallbackData.h"
 
-#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <spdlog/spdlog.h>
@@ -16,28 +15,6 @@
 
 namespace
 {
-    const std::vector<telegram::AttackGuide> attackGuides = {
-        {
-            7,
-            "zap_dragons",
-            "🎥 Zap Dragons",
-            "BAACAgIAAxkBAAIDE2qVfU_fnhovMhvByvWCS5XboVryAAJ3pQAC0GmpSFytRSv0g_0bPQQ"
-        },
-        {
-            8,
-            "zap_dragons",
-            "🎥 Zap Dragons",
-            "BAACAgIAAxkBAAIC_WqVJGhUnjNokTL1VtaTnbKFa7xfAAIlogAC0GmpSFWiDPfAycuCPQQ"
-        },
-        {
-            8,
-            "gowipe",
-            "🎥 GoWiPe",
-            "BAACAgIAAxkBAAIDFmqVhTLViMFq53XWt3Zc-jd1Xl2lAALSpQAC0GmpSKYTbFKwwKB8PQQ"
-        },
-
-    };
-
     std::optional<int> parseTownHall(
         const std::string_view value)
     {
@@ -68,7 +45,11 @@ namespace
     }
 }
 
-TelegramBotService::TelegramBotService(TelegramApiClient& telegramApi) : telegram_api_client_(telegramApi)
+TelegramBotService::TelegramBotService(
+    TelegramApiClient& telegramApi,
+    const telegram::AttackGuideCatalog& attackGuideCatalog)
+    : telegram_api_client_(telegramApi),
+      attack_guide_catalog_(attackGuideCatalog)
 {
 }
 
@@ -182,9 +163,13 @@ void TelegramBotService::handleCallbackQuery(const nlohmann::json& callbackQuery
     }
     else if (callbackData->command == "guides:townhall")
     {
+        handleStrategyListCallback(*context, *callbackData);
+    }
+    else if (callbackData->command == "guides:strategy")
+    {
         handleGuideListCallback(*context, *callbackData);
     }
-    else if (callbackData->command == "guides:mix")
+    else if (callbackData->command == "guides:guide")
     {
         handleVideoGuideCallback(*context, *callbackData);
     }
@@ -232,7 +217,7 @@ void TelegramBotService::handleTownHallListCallback(const telegram::CallbackCont
         telegram::keyboards::makeTownHallListKeyboard());
 }
 
-void TelegramBotService::handleGuideListCallback(
+void TelegramBotService::handleStrategyListCallback(
     const telegram::CallbackContext& context,
     const telegram::CallbackData& callbackData) const
 {
@@ -255,11 +240,71 @@ void TelegramBotService::handleGuideListCallback(
         return;
     }
 
+    const auto strategies =
+        attack_guide_catalog_.getStrategiesForTownHall(*townHall);
+
+    telegram_api_client_.editMessageText(
+        context.chatId,
+        context.messageId,
+        "Выберите стратегию:",
+        telegram::keyboards::makeStrategyListKeyboard(
+            *townHall,
+            strategies));
+}
+
+void TelegramBotService::handleGuideListCallback(
+    const telegram::CallbackContext& context,
+    const telegram::CallbackData& callbackData) const
+{
+    if (callbackData.arguments.size() != 2)
+    {
+        spdlog::warn(
+            "[TelegramBotService] Invalid strategy callback arguments");
+
+        return;
+    }
+
+    const auto townHall = parseTownHall(callbackData.arguments[0]);
+
+    if (!townHall)
+    {
+        spdlog::warn(
+            "[TelegramBotService] Invalid town hall value: {}",
+            callbackData.arguments[0]);
+
+            return;
+    }
+
+    const std::string& armyId = callbackData.arguments[1];
+
+    if (armyId.empty())
+    {
+        spdlog::warn(
+            "[TelegramBotService] Empty strategy id in callback data");
+
+        return;
+    }
+
+    const auto guides =
+        attack_guide_catalog_.getGuidesForStrategy(*townHall, armyId);
+
+    if (guides.empty())
+    {
+        spdlog::warn(
+            "[TelegramBotService] No guides found for townHall={}, strategy={} ",
+            *townHall,
+            armyId);
+
+        return;
+    }
+
     telegram_api_client_.editMessageText(
         context.chatId,
         context.messageId,
         "Выберите гайд:",
-        telegram::keyboards::makeGuideListKeyboard(*townHall, attackGuides));
+        telegram::keyboards::makeGuideListKeyboard(
+            *townHall,
+            guides));
 }
 
 void TelegramBotService::handleVideoGuideCallback(
@@ -285,36 +330,30 @@ void TelegramBotService::handleVideoGuideCallback(
         return;
     }
 
-    const std::string& guideId = callbackData.arguments[1];
+    const auto guide =
+        attack_guide_catalog_.findById(
+            callbackData.arguments[1]);
 
-    const auto guideIterator = std::ranges::find_if(attackGuides,
-                                                    [townHallLevel = *townHall, &guideId](
-                                                    const telegram::AttackGuide& guide)
-                                                    {
-                                                        return guide.townHall == townHallLevel &&
-                                                            guide.id == guideId;
-                                                    });
-
-    if (guideIterator == attackGuides.end())
+    if (!guide)
     {
         spdlog::warn(
             "[TelegramBotService] Guide not found: townHall={}, id={}",
             *townHall,
-            guideId);
+            callbackData.arguments[1]);
 
         return;
     }
 
-    const auto& guide = *guideIterator;
-
-    telegram_api_client_.sendVideo(
+    telegram_api_client_.sendMessage(
         context.chatId,
-        guide.videoFileId,
-        guide.title);
+        guide->title + "\n" + guide->youtubeUrl);
 
     telegram_api_client_.sendMessage(
         context.chatId,
         "Хотите вернуться обратно? Выберите раздел:",
         0,
-        telegram::keyboards::makeGuideNavigationKeyboard(*townHall));
+        telegram::keyboards::makeGuideNavigationKeyboard(
+            *townHall,
+            guide->armyId,
+            guide->armyTitle));
 }

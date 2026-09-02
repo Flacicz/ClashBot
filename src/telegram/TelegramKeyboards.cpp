@@ -24,23 +24,29 @@ namespace telegram::keyboards
         };
     }
 
-    nlohmann::json makeGuideNavigationKeyboard(const int townHall)
+    nlohmann::json makeGuideNavigationKeyboard(
+        const int townHall,
+        const std::string_view armyId,
+        const std::string_view armyTitle)
     {
         const std::string townHallNumber = std::to_string(townHall);
+        const std::string strategyCallback =
+            "guides:strategy:" + townHallNumber + ":" +
+            std::string(armyId);
 
         return {
             {
                 "inline_keyboard", {
                     {
                         {
-                            {"text", "⬅️ Другие гайды ТХ " + townHallNumber},
-                            {"callback_data", "guides:townhall:" + townHallNumber}
+                            {"text", "⬅️ Другие гайды: " + std::string(armyTitle)},
+                            {"callback_data", strategyCallback}
                         }
                     },
                     {
                         {
-                            {"text", "⬅️ К выбору ратуши"},
-                            {"callback_data", "guides:townhalls"}
+                            {"text", "⬅️ К выбору стратегий"},
+                            {"callback_data", "guides:townhall:" + townHallNumber}
                         }
                     },
                     {
@@ -82,20 +88,35 @@ namespace telegram::keyboards
         return keyboard;
     }
 
-    nlohmann::json makeTownHallLevelGuideListKeyboard()
+    nlohmann::json makeStrategyListKeyboard(
+        const int townHall,
+        const std::vector<AttackStrategy>& strategies)
     {
-        return {
-            {
-                "inline_keyboard", {
-                    {
-                        {
-                            {"text", "🎥 Zap Dragons"},
-                            {"callback_data", "guides:mix:8:zap_dragons"}
-                        }
-                    }
-                }
-            }
+        const std::string townHallNumber = std::to_string(townHall);
+
+        nlohmann::json keyboard = {
+            {"inline_keyboard", nlohmann::json::array()}
         };
+
+        for (const auto& strategy : strategies)
+        {
+            keyboard["inline_keyboard"].push_back({
+                {
+                    {"text", strategy.title},
+                    {"callback_data", "guides:strategy:" +
+                        townHallNumber + ":" + strategy.id}
+                }
+            });
+        }
+
+        keyboard["inline_keyboard"].push_back({
+            {
+                {"text", "⬅️ К выбору ратуши"},
+                {"callback_data", "guides:townhalls"}
+            }
+        });
+
+        return keyboard;
     }
 
     nlohmann::json makeGuideListKeyboard(
@@ -108,15 +129,10 @@ namespace telegram::keyboards
 
         for (const auto& guide : guides)
         {
-            if (guide.townHall != townHall)
-            {
-                continue;
-            }
-
             keyboard["inline_keyboard"].push_back({
                 {
                     {"text", guide.title},
-                    {"callback_data", "guides:mix:" +
+                    {"callback_data", "guides:guide:" +
                         std::to_string(townHall) + ":" + guide.id}
                 }
             });
@@ -124,8 +140,9 @@ namespace telegram::keyboards
 
         keyboard["inline_keyboard"].push_back({
             {
-                {"text", "⬅️ К выбору ратуши"},
-                {"callback_data", "guides:townhalls"}
+                {"text", "⬅️ К выбору стратегий"},
+                {"callback_data", "guides:townhall:" +
+                    std::to_string(townHall)}
             }
         });
 

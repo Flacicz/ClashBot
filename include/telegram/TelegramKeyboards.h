@@ -6,15 +6,22 @@
 #define CLASHBOT_TELEGRAMKEYBOARDS_H
 
 #include <nlohmann/json.hpp>
+#include <string_view>
 
 #include "models/telegram/TelegramModels.h"
 
 namespace telegram::keyboards
 {
     nlohmann::json makeStartMenuKeyboard();
-    nlohmann::json makeGuideNavigationKeyboard(int townHall);
+    nlohmann::json makeGuideNavigationKeyboard(
+        int townHall,
+        std::string_view armyId,
+        std::string_view armyTitle);
     nlohmann::json makeTownHallListKeyboard();
-    nlohmann::json makeTownHallLevelGuideListKeyboard();
+
+    nlohmann::json makeStrategyListKeyboard(
+        int townHall,
+        const std::vector<AttackStrategy>& strategies);
 
     nlohmann::json makeGuideListKeyboard(
         int townHall,

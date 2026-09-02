@@ -35,6 +35,7 @@ COPY CMakeLists.txt ./
 COPY include ./include
 COPY src ./src
 COPY tests ./tests
+COPY resources ./resources
 
 RUN cmake -S . -B build \
         -DCMAKE_BUILD_TYPE=Release \
@@ -58,6 +59,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
 WORKDIR /app
 COPY --from=builder /app/build/ClashBot .
 COPY --from=builder /app/src/database/migrations ./migrations
+COPY --from=builder /app/resources ./resources
 
 RUN mkdir -p /app/data /app/logs
 

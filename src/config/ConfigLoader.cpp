@@ -49,6 +49,9 @@ AppConfig loadConfig(const std::string& path)
     if (j.contains("bot"))
     {
         config.telegramToken = j["bot"].value("telegram_token", "");
+        config.attackGuidesPath = j["bot"].value(
+            "attack_guides_path",
+            "../resources/telegram/attack_guides.json");
     }
 
     return config;

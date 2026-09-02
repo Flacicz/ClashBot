@@ -10,11 +10,13 @@
 
 #include "api/TelegramApiClient.h"
 #include "models/telegram/TelegramModels.h"
+#include "telegram/AttackGuideCatalog.h"
 
 class TelegramBotService
 {
 private:
     TelegramApiClient& telegram_api_client_;
+    const telegram::AttackGuideCatalog& attack_guide_catalog_;
 
     void processUpdate(const nlohmann::json& update) const;
     void handleMessage(const nlohmann::json& update) const;
@@ -24,6 +26,9 @@ private:
 
     void handleMainMenuCallback(const telegram::CallbackContext& context) const;
     void handleTownHallListCallback(const telegram::CallbackContext& context) const;
+    void handleStrategyListCallback(
+        const telegram::CallbackContext& context,
+        const telegram::CallbackData& callbackData) const;
     void handleGuideListCallback(
         const telegram::CallbackContext& context,
         const telegram::CallbackData& callbackData) const;
@@ -34,7 +39,9 @@ private:
     void sendStartMenu(long long chatId) const;
 
 public:
-    explicit TelegramBotService(TelegramApiClient& telegramApi);
+    TelegramBotService(
+        TelegramApiClient& telegramApi,
+        const telegram::AttackGuideCatalog& attackGuideCatalog);
 
     void loop() const;
     void stopLoop();
