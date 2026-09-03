@@ -31,7 +31,7 @@ ClanwarReference ClanwarRepo::saveCompleteClanwarData(const Clanwar& war,
     };
 
     saveClanwarAttacks(reference, attacks);
-    saveClanwarMembers(reference, members.first);
+    replaceClanwarMembers(reference, members.first);
     saveClanwarMembers(reference, members.second);
 
     return reference;
@@ -171,6 +171,26 @@ void ClanwarRepo::saveClanwarMembers(const ClanwarReference& reference,
             reference.warId, warClanId, playerTag, playerName, townhallLevel, mapPosition
         );
     }
+}
+
+void ClanwarRepo::replaceClanwarMembers(const ClanwarReference& reference,
+                                        const std::vector<ClanwarMember>& members) const
+{
+    if (members.empty()) return;
+
+    static constexpr std::string_view sql = R"(
+        DELETE FROM war_members
+        WHERE war_id = ? AND war_clan_id = ?;
+    )";
+
+    execute(
+        sql,
+        "delete old home clanwar members",
+        fmt::format("war_id = {}, war_clan_id = {}", reference.warId, reference.homeClanId),
+        reference.warId, reference.homeClanId
+    );
+
+    saveClanwarMembers(reference, members);
 }
 
 std::pair<ClanwarOverview, ClanwarOverview> ClanwarRepo::getClanwarOverviews(

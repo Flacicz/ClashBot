@@ -31,6 +31,8 @@ public:
                             const std::vector<ClanwarAttack>& attacks) const;
     void saveClanwarMembers(const ClanwarReference& reference,
                             const std::vector<ClanwarMember>& members) const;
+    void replaceClanwarMembers(const ClanwarReference& reference,
+                               const std::vector<ClanwarMember>& members) const;
 
     [[nodiscard]] std::pair<ClanwarOverview, ClanwarOverview> getClanwarOverviews(
         const ClanwarReference& reference) const;

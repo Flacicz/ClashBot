@@ -30,6 +30,7 @@ ClashBot регулярно собирает информацию о клана�
 - **Изменение состава** — уведомления о вступивших в клан и покинувших его игроках.
 - **Хранение истории** — сохранение полученной информации в базе данных для последующего анализа.
 - **Telegram-отчёты** — автоматическая отправка собранной информации в удобном для чтения формате.
+- **Интерактивное Telegram-меню** — команда `/start` и навигация по каталогу видео-гайдов для ратуш TH7–TH18.
 
 ## Как работает ClashBot
 
@@ -128,7 +129,8 @@ cd ClashBot
     "migrations_path": "src/database/migrations"
   },
   "bot": {
-    "telegram_token": "<TELEGRAM_BOT_TOKEN>"
+    "telegram_token": "<TELEGRAM_BOT_TOKEN>",
+    "attack_guides_path": "resources/telegram/attack_guides.json"
   }
 }
 ```
@@ -193,6 +195,20 @@ ClashBot передаёт `message_thread_id` в Telegram Bot API только �
 
 > Не публикуйте адрес запроса с настоящим токеном Telegram-бота.
 
+### Интерактивное Telegram-меню
+
+Команда `/start` открывает главное меню бота. В нём доступен каталог видео-гайдов по атакам:
+
+1. выбрать ратушу от TH7 до TH18;
+2. выбрать стратегию;
+3. выбрать конкретный гайд;
+4. получить название и ссылку на видео в YouTube.
+
+Кнопки навигации позволяют вернуться к списку гайдов, стратегий или в главное меню. Каталог загружается из файла,
+указанного в `bot.attack_guides_path`. Формат каталога и текущие записи находятся в
+[`resources/telegram/attack_guides.json`](resources/telegram/attack_guides.json). Интерактивное меню не изменяет
+подписки и настройки клана: управление кланами и Telegram-назначениями по-прежнему выполняется через SQLite.
+
 ### Локальная сборка на Windows
 
 Установите vcpkg и укажите путь к его корневому каталогу:
@@ -236,8 +252,9 @@ cmake --build cmake-build-release --target ClashBotTests
 ctest --test-dir cmake-build-release --output-on-failure
 ```
 
-CTest автоматически обнаруживает отдельные тесты GoogleTest для утилит, аналитики и форматтеров отчётов. При успешном
-запуске CTest сообщает `100% tests passed`; при ошибке `--output-on-failure` показывает вывод упавшего теста.
+CTest автоматически обнаруживает отдельные тесты GoogleTest для утилит, аналитики, форматтеров отчётов и чистых
+Telegram-компонентов: парсеров callback-данных, клавиатур, валидации ратуши и каталога гайдов. При успешном запуске
+CTest сообщает `100% tests passed`; при ошибке `--output-on-failure` показывает вывод упавшего теста.
 
 #### Диагностика
 
@@ -271,7 +288,8 @@ cmake --build cmake-build-debug
     "migrations_path": "src/database/migrations"
   },
   "bot": {
-    "telegram_token": "DUMMY_TELEGRAM_TOKEN"
+    "telegram_token": "DUMMY_TELEGRAM_TOKEN",
+    "attack_guides_path": "resources/telegram/attack_guides.json"
   }
 }
 ```
@@ -316,7 +334,8 @@ wsl bash ./scripts/startTunnel.sh
     "migrations_path": "/app/migrations"
   },
   "bot": {
-    "telegram_token": "<TELEGRAM_BOT_TOKEN>"
+    "telegram_token": "<TELEGRAM_BOT_TOKEN>",
+    "attack_guides_path": "/app/resources/telegram/attack_guides.json"
   }
 }
 ```
@@ -459,7 +478,8 @@ docker start clashbot
 - Управление кланами и Telegram-подписками выполняется вручную через SQLite.
 - Подписка разделяется только на аудитории `players` и `management`; отдельная настройка категорий отчётов пока не реализована.
 - Критерии выявления нарушений пока нельзя настраивать отдельно для каждого клана.
-- Telegram используется только для отправки уведомлений — команды управления пока не реализованы.
+- Telegram-бот поддерживает `/start` и интерактивный каталог видео-гайдов; команды просмотра статистики и управления
+  подписками пока не реализованы.
 - Временные напоминания реализованы для обычных клановых войн, раундов CWL и рейдовых выходных.
 - Напоминания обрабатываются в рамках цикла синхронизации, который обычно выполняется раз в 30 минут, поэтому время
   доставки может отличаться от контрольного момента.
@@ -470,6 +490,7 @@ docker start clashbot
 - [Архитектура](docs/architecture.md)
 - [База данных](docs/database.md)
 - [Система отчётов](docs/reports.md)
+- [Telegram-интеграция](docs/telegram.md)
 - [Планы развития](docs/roadmap.md)
 
 ## Правовая информация
