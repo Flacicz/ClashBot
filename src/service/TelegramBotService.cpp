@@ -7,43 +7,11 @@
 #include "core/Exceptions.h"
 #include "telegram/TelegramKeyboards.h"
 #include "telegram/TelegramCallbackData.h"
+#include "telegram/TelegramValidation.h"
 
-#include <charconv>
 #include <chrono>
 #include <spdlog/spdlog.h>
 #include <thread>
-
-namespace
-{
-    std::optional<int> parseTownHall(
-        const std::string_view value)
-    {
-        if (value.empty())
-        {
-            return std::nullopt;
-        }
-
-        int townHall = 0;
-
-        const auto [end, error] = std::from_chars(
-            value.data(),
-            value.data() + value.size(),
-            townHall);
-
-        if (error != std::errc{} ||
-            end != value.data() + value.size())
-        {
-            return std::nullopt;
-        }
-
-        if (townHall < 7 || townHall > 18)
-        {
-            return std::nullopt;
-        }
-
-        return townHall;
-    }
-}
 
 TelegramBotService::TelegramBotService(
     TelegramApiClient& telegramApi,
@@ -229,7 +197,7 @@ void TelegramBotService::handleStrategyListCallback(
         return;
     }
 
-    const auto townHall = parseTownHall(callbackData.arguments[0]);
+    const auto townHall = telegram::parseTownHall(callbackData.arguments[0]);
 
     if (!townHall)
     {
@@ -264,7 +232,7 @@ void TelegramBotService::handleGuideListCallback(
         return;
     }
 
-    const auto townHall = parseTownHall(callbackData.arguments[0]);
+    const auto townHall = telegram::parseTownHall(callbackData.arguments[0]);
 
     if (!townHall)
     {
@@ -319,7 +287,7 @@ void TelegramBotService::handleVideoGuideCallback(
         return;
     }
 
-    const auto townHall = parseTownHall(callbackData.arguments[0]);
+    const auto townHall = telegram::parseTownHall(callbackData.arguments[0]);
 
     if (!townHall)
     {

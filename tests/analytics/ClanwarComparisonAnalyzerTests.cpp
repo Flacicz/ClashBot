@@ -750,3 +750,114 @@ TEST(ClanwarAnalyzerPerformanceComparisonTest, UsesAverageDestructionPerAttack)
     EXPECT_EQ(1, comparison.worsenedMetrics);
     EXPECT_EQ(3, comparison.unchangedMetrics);
 }
+
+TEST(ClanwarAnalyzerPerformanceComparisonTest, HandlesZeroTeamSize)
+{
+    const auto currentWar = makeWarStats(
+        ClanwarOutcome::Draw,
+        0.0,
+        0,
+        0.0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0.0
+    );
+    const auto historicalAverages = makeHistoricalAverages(
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+    );
+
+    const auto comparison = clanwar_analytics::compareWithHistoricalAverage(
+        currentWar,
+        historicalAverages
+    );
+
+    EXPECT_EQ(ClanwarPerformanceTrend::Similar, comparison.trend);
+    EXPECT_EQ(0, comparison.improvedMetrics);
+    EXPECT_EQ(0, comparison.worsenedMetrics);
+    EXPECT_EQ(4, comparison.unchangedMetrics);
+    EXPECT_EQ(4, comparison.totalMetrics);
+    EXPECT_DOUBLE_EQ(0.0, comparison.improvedMetricsRate);
+    EXPECT_DOUBLE_EQ(0.0, comparison.worsenedMetricsRate);
+    EXPECT_DOUBLE_EQ(1.0, comparison.unchangedMetricsRate);
+}
+
+TEST(ClanwarAnalyzerPerformanceComparisonTest, HandlesZeroParticipantsForFirstAttackRate)
+{
+    const auto currentWar = makeWarStats(
+        ClanwarOutcome::Draw,
+        80.0,
+        60,
+        2.0,
+        30,
+        15,
+        15,
+        15,
+        0,
+        0,
+        80.0
+    );
+    const auto historicalAverages = makeHistoricalAverages(
+        2.0,
+        80.0,
+        1.0,
+        0.0,
+        0.0
+    );
+
+    const auto comparison = clanwar_analytics::compareWithHistoricalAverage(
+        currentWar,
+        historicalAverages
+    );
+
+    EXPECT_EQ(ClanwarPerformanceTrend::Similar, comparison.trend);
+    EXPECT_EQ(0, comparison.improvedMetrics);
+    EXPECT_EQ(0, comparison.worsenedMetrics);
+    EXPECT_EQ(4, comparison.unchangedMetrics);
+    EXPECT_EQ(4, comparison.totalMetrics);
+}
+
+TEST(ClanwarAnalyzerPerformanceComparisonTest, HandlesCurrentWarWithoutAttacks)
+{
+    const auto currentWar = makeWarStats(
+        ClanwarOutcome::Defeat,
+        0.0,
+        0,
+        0.0,
+        30,
+        0,
+        15,
+        15,
+        0,
+        0,
+        0.0
+    );
+    const auto historicalAverages = makeHistoricalAverages(
+        2.0,
+        80.0,
+        0.1,
+        0.0,
+        0.0
+    );
+
+    const auto comparison = clanwar_analytics::compareWithHistoricalAverage(
+        currentWar,
+        historicalAverages
+    );
+
+    EXPECT_EQ(ClanwarPerformanceTrend::Worse, comparison.trend);
+    EXPECT_EQ(0, comparison.improvedMetrics);
+    EXPECT_EQ(3, comparison.worsenedMetrics);
+    EXPECT_EQ(1, comparison.unchangedMetrics);
+    EXPECT_EQ(4, comparison.totalMetrics);
+    EXPECT_DOUBLE_EQ(0.0, comparison.improvedMetricsRate);
+    EXPECT_DOUBLE_EQ(0.75, comparison.worsenedMetricsRate);
+    EXPECT_DOUBLE_EQ(0.25, comparison.unchangedMetricsRate);
+}

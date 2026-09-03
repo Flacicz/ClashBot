@@ -56,6 +56,10 @@ add_library(ClashBotCore STATIC
         src/reports/ClanwarsLeagueRoundEndedFormatter.cpp
         src/reports/ClanwarEndedFormatter.cpp
         src/reports/ClanwarComparisonFormatter.cpp
+        src/telegram/TelegramCallbackData.cpp
+        src/telegram/TelegramKeyboards.cpp
+        src/telegram/AttackGuideCatalog.cpp
+        src/telegram/TelegramValidation.cpp
 )
 
 target_include_directories(ClashBotCore PUBLIC
@@ -90,10 +94,7 @@ add_executable(${PROJECT_NAME}
         src/events/EventDispatcher.cpp
         src/database/repos/NotificationsRepo.cpp
         src/api/TelegramApiClient.cpp
-        src/telegram/TelegramCallbackData.cpp
-        src/telegram/TelegramKeyboards.cpp
         src/service/TelegramBotService.cpp
-        src/telegram/AttackGuideCatalog.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -134,6 +135,10 @@ add_executable(ClashBotTests
         tests/reports/ClanwarsLeagueRoundEndedFormatterTests.cpp
         tests/reports/ClanwarComparisonFormatterTests.cpp
         tests/reports/WarReportPartsTests.cpp
+        tests/telegram/TelegramCallbackDataTests.cpp
+        tests/telegram/TelegramKeyboardsTests.cpp
+        tests/telegram/AttackGuideCatalogTests.cpp
+        tests/telegram/TelegramValidationTests.cpp
 )
 
 target_include_directories(ClashBotTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

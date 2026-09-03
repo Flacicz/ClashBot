@@ -119,6 +119,47 @@ TEST(RaidComparisonAnalyzerTest, BuildsComparisonDataFromPreviousRaids)
     ASSERT_TRUE(comparisonData.performanceComparison.has_value());
 }
 
+TEST(RaidComparisonAnalyzerTest, BuildsComparisonDataWithoutPreviousRaids)
+{
+    const auto currentRaid = makeRaidStats(10, 0, 0, 0, 0, 0, 0, 0, 0);
+    const std::vector<RaidComparisonStats> previousRaids;
+
+    const auto comparisonData =
+        raids_analytics::buildComparisonData(currentRaid, previousRaids);
+
+    EXPECT_EQ(currentRaid.startTime, comparisonData.currentRaid.startTime);
+    EXPECT_FALSE(comparisonData.previousRaid.has_value());
+    EXPECT_FALSE(comparisonData.previousRaidsAverage.has_value());
+    EXPECT_FALSE(comparisonData.performanceComparison.has_value());
+}
+
+TEST(RaidComparisonAnalyzerTest, ReturnsZeroAveragesWhenHistoricalTotalsAreZero)
+{
+    const std::vector previousRaids{
+        makeRaidStats(1, 0, 0, 0, 0, 0, 0, 0, 0)
+    };
+
+    const auto averages = raids_analytics::calculateHistoricalAverages(previousRaids);
+
+    ASSERT_TRUE(averages.has_value());
+    EXPECT_EQ(1, averages->raidsCount);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageLootPerUsedAttack);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageParticipantsWithAllAttacksUsedRate);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageParticipantsWithoutAttacksRate);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageAttackUsageRate);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageActiveParticipants);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageEligibleParticipants);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageParticipantsWithAllAttacksUsed);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageParticipantsWithoutAttacks);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageUsedAttacks);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageAvailableAttacks);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageTotalLoot);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageRaidsCompleted);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageEnemyDistrictsDestroyed);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageOffensiveReward);
+    EXPECT_DOUBLE_EQ(0.0, averages->averageDefensiveReward);
+}
+
 TEST(RaidComparisonAnalyzerTest, ReportsBetterPerformance)
 {
     const auto currentRaid = makeRaidStats(1, 1200, 1, 100, 100, 8, 10, 8, 1);
@@ -168,4 +209,44 @@ TEST(RaidComparisonAnalyzerTest, ReportsSimilarPerformance)
     EXPECT_EQ(0, comparison.worsenedMetrics);
     EXPECT_EQ(3, comparison.unchangedMetrics);
     EXPECT_DOUBLE_EQ(1.0, comparison.unchangedMetricsRate);
+}
+
+TEST(RaidComparisonAnalyzerTest, ReportsSimilarPerformanceWithZeroHistoricalAverages)
+{
+    const auto currentRaid = makeRaidStats(1, 0, 0, 0, 0, 0, 0, 0, 0);
+    const auto historicalAverages = makeHistoricalAverages(0.0, 0.0, 0.0);
+
+    const auto comparison = raids_analytics::compareWithHistoricalAverage(
+        currentRaid,
+        historicalAverages
+    );
+
+    EXPECT_EQ(RaidPerformanceTrend::Similar, comparison.trend);
+    EXPECT_EQ(0, comparison.improvedMetrics);
+    EXPECT_EQ(0, comparison.worsenedMetrics);
+    EXPECT_EQ(3, comparison.unchangedMetrics);
+    EXPECT_EQ(3, comparison.totalMetrics);
+    EXPECT_DOUBLE_EQ(0.0, comparison.improvedMetricsRate);
+    EXPECT_DOUBLE_EQ(0.0, comparison.worsenedMetricsRate);
+    EXPECT_DOUBLE_EQ(1.0, comparison.unchangedMetricsRate);
+}
+
+TEST(RaidComparisonAnalyzerTest, HandlesZeroDenominatorsForCurrentRaid)
+{
+    const auto currentRaid = makeRaidStats(1, 100, 0, 0, 0, 0, 0, 0, 0);
+    const auto historicalAverages = makeHistoricalAverages(10.0, 0.5, 0.2);
+
+    const auto comparison = raids_analytics::compareWithHistoricalAverage(
+        currentRaid,
+        historicalAverages
+    );
+
+    EXPECT_EQ(RaidPerformanceTrend::Worse, comparison.trend);
+    EXPECT_EQ(1, comparison.improvedMetrics);
+    EXPECT_EQ(2, comparison.worsenedMetrics);
+    EXPECT_EQ(0, comparison.unchangedMetrics);
+    EXPECT_EQ(3, comparison.totalMetrics);
+    EXPECT_DOUBLE_EQ(1.0 / 3.0, comparison.improvedMetricsRate);
+    EXPECT_DOUBLE_EQ(2.0 / 3.0, comparison.worsenedMetricsRate);
+    EXPECT_DOUBLE_EQ(0.0, comparison.unchangedMetricsRate);
 }
