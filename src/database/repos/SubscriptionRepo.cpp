@@ -6,6 +6,27 @@ SubscriptionRepo::SubscriptionRepo(sqlite3* db) : BaseRepository(db, std::string
 {
 }
 
+void SubscriptionRepo::saveTelegramChat(
+    const long long chatId,
+    const long long messageThreadId,
+    const std::string_view title) const
+{
+    static constexpr std::string_view sql = R"(
+        INSERT INTO telegram_chats(chat_id, message_thread_id, title)
+        VALUES (?, ?, ?)
+        ON CONFLICT(chat_id, message_thread_id) DO UPDATE SET
+            title = excluded.title;
+    )";
+
+    execute(sql, "save Telegram chat",
+            fmt::format("chat_id = {}, message_thread_id = {}",
+                        chatId,
+                        messageThreadId),
+            chatId,
+            messageThreadId,
+            title);
+}
+
 std::vector<telegram::TelegramDestination> SubscriptionRepo::getDestinationsForClan(
     const std::string_view clanTag,
     const Audience audience) const

@@ -7,8 +7,11 @@
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
+#include <vector>
 
 #include "api/TelegramApiClient.h"
+#include "database/repos/ClansRepo.h"
+#include "database/repos/SubscriptionRepo.h"
 #include "models/telegram/TelegramModels.h"
 #include "telegram/AttackGuideCatalog.h"
 
@@ -17,6 +20,8 @@ class TelegramBotService
 private:
     TelegramApiClient& telegram_api_client_;
     const telegram::AttackGuideCatalog& attack_guide_catalog_;
+    ClansRepo& clans_repo_;
+    SubscriptionRepo& subscription_repo_;
 
     void processUpdate(const nlohmann::json& update) const;
     void handleMessage(const nlohmann::json& update) const;
@@ -37,11 +42,18 @@ private:
         const telegram::CallbackData& callbackData) const;
 
     void sendStartMenu(long long chatId) const;
+    void handleLinkCommand(
+        long long chatId,
+        long long messageThreadId,
+        const nlohmann::json& chat,
+        const std::vector<std::string>& arguments) const;
 
 public:
     TelegramBotService(
         TelegramApiClient& telegramApi,
-        const telegram::AttackGuideCatalog& attackGuideCatalog);
+        const telegram::AttackGuideCatalog& attackGuideCatalog,
+        ClansRepo& clansRepo,
+        SubscriptionRepo& subscriptionRepo);
 
     void loop() const;
     void stopLoop();

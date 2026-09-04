@@ -5,6 +5,7 @@
 #include "service/TelegramBotService.h"
 
 #include "core/Exceptions.h"
+#include "telegram/TelegramCommands.h"
 #include "telegram/TelegramKeyboards.h"
 #include "telegram/TelegramCallbackData.h"
 #include "telegram/TelegramValidation.h"
@@ -15,9 +16,13 @@
 
 TelegramBotService::TelegramBotService(
     TelegramApiClient& telegramApi,
-    const telegram::AttackGuideCatalog& attackGuideCatalog)
+    const telegram::AttackGuideCatalog& attackGuideCatalog,
+    ClansRepo& clansRepo,
+    SubscriptionRepo& subscriptionRepo)
     : telegram_api_client_(telegramApi),
-      attack_guide_catalog_(attackGuideCatalog)
+      attack_guide_catalog_(attackGuideCatalog),
+      clans_repo_(clansRepo),
+      subscription_repo_(subscriptionRepo)
 {
 }
 
@@ -88,9 +93,139 @@ void TelegramBotService::handleMessage(const nlohmann::json& update) const
     const std::string text =
         update.value("text", "");
 
-    if (text == "/start")
+    const auto command = telegram::parseCommand(text);
+
+    if (command && command->name == "start" && command->arguments.empty())
     {
         sendStartMenu(chatId);
+    }
+    else if (command && command->name == "link")
+    {
+        handleLinkCommand(
+            chatId,
+            update.value("message_thread_id", 0LL),
+            update.at("chat"),
+            command->arguments);
+    }
+}
+
+void TelegramBotService::handleLinkCommand(
+    const long long chatId,
+    const long long messageThreadId,
+    const nlohmann::json& chat,
+    const std::vector<std::string>& arguments) const
+{
+    const auto chatType = chat.value("type", "");
+
+    Audience audience;
+
+    if (chatType == "private")
+    {
+        audience = Audience::Management;
+    }
+    else if (chatType == "group" || chatType == "supergroup")
+    {
+        audience = Audience::Players;
+    }
+    else
+    {
+        telegram_api_client_.sendMessage(
+            chatId,
+            "Этот тип Telegram-чата пока не поддерживается для привязки.",
+            messageThreadId);
+        return;
+    }
+
+    if (arguments.size() != 1)
+    {
+        telegram_api_client_.sendMessage(
+            chatId,
+            "Использование: /link #ТЕГ_КЛАНА\n"
+            "Например: /link #2PPLQ",
+            messageThreadId);
+        return;
+    }
+
+    const auto requestedTag = telegram::parseClanTag(arguments.front());
+
+    if (!requestedTag)
+    {
+        telegram_api_client_.sendMessage(
+            chatId,
+            "Некорректный тег клана. Используйте формат #TAG или TAG.",
+            messageThreadId);
+        return;
+    }
+
+    try
+    {
+        const auto trackedClans = clans_repo_.getTrackedClans();
+        const auto trackedClan = std::ranges::find_if(
+            trackedClans,
+            [&requestedTag](const std::string& trackedTag)
+            {
+                const auto normalizedTrackedTag = telegram::parseClanTag(trackedTag);
+                return normalizedTrackedTag && *normalizedTrackedTag == *requestedTag;
+            });
+
+        if (trackedClan == trackedClans.end())
+        {
+            telegram_api_client_.sendMessage(
+                chatId,
+                "Клан " + *requestedTag +
+                " не найден среди отслеживаемых кланов.",
+                messageThreadId);
+            return;
+        }
+
+        std::string title = chat.value("title", "");
+
+        if (title.empty())
+        {
+            title = chat.value("first_name", "");
+            const auto lastName = chat.value("last_name", "");
+
+            if (!title.empty() && !lastName.empty())
+            {
+                title += " " + lastName;
+            }
+            else if (title.empty())
+            {
+                title = chat.value("username", "Telegram-чат");
+            }
+        }
+
+        subscription_repo_.saveTelegramChat(chatId, messageThreadId, title);
+        subscription_repo_.subscribeToChat(
+            chatId,
+            messageThreadId,
+            *trackedClan,
+            audience);
+
+        const std::string destination = chatType == "private"
+                                            ? "Личный чат"
+                                            : "Общий чат";
+        const std::string details = audience == Audience::Management
+                                        ? "управленческие уведомления: нарушения, ростер и другие отчёты для руководства"
+                                        : "обычные отчёты и уведомления для игроков";
+
+        telegram_api_client_.sendMessage(
+            chatId,
+            "Готово! " + destination + " привязан к клану " + *requestedTag +
+            ".\n\n" + destination + " будет получать " + details + ".",
+            messageThreadId);
+    }
+    catch (const DatabaseException& error)
+    {
+        spdlog::error(
+            "[TelegramBotService] Failed to link chat {}: {}",
+            chatId,
+            error.what());
+
+        telegram_api_client_.sendMessage(
+            chatId,
+            "Не удалось сохранить привязку. Попробуйте ещё раз позже.",
+            messageThreadId);
     }
 }
 

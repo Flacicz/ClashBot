@@ -17,6 +17,11 @@ class SubscriptionRepo : public BaseRepository
 public:
     explicit SubscriptionRepo(sqlite3* db);
 
+    void saveTelegramChat(
+        long long chatId,
+        long long messageThreadId,
+        std::string_view title) const;
+
     [[nodiscard]] std::vector<telegram::TelegramDestination> getDestinationsForClan(
         std::string_view clanTag,
         Audience audience) const;

@@ -202,7 +202,9 @@ int main(const int argc, char* argv[])
 
         TelegramBotService telegramBotService(
             telegramApiClient,
-            attackGuideCatalog);
+            attackGuideCatalog,
+            db.clans(),
+            db.subscriptions());
 
         std::thread telegramThread(
             [&telegramBotService]

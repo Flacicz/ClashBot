@@ -57,6 +57,7 @@ add_library(ClashBotCore STATIC
         src/reports/ClanwarEndedFormatter.cpp
         src/reports/ClanwarComparisonFormatter.cpp
         src/telegram/TelegramCallbackData.cpp
+        src/telegram/TelegramCommands.cpp
         src/telegram/TelegramKeyboards.cpp
         src/telegram/AttackGuideCatalog.cpp
         src/telegram/TelegramValidation.cpp
@@ -136,6 +137,7 @@ add_executable(ClashBotTests
         tests/reports/ClanwarComparisonFormatterTests.cpp
         tests/reports/WarReportPartsTests.cpp
         tests/telegram/TelegramCallbackDataTests.cpp
+        tests/telegram/TelegramCommandsTests.cpp
         tests/telegram/TelegramKeyboardsTests.cpp
         tests/telegram/AttackGuideCatalogTests.cpp
         tests/telegram/TelegramValidationTests.cpp
