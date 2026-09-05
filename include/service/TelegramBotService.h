@@ -49,6 +49,12 @@ private:
         long long messageThreadId,
         const nlohmann::json& chat,
         const std::vector<std::string>& arguments) const;
+    void handleUnlinkCommand(
+        long long chatId,
+        long long messageThreadId,
+        const nlohmann::json& chat,
+        const std::vector<std::string>& arguments
+    ) const;
 
 public:
     TelegramBotService(

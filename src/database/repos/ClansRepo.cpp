@@ -10,7 +10,8 @@ std::vector<std::string> ClansRepo::getTrackedClans() const
 {
     static constexpr std::string_view sql = R"(
         SELECT tag
-        FROM clans;
+        FROM clans
+        WHERE tracking_enabled = 1;
     )";
 
     auto mapper = [](sqlite3_stmt* stmt) -> std::string
@@ -26,10 +27,24 @@ void ClansRepo::insertMinimalClan(std::string_view tag) const
     static constexpr std::string_view sql = R"(
         INSERT INTO clans (tag, name)
         VALUES (?, 'Pending synchronization')
-        ON CONFLICT(tag) DO NOTHING;
+        ON CONFLICT(tag) DO UPDATE SET
+            tracking_enabled = 1;
     )";
 
     execute(sql, "insert minimal clan",
+            fmt::format("clan_tag = {}", tag),
+            tag);
+}
+
+void ClansRepo::disableTracking(std::string_view tag) const
+{
+    static constexpr std::string_view sql = R"(
+        UPDATE clans
+        SET tracking_enabled = 0
+        WHERE tag = ?;
+    )";
+
+    execute(sql, "disable tracking",
             fmt::format("clan_tag = {}", tag),
             tag);
 }

@@ -109,6 +109,14 @@ void TelegramBotService::handleMessage(const nlohmann::json& update) const
             update.at("chat"),
             command->arguments);
     }
+    else if (command && command->name == "unlink")
+    {
+        handleUnlinkCommand(
+            chatId,
+            update.value("message_thread_id", 0LL),
+            update.at("chat"),
+            command->arguments);
+    }
 }
 
 void TelegramBotService::handleLinkCommand(
@@ -215,6 +223,118 @@ void TelegramBotService::handleLinkCommand(
         telegram_api_client_.sendMessage(
             chatId,
             "Не удалось сохранить привязку. Попробуйте ещё раз позже.",
+            messageThreadId);
+    }
+}
+
+void TelegramBotService::handleUnlinkCommand(long long chatId, long long messageThreadId, const nlohmann::json& chat,
+                                             const std::vector<std::string>& arguments) const
+{
+    const auto chatType = chat.value("type", "");
+
+    Audience audience;
+
+    if (chatType == "private")
+    {
+        audience = Audience::Management;
+    }
+    else if (chatType == "group" || chatType == "supergroup")
+    {
+        audience = Audience::Players;
+    }
+    else
+    {
+        telegram_api_client_.sendMessage(
+            chatId,
+            "Этот тип Telegram-чата пока не поддерживается для отвязки.",
+            messageThreadId);
+        return;
+    }
+
+    if (arguments.size() != 1)
+    {
+        telegram_api_client_.sendMessage(
+            chatId,
+            "Использование: /unlink #ТЕГ_КЛАНА\n"
+            "Например: /unlink #2PPLQ",
+            messageThreadId);
+        return;
+    }
+
+    const auto requestedTag = telegram::parseClanTag(arguments.front());
+
+    if (!requestedTag)
+    {
+        telegram_api_client_.sendMessage(
+            chatId,
+            "Некорректный тег клана. Используйте формат #TAG или TAG.",
+            messageThreadId);
+        return;
+    }
+
+    try
+    {
+        const std::string& clanTag = *requestedTag;
+
+        auto transaction = transaction_manager_.beginTransaction();
+
+        if (!subscription_repo_.hasSubscription(
+            chatId,
+            messageThreadId,
+            clanTag,
+            audience))
+        {
+            transaction.commit();
+
+            telegram_api_client_.sendMessage(
+                chatId,
+                "Этот чат не привязан к клану " + clanTag + ".",
+                messageThreadId);
+            return;
+        }
+
+        subscription_repo_.unsubscribeFromChat(
+            chatId,
+            messageThreadId,
+            clanTag,
+            audience);
+
+        const bool hasChatSubscriptions =
+            subscription_repo_.hasSubscriptionsForChat(chatId, messageThreadId);
+        const bool hasClanSubscriptions =
+            subscription_repo_.hasSubscriptionsForClan(clanTag);
+
+        if (!hasChatSubscriptions)
+        {
+            subscription_repo_.deleteTelegramChat(chatId, messageThreadId);
+        }
+
+        if (!hasClanSubscriptions)
+        {
+            clans_repo_.disableTracking(clanTag);
+        }
+
+        transaction.commit();
+
+        const std::string destination = chatType == "private"
+                                            ? "Личный чат"
+                                            : "Общий чат";
+
+        telegram_api_client_.sendMessage(
+            chatId,
+            "Готово! " + destination + " отвязан от клана " + clanTag + ".",
+            messageThreadId);
+    }
+    catch (const DatabaseException& error)
+    {
+        spdlog::error(
+            "[TelegramBotService] Failed to unlink chat {}: {}",
+            chatId,
+            error.what());
+
+        telegram_api_client_.sendMessage(
+            chatId,
+            "Не удалось отвязать чат. Попробуйте ещё раз позже.",
             messageThreadId);
     }
 }

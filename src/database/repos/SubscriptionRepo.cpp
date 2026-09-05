@@ -27,6 +27,105 @@ void SubscriptionRepo::saveTelegramChat(
             title);
 }
 
+void SubscriptionRepo::deleteTelegramChat(long long chatId, long long messageThreadId) const
+{
+    static constexpr std::string_view sql = R"(
+        DELETE FROM telegram_chats
+        WHERE chat_id = ? AND message_thread_id = ?;
+    )";
+
+    execute(sql, "delete Telegram chat",
+            fmt::format("chat_id = {}, message_thread_id = {}",
+                        chatId,
+                        messageThreadId),
+            chatId,
+            messageThreadId);
+}
+
+bool SubscriptionRepo::hasSubscription(
+    const long long chatId,
+    const long long messageThreadId,
+    const std::string_view clanTag,
+    const Audience audience) const
+{
+    static constexpr std::string_view sql = R"(
+        SELECT EXISTS(
+            SELECT 1
+            FROM clan_subscriptions
+            WHERE chat_id = ?
+              AND message_thread_id = ?
+              AND clan_tag = ?
+              AND audience = ?
+        );
+    )";
+
+    auto mapper = [](sqlite3_stmt* stmt) -> bool
+    {
+        return sqlite::getInt(stmt, 0) != 0;
+    };
+
+    return queryOne<bool>(sql, "check Telegram subscription",
+                          fmt::format(
+                              "clan_tag = {}, chat_id = {}, message_thread_id = {}, audience = {}",
+                              clanTag,
+                              chatId,
+                              messageThreadId,
+                              AudienceUtils::key(audience)),
+                          mapper,
+                          chatId,
+                          messageThreadId,
+                          clanTag,
+                          AudienceUtils::key(audience));
+}
+
+bool SubscriptionRepo::hasSubscriptionsForChat(
+    const long long chatId,
+    const long long messageThreadId) const
+{
+    static constexpr std::string_view sql = R"(
+        SELECT EXISTS(
+            SELECT 1
+            FROM clan_subscriptions
+            WHERE chat_id = ?
+              AND message_thread_id = ?
+        );
+    )";
+
+    auto mapper = [](sqlite3_stmt* stmt) -> bool
+    {
+        return sqlite::getInt(stmt, 0) != 0;
+    };
+
+    return queryOne<bool>(sql, "check Telegram chat subscriptions",
+                          fmt::format("chat_id = {}, message_thread_id = {}",
+                                      chatId,
+                                      messageThreadId),
+                          mapper,
+                          chatId,
+                          messageThreadId);
+}
+
+bool SubscriptionRepo::hasSubscriptionsForClan(const std::string_view clanTag) const
+{
+    static constexpr std::string_view sql = R"(
+        SELECT EXISTS(
+            SELECT 1
+            FROM clan_subscriptions
+            WHERE clan_tag = ?
+        );
+    )";
+
+    auto mapper = [](sqlite3_stmt* stmt) -> bool
+    {
+        return sqlite::getInt(stmt, 0) != 0;
+    };
+
+    return queryOne<bool>(sql, "check clan subscriptions",
+                          fmt::format("clan_tag = {}", clanTag),
+                          mapper,
+                          clanTag);
+}
+
 std::vector<telegram::TelegramDestination> SubscriptionRepo::getDestinationsForClan(
     const std::string_view clanTag,
     const Audience audience) const
@@ -47,12 +146,12 @@ std::vector<telegram::TelegramDestination> SubscriptionRepo::getDestinationsForC
     };
 
     return query<telegram::TelegramDestination>(sql, "load Telegram destinations by clan tag",
-                                      fmt::format("clan_tag = {}, audience = {}",
-                                                  clanTag,
-                                                  AudienceUtils::key(audience)),
-                                      mapper,
-                                      clanTag,
-                                      AudienceUtils::key(audience));
+                                                fmt::format("clan_tag = {}, audience = {}",
+                                                            clanTag,
+                                                            AudienceUtils::key(audience)),
+                                                mapper,
+                                                clanTag,
+                                                AudienceUtils::key(audience));
 }
 
 std::vector<std::string> SubscriptionRepo::getClanTagsForChat(

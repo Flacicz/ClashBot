@@ -15,6 +15,7 @@ public:
 
     [[nodiscard]] std::vector<std::string> getTrackedClans() const;
     void insertMinimalClan(std::string_view tag) const;
+    void disableTracking(std::string_view tag) const;
 
     [[nodiscard]] std::string getClanNameByTag(std::string_view clanTag) const;
 

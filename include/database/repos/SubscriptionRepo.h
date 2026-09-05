@@ -22,6 +22,21 @@ public:
         long long messageThreadId,
         std::string_view title) const;
 
+    void deleteTelegramChat(long long chatId,
+                            long long messageThreadId) const;
+
+    [[nodiscard]] bool hasSubscription(
+        long long chatId,
+        long long messageThreadId,
+        std::string_view clanTag,
+        Audience audience) const;
+
+    [[nodiscard]] bool hasSubscriptionsForChat(
+        long long chatId,
+        long long messageThreadId) const;
+
+    [[nodiscard]] bool hasSubscriptionsForClan(std::string_view clanTag) const;
+
     [[nodiscard]] std::vector<telegram::TelegramDestination> getDestinationsForClan(
         std::string_view clanTag,
         Audience audience) const;
