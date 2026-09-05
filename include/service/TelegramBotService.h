@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "api/TelegramApiClient.h"
+#include "database/TransactionManager.h"
 #include "database/repos/ClansRepo.h"
 #include "database/repos/SubscriptionRepo.h"
 #include "models/telegram/TelegramModels.h"
@@ -22,6 +23,7 @@ private:
     const telegram::AttackGuideCatalog& attack_guide_catalog_;
     ClansRepo& clans_repo_;
     SubscriptionRepo& subscription_repo_;
+    TransactionManager& transaction_manager_;
 
     void processUpdate(const nlohmann::json& update) const;
     void handleMessage(const nlohmann::json& update) const;
@@ -53,7 +55,8 @@ public:
         TelegramApiClient& telegramApi,
         const telegram::AttackGuideCatalog& attackGuideCatalog,
         ClansRepo& clansRepo,
-        SubscriptionRepo& subscriptionRepo);
+        SubscriptionRepo& subscriptionRepo,
+        TransactionManager& transactionManager);
 
     void loop() const;
     void stopLoop();

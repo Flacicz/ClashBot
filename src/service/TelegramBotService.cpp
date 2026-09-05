@@ -18,11 +18,13 @@ TelegramBotService::TelegramBotService(
     TelegramApiClient& telegramApi,
     const telegram::AttackGuideCatalog& attackGuideCatalog,
     ClansRepo& clansRepo,
-    SubscriptionRepo& subscriptionRepo)
+    SubscriptionRepo& subscriptionRepo,
+    TransactionManager& transactionManager)
     : telegram_api_client_(telegramApi),
       attack_guide_catalog_(attackGuideCatalog),
       clans_repo_(clansRepo),
-      subscription_repo_(subscriptionRepo)
+      subscription_repo_(subscriptionRepo),
+      transaction_manager_(transactionManager)
 {
 }
 
@@ -159,25 +161,6 @@ void TelegramBotService::handleLinkCommand(
 
     try
     {
-        const auto trackedClans = clans_repo_.getTrackedClans();
-        const auto trackedClan = std::ranges::find_if(
-            trackedClans,
-            [&requestedTag](const std::string& trackedTag)
-            {
-                const auto normalizedTrackedTag = telegram::parseClanTag(trackedTag);
-                return normalizedTrackedTag && *normalizedTrackedTag == *requestedTag;
-            });
-
-        if (trackedClan == trackedClans.end())
-        {
-            telegram_api_client_.sendMessage(
-                chatId,
-                "Клан " + *requestedTag +
-                " не найден среди отслеживаемых кланов.",
-                messageThreadId);
-            return;
-        }
-
         std::string title = chat.value("title", "");
 
         if (title.empty())
@@ -195,12 +178,19 @@ void TelegramBotService::handleLinkCommand(
             }
         }
 
+        const std::string& clanTag = *requestedTag;
+
+        auto transaction = transaction_manager_.beginTransaction();
+
+        clans_repo_.insertMinimalClan(clanTag);
         subscription_repo_.saveTelegramChat(chatId, messageThreadId, title);
         subscription_repo_.subscribeToChat(
             chatId,
             messageThreadId,
-            *trackedClan,
+            clanTag,
             audience);
+
+        transaction.commit();
 
         const std::string destination = chatType == "private"
                                             ? "Личный чат"
@@ -375,7 +365,7 @@ void TelegramBotService::handleGuideListCallback(
             "[TelegramBotService] Invalid town hall value: {}",
             callbackData.arguments[0]);
 
-            return;
+        return;
     }
 
     const std::string& armyId = callbackData.arguments[1];

@@ -21,6 +21,19 @@ std::vector<std::string> ClansRepo::getTrackedClans() const
     return query<std::string>(sql, "load tracked clans", "", mapper);
 }
 
+void ClansRepo::insertMinimalClan(std::string_view tag) const
+{
+    static constexpr std::string_view sql = R"(
+        INSERT INTO clans (tag, name)
+        VALUES (?, 'Pending synchronization')
+        ON CONFLICT(tag) DO NOTHING;
+    )";
+
+    execute(sql, "insert minimal clan",
+            fmt::format("clan_tag = {}", tag),
+            tag);
+}
+
 void ClansRepo::saveClan(const Clan& clan) const
 {
     static constexpr std::string_view sql = R"(

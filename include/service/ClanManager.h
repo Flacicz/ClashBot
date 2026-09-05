@@ -2,6 +2,7 @@
 #include <mutex>
 #include <condition_variable>
 
+#include "database/repos/ClansRepo.h"
 #include "ISyncService.h"
 #include "events/EventDispatcher.h"
 #include "notifications/NotificationService.h"
@@ -11,7 +12,7 @@ class ClanManager
 {
     EventDispatcher eventDispatcher;
     std::vector<std::unique_ptr<ISyncService>> services;
-    std::vector<std::string> targetClans;
+    ClansRepo& clans_repo_;
 
     std::mutex mtx;
     std::condition_variable cv;
@@ -34,7 +35,7 @@ public:
     ClanManager(
         EventDispatcher event_dispatcher,
         std::vector<std::unique_ptr<ISyncService>> services,
-        std::vector<std::string> targetClans
+        ClansRepo& clans_repo
     );
 
     void syncAll();

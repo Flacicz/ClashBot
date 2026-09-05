@@ -1,5 +1,7 @@
 #include "service/ClanManager.h"
 
+#include "core/Exceptions.h"
+
 #include <mutex>
 #include <condition_variable>
 #include <spdlog/spdlog.h>
@@ -7,11 +9,11 @@
 ClanManager::ClanManager(
     const EventDispatcher event_dispatcher,
     std::vector<std::unique_ptr<ISyncService>> services,
-    std::vector<std::string> targetClans
+    ClansRepo& clans_repo
 )
     : eventDispatcher(event_dispatcher),
       services(std::move(services)),
-      targetClans(std::move(targetClans))
+      clans_repo_(clans_repo)
 {
 }
 
@@ -82,6 +84,21 @@ void ClanManager::syncAll()
 {
     while (isRunning.load())
     {
+        std::vector<std::string> targetClans;
+
+        try
+        {
+            targetClans = clans_repo_.getTrackedClans();
+        }
+        catch (const DatabaseException& error)
+        {
+            spdlog::error("[Manager] Failed to load tracked clans: {}", error.what());
+
+            std::unique_lock lock(mtx);
+            cv.wait_for(lock, std::chrono::seconds(30), [this] { return !isRunning.load(); });
+            continue;
+        }
+
         spdlog::info(
             "[Manager] Starting synchronization cycle for {} tracked clans.",
             targetClans.size());

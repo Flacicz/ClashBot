@@ -128,10 +128,6 @@ int main(const int argc, char* argv[])
 
         spdlog::info("[DB] Database migrations completed successfully.");
 
-        auto targetClans = db.clans().getTrackedClans();
-
-        spdlog::info("[Main] Target clans: {}", targetClans.size());
-
 
         auto telegramApiClient = TelegramApiClient(std::move(config.telegramToken));
         const telegram::AttackGuideCatalog attackGuideCatalog(
@@ -176,7 +172,7 @@ int main(const int argc, char* argv[])
         services.push_back(std::make_unique<RaidService>(db.clans(), db.raids(), apiClient, transactions));
         services.push_back(std::make_unique<ClanwarLeagueService>(db.war(), db.leagueWar(), apiClient, transactions));
 
-        ClanManager clanManager(eventDispatcher, std::move(services), std::move(targetClans));
+        ClanManager clanManager(eventDispatcher, std::move(services), db.clans());
 
         spdlog::info("[Main] All application services initialized successfully.");
 
@@ -204,7 +200,8 @@ int main(const int argc, char* argv[])
             telegramApiClient,
             attackGuideCatalog,
             db.clans(),
-            db.subscriptions());
+            db.subscriptions(),
+            transactions);
 
         std::thread telegramThread(
             [&telegramBotService]
