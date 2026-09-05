@@ -37,6 +37,8 @@ Player Player::parsePlayer(const nlohmann::json& j, const std::string_view clanT
 
 std::vector<Player> Player::parsePlayersList(const nlohmann::json& j)
 {
+    if (!j.contains("memberList") || !j["memberList"].is_array()) return {};
+
     std::vector<Player> players;
     players.reserve(j["memberList"].size());
 
@@ -110,8 +112,10 @@ PlayerSnapshot PlayerSnapshot::parsePlayerSnapshot(const nlohmann::json& j,
 }
 
 std::vector<PlayerSnapshot> PlayerSnapshot::parsePlayerSnapshotList(const nlohmann::json& j,
-                                                                     const std::string_view clanTag)
+                                                                    const std::string_view clanTag)
 {
+    if (!j.contains("memberList") || !j["memberList"].is_array()) return {};
+
     std::vector<PlayerSnapshot> playerSnapshots;
     playerSnapshots.reserve(j["memberList"].size());
 

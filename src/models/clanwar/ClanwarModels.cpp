@@ -62,7 +62,10 @@ std::vector<ClanwarAttack> ClanwarAttack::parseAttacksList(const nlohmann::json&
     std::unordered_map<std::string, std::pair<std::string, int>> playerInfo;
     for (const char* side : {"clan", "opponent"})
     {
-        if (!j.contains(side) || !j[side].contains("members")) continue;
+        if (!j.contains(side) ||
+            !j[side].is_object() ||
+            !j[side].contains("members") ||
+            !j[side]["members"].is_array()) continue;
 
         std::string clanTag = j[side].value("tag", "unknown");
 
@@ -77,7 +80,10 @@ std::vector<ClanwarAttack> ClanwarAttack::parseAttacksList(const nlohmann::json&
 
     for (const char* side : {"clan", "opponent"})
     {
-        if (!j.contains(side) || !j[side].contains("members")) continue;
+        if (!j.contains(side) ||
+            !j[side].is_object() ||
+            !j[side].contains("members") ||
+            !j[side]["members"].is_array()) continue;
 
         std::string attackerClanTag = j[side].value("tag", "unknown");
 
@@ -121,6 +127,8 @@ std::vector<ClanwarAttack> ClanwarAttack::parseAttacksList(const nlohmann::json&
 std::vector<ClanwarMember> ClanwarMember::parseClanwarMembers(const nlohmann::json& j)
 {
     std::vector<ClanwarMember> membersList;
+
+    if (!j.is_object() || !j.contains("members") || !j["members"].is_array()) return membersList;
 
     std::string clanTag = j.value("tag", "unknown");
 

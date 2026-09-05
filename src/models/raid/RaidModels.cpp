@@ -43,6 +43,8 @@ PlayerRaidSnapshot PlayerRaidSnapshot::parsePlayerRaidSnapshot(const nlohmann::j
 std::vector<PlayerRaidSnapshot> PlayerRaidSnapshot::fromJson(const nlohmann::json& j)
 {
     std::vector<PlayerRaidSnapshot> playerRaidSnapshots;
+    if (!j.is_array()) return playerRaidSnapshots;
+
     playerRaidSnapshots.reserve(j.size());
 
     for (const auto& member : j)

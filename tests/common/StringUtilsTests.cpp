@@ -4,6 +4,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cctype>
+#include <string>
+
 #include "common/StringUtils.h"
 
 TEST(TransformTagTest, TransformWithPrefix)
@@ -92,4 +96,23 @@ TEST(RemoveTrailingNewlinesTest, HandlesEmptyAndAlreadyTrimmedStrings)
 {
     EXPECT_EQ("", utils::removeTrailingNewlines(""));
     EXPECT_EQ("Отчет", utils::removeTrailingNewlines("Отчет"));
+}
+
+TEST(GetCurrentDateStringTest, ReturnsDateInIsoFormat)
+{
+    const std::string date = utils::getCurrentDateString();
+
+    ASSERT_EQ(10U, date.size());
+    EXPECT_EQ('-', date[4]);
+    EXPECT_EQ('-', date[7]);
+
+    EXPECT_TRUE(std::all_of(
+        date.begin(),
+        date.end(),
+        [](const char character)
+        {
+            return character == '-' ||
+                std::isdigit(static_cast<unsigned char>(character));
+        }
+    ));
 }

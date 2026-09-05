@@ -61,6 +61,10 @@ add_library(ClashBotCore STATIC
         src/telegram/TelegramKeyboards.cpp
         src/telegram/AttackGuideCatalog.cpp
         src/telegram/TelegramValidation.cpp
+        src/models/clan/ClanModels.cpp
+        src/models/raid/RaidModels.cpp
+        src/models/clanwar/ClanwarModels.cpp
+        src/models/cwl/CwlModels.cpp
 )
 
 target_include_directories(ClashBotCore PUBLIC
@@ -119,6 +123,8 @@ add_executable(ClashBotTests
         tests/common/ClanwarUtilsTests.cpp
         tests/common/TimeParserTests.cpp
         tests/common/SyncResultTests.cpp
+        tests/common/CommonModelsTests.cpp
+        tests/events/ApplicationEventsTests.cpp
         tests/analytics/ClanwarComparisonAnalyzerTests.cpp
         tests/analytics/RaidComparisonAnalyzerTests.cpp
         tests/reports/PlayerJoinedFormatterTests.cpp
@@ -141,6 +147,10 @@ add_executable(ClashBotTests
         tests/telegram/TelegramKeyboardsTests.cpp
         tests/telegram/AttackGuideCatalogTests.cpp
         tests/telegram/TelegramValidationTests.cpp
+        tests/models/ClanwarModelsTests.cpp
+        tests/models/RaidModelsTests.cpp
+        tests/models/CwlModelsTests.cpp
+        tests/models/ClanModelsTests.cpp
 )
 
 target_include_directories(ClashBotTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

@@ -32,7 +32,7 @@ ClanwarReference ClanwarRepo::saveCompleteClanwarData(const Clanwar& war,
 
     saveClanwarAttacks(reference, attacks);
     replaceClanwarMembers(reference, members.first);
-    saveClanwarMembers(reference, members.second);
+    replaceClanwarMembers(reference, members.second);
 
     return reference;
 }
@@ -178,6 +178,10 @@ void ClanwarRepo::replaceClanwarMembers(const ClanwarReference& reference,
 {
     if (members.empty()) return;
 
+    const long long warClanId = members.front().clanTag == reference.clanTag
+                                    ? reference.homeClanId
+                                    : reference.opponentClanId;
+
     static constexpr std::string_view sql = R"(
         DELETE FROM war_members
         WHERE war_id = ? AND war_clan_id = ?;
@@ -185,9 +189,9 @@ void ClanwarRepo::replaceClanwarMembers(const ClanwarReference& reference,
 
     execute(
         sql,
-        "delete old home clanwar members",
-        fmt::format("war_id = {}, war_clan_id = {}", reference.warId, reference.homeClanId),
-        reference.warId, reference.homeClanId
+        "delete old clanwar members",
+        fmt::format("war_id = {}, war_clan_id = {}", reference.warId, warClanId),
+        reference.warId, warClanId
     );
 
     saveClanwarMembers(reference, members);
