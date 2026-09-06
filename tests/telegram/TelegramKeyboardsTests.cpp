@@ -57,11 +57,73 @@ TEST(TelegramKeyboardsTest, BuildsExpectedStartMenuJson)
                     {"text", "❌ Отключить клан"},
                     {"callback_data", "clans:unlink"}
                 }
+            },
+            {
+                {
+                    {"text", "❓ Помощь"},
+                    {"callback_data", "help:main"}
+                }
             }
         }}
     };
 
     EXPECT_EQ(expected, result);
+}
+
+TEST(TelegramKeyboardsTest, BuildsClanNavigationKeyboardsWithMainMenuButton)
+{
+    const auto myClansKeyboard =
+        telegram::keyboards::makeMyClansNavigationKeyboard();
+    const auto linkKeyboard =
+        telegram::keyboards::makeLinkInstructionsKeyboard();
+    const auto helpKeyboard =
+        telegram::keyboards::makeHelpNavigationKeyboard();
+    const auto expectedButton = makeButton("🏠 В главное меню", "menu:start");
+
+    ASSERT_EQ(1, myClansKeyboard.at("inline_keyboard").size());
+    ASSERT_EQ(1, linkKeyboard.at("inline_keyboard").size());
+    ASSERT_EQ(1, helpKeyboard.at("inline_keyboard").size());
+    EXPECT_EQ(
+        expectedButton,
+        myClansKeyboard.at("inline_keyboard").at(0).at(0));
+    EXPECT_EQ(
+        expectedButton,
+        linkKeyboard.at("inline_keyboard").at(0).at(0));
+    EXPECT_EQ(
+        expectedButton,
+        helpKeyboard.at("inline_keyboard").at(0).at(0));
+}
+
+TEST(TelegramKeyboardsTest, BuildsClanUnlinkKeyboardForEachClan)
+{
+    const auto result = telegram::keyboards::makeClanUnlinkKeyboard(
+        {"#2PPLQ", "#ABC123"});
+
+    const auto& rows = result.at("inline_keyboard");
+
+    ASSERT_EQ(3, rows.size());
+    EXPECT_EQ(
+        makeButton("❌ #2PPLQ", "clans:unlink:#2PPLQ"),
+        rows.at(0).at(0));
+    EXPECT_EQ(
+        makeButton("❌ #ABC123", "clans:unlink:#ABC123"),
+        rows.at(1).at(0));
+    EXPECT_EQ(
+        makeButton("🏠 В главное меню", "menu:start"),
+        rows.at(2).at(0));
+}
+
+TEST(TelegramKeyboardsTest, KeepsOnlyMainMenuButtonWhenClanListIsEmpty)
+{
+    const auto result = telegram::keyboards::makeClanUnlinkKeyboard({});
+
+    const auto& rows = result.at("inline_keyboard");
+
+    ASSERT_EQ(1, rows.size());
+    ASSERT_EQ(1, rows.at(0).size());
+    EXPECT_EQ(
+        makeButton("🏠 В главное меню", "menu:start"),
+        rows.at(0).at(0));
 }
 
 TEST(TelegramKeyboardsTest, UsesArgumentsInGuideNavigationKeyboard)

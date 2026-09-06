@@ -15,6 +15,7 @@ namespace telegram::keyboards
     nlohmann::json makeStartMenuKeyboard();
     nlohmann::json makeMyClansNavigationKeyboard();
     nlohmann::json makeLinkInstructionsKeyboard();
+    nlohmann::json makeHelpNavigationKeyboard();
     nlohmann::json makeClanUnlinkKeyboard(
         const std::vector<std::string>& clanTags);
     nlohmann::json makeGuideNavigationKeyboard(

@@ -21,6 +21,36 @@ TEST(TelegramCommandsTest, ParsesLinkCommandAndTagArgument)
     EXPECT_EQ("#2pplq", command->arguments.front());
 }
 
+TEST(TelegramCommandsTest, ParsesUnlinkCommandAndTagArgument)
+{
+    const auto command = telegram::parseCommand("/unlink #2PPLQ");
+
+    ASSERT_TRUE(command.has_value());
+    EXPECT_EQ("unlink", command->name);
+    ASSERT_EQ(1u, command->arguments.size());
+    EXPECT_EQ("#2PPLQ", command->arguments.front());
+}
+
+TEST(TelegramCommandsTest, PreservesExtraArgumentsForCommandValidation)
+{
+    const auto command = telegram::parseCommand("/unlink #2PPLQ extra");
+
+    ASSERT_TRUE(command.has_value());
+    EXPECT_EQ("unlink", command->name);
+    ASSERT_EQ(2u, command->arguments.size());
+    EXPECT_EQ("#2PPLQ", command->arguments[0]);
+    EXPECT_EQ("extra", command->arguments[1]);
+}
+
+TEST(TelegramCommandsTest, ParsesLinkCommandWithoutArguments)
+{
+    const auto command = telegram::parseCommand("/link");
+
+    ASSERT_TRUE(command.has_value());
+    EXPECT_EQ("link", command->name);
+    EXPECT_TRUE(command->arguments.empty());
+}
+
 TEST(TelegramCommandsTest, AcceptsBotCommandSuffix)
 {
     const auto command = telegram::parseCommand("/link@clash_bot 2PPLQ");

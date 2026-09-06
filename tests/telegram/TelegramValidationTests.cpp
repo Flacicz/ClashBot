@@ -48,3 +48,28 @@ TEST(TelegramValidationTest, RejectsTownHallOutsideSupportedRange)
             << "Input: " << value;
     }
 }
+
+TEST(TelegramValidationTest, ResolvesPrivateChatToManagementAudience)
+{
+    const auto audience = telegram::resolveAudience("private");
+
+    ASSERT_TRUE(audience.has_value());
+    EXPECT_EQ(Audience::Management, *audience);
+}
+
+TEST(TelegramValidationTest, ResolvesGroupsToPlayersAudience)
+{
+    const auto groupAudience = telegram::resolveAudience("group");
+    const auto supergroupAudience = telegram::resolveAudience("supergroup");
+
+    ASSERT_TRUE(groupAudience.has_value());
+    ASSERT_TRUE(supergroupAudience.has_value());
+    EXPECT_EQ(Audience::Players, *groupAudience);
+    EXPECT_EQ(Audience::Players, *supergroupAudience);
+}
+
+TEST(TelegramValidationTest, RejectsUnsupportedChatType)
+{
+    EXPECT_FALSE(telegram::resolveAudience("channel").has_value());
+    EXPECT_FALSE(telegram::resolveAudience("").has_value());
+}

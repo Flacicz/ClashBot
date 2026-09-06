@@ -31,4 +31,19 @@ namespace telegram
 
         return townHall;
     }
+
+    std::optional<Audience> resolveAudience(const std::string_view chatType)
+    {
+        if (chatType == "private")
+        {
+            return Audience::Management;
+        }
+
+        if (chatType == "group" || chatType == "supergroup")
+        {
+            return Audience::Players;
+        }
+
+        return std::nullopt;
+    }
 }

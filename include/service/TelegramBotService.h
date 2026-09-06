@@ -33,6 +33,7 @@ private:
     void answerCallbackQuery(const std::string& queryId) const;
 
     void handleMainMenuCallback(const telegram::CallbackContext& context) const;
+    void handleHelpCallback(const telegram::CallbackContext& context) const;
     void handleMyClansCallback(const telegram::CallbackContext& context) const;
     void handleLinkInstructionsCallback(
         const telegram::CallbackContext& context) const;

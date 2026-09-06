@@ -16,24 +16,6 @@
 #include <string_view>
 #include <thread>
 
-namespace
-{
-    std::optional<Audience> resolveAudience(const std::string_view chatType)
-    {
-        if (chatType == "private")
-        {
-            return Audience::Management;
-        }
-
-        if (chatType == "group" || chatType == "supergroup")
-        {
-            return Audience::Players;
-        }
-
-        return std::nullopt;
-    }
-}
-
 TelegramBotService::TelegramBotService(
     TelegramApiClient& telegramApi,
     const telegram::AttackGuideCatalog& attackGuideCatalog,
@@ -176,7 +158,7 @@ void TelegramBotService::handleLinkCommand(
     const std::vector<std::string>& arguments) const
 {
     const auto chatType = chat.value("type", "");
-    const auto audience = resolveAudience(chatType);
+    const auto audience = telegram::resolveAudience(chatType);
 
     if (!audience)
     {
@@ -340,7 +322,7 @@ void TelegramBotService::handleUnlinkCommand(
     const std::vector<std::string>& arguments) const
 {
     const auto chatType = chat.value("type", "");
-    const auto audience = resolveAudience(chatType);
+    const auto audience = telegram::resolveAudience(chatType);
 
     if (!audience)
     {
@@ -465,6 +447,10 @@ void TelegramBotService::handleCallbackQuery(const nlohmann::json& callbackQuery
     {
         handleMainMenuCallback(*context);
     }
+    else if (callbackData->command == "help:main")
+    {
+        handleHelpCallback(*context);
+    }
     else if (callbackData->command == "clans:link")
     {
         handleLinkInstructionsCallback(*context);
@@ -530,10 +516,27 @@ void TelegramBotService::handleMainMenuCallback(const telegram::CallbackContext&
         telegram::keyboards::makeStartMenuKeyboard());
 }
 
+void TelegramBotService::handleHelpCallback(
+    const telegram::CallbackContext& context) const
+{
+    telegram_api_client_.editMessageText(
+        context.chatId,
+        context.messageId,
+        "❓ Помощь\n\n"
+        "Подключить клан:\n"
+        "/link #ТЕГ_КЛАНА\n\n"
+        "Отключить клан:\n"
+        "/unlink #ТЕГ_КЛАНА\n\n"
+        "Кнопка «📋 Мои кланы» показывает подключённые кланы.\n\n"
+        "В группе подключать и отключать кланы могут только администраторы "
+        "и создатель группы. Бот должен быть администратором группы.",
+        telegram::keyboards::makeHelpNavigationKeyboard());
+}
+
 void TelegramBotService::handleMyClansCallback(
     const telegram::CallbackContext& context) const
 {
-    const auto audience = resolveAudience(context.chatType);
+    const auto audience = telegram::resolveAudience(context.chatType);
 
     if (!audience)
     {
@@ -609,7 +612,7 @@ void TelegramBotService::handleUnlinkCallback(
     const telegram::CallbackContext& context,
     const telegram::CallbackData& callbackData) const
 {
-    const auto audience = resolveAudience(context.chatType);
+    const auto audience = telegram::resolveAudience(context.chatType);
 
     if (!audience)
     {

@@ -89,6 +89,25 @@ TEST(TelegramCallbackDataTest, DoesNotValidateCommandName)
     EXPECT_EQ("value", result->arguments[0]);
 }
 
+TEST(TelegramCallbackDataTest, ParsesClanUnlinkCallback)
+{
+    const auto result = telegram::parseCallbackData("clans:unlink:#2PPLQ");
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ("clans:unlink", result->command);
+    ASSERT_EQ(1, result->arguments.size());
+    EXPECT_EQ("#2PPLQ", result->arguments.front());
+}
+
+TEST(TelegramCallbackDataTest, ParsesHelpCallback)
+{
+    const auto result = telegram::parseCallbackData("help:main");
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ("help:main", result->command);
+    EXPECT_TRUE(result->arguments.empty());
+}
+
 TEST(TelegramCallbackContextTest, ParsesAllFieldsFromValidCallbackQuery)
 {
     const auto result = telegram::parseCallbackContext(
@@ -114,6 +133,30 @@ TEST(TelegramCallbackContextTest, UsesEmptyDataWhenDataFieldIsMissing)
     EXPECT_TRUE(result->data.empty());
     EXPECT_EQ(-1001234567890LL, result->chatId);
     EXPECT_EQ(42, result->messageId);
+}
+
+TEST(TelegramCallbackContextTest, ReturnsNulloptWhenUserIsMissing)
+{
+    auto callbackQuery = makeValidCallbackQuery();
+    callbackQuery.erase("from");
+
+    EXPECT_FALSE(telegram::parseCallbackContext(callbackQuery).has_value());
+}
+
+TEST(TelegramCallbackContextTest, ReturnsNulloptWhenUserIdIsMissing)
+{
+    auto callbackQuery = makeValidCallbackQuery();
+    callbackQuery["from"].erase("id");
+
+    EXPECT_FALSE(telegram::parseCallbackContext(callbackQuery).has_value());
+}
+
+TEST(TelegramCallbackContextTest, ReturnsNulloptWhenUserIdHasWrongType)
+{
+    auto callbackQuery = makeValidCallbackQuery();
+    callbackQuery["from"]["id"] = "invalid";
+
+    EXPECT_FALSE(telegram::parseCallbackContext(callbackQuery).has_value());
 }
 
 TEST(TelegramCallbackContextTest, ReturnsNulloptWhenQueryIdIsMissing)

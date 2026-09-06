@@ -36,6 +36,12 @@ namespace telegram::keyboards
                             {"text", "❌ Отключить клан"},
                             {"callback_data", "clans:unlink"}
                         }
+                    },
+                    {
+                        {
+                            {"text", "❓ Помощь"},
+                            {"callback_data", "help:main"}
+                        }
                     }
                 }
             }
@@ -59,6 +65,22 @@ namespace telegram::keyboards
     }
 
     nlohmann::json makeLinkInstructionsKeyboard()
+    {
+        return {
+            {
+                "inline_keyboard", {
+                    {
+                        {
+                            {"text", "🏠 В главное меню"},
+                            {"callback_data", "menu:start"}
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    nlohmann::json makeHelpNavigationKeyboard()
     {
         return {
             {
