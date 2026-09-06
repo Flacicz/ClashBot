@@ -39,6 +39,24 @@ TEST(TelegramKeyboardsTest, BuildsExpectedStartMenuJson)
                     {"text", "🎥 Гайды по атакам"},
                     {"callback_data", "guides:townhalls"}
                 }
+            },
+            {
+                {
+                    {"text", "🔗 Подключить клан"},
+                    {"callback_data", "clans:link"}
+                }
+            },
+            {
+                {
+                    {"text", "📋 Мои кланы"},
+                    {"callback_data", "clans:list"}
+                }
+            },
+            {
+                {
+                    {"text", "❌ Отключить клан"},
+                    {"callback_data", "clans:unlink"}
+                }
             }
         }}
     };

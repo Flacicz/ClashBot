@@ -18,10 +18,87 @@ namespace telegram::keyboards
                             {"text", "🎥 Гайды по атакам"},
                             {"callback_data", "guides:townhalls"}
                         }
+                    },
+                    {
+                        {
+                            {"text", "🔗 Подключить клан"},
+                            {"callback_data", "clans:link"}
+                        }
+                    },
+                    {
+                        {
+                            {"text", "📋 Мои кланы"},
+                            {"callback_data", "clans:list"}
+                        }
+                    },
+                    {
+                        {
+                            {"text", "❌ Отключить клан"},
+                            {"callback_data", "clans:unlink"}
+                        }
                     }
                 }
             }
         };
+    }
+
+    nlohmann::json makeMyClansNavigationKeyboard()
+    {
+        return {
+            {
+                "inline_keyboard", {
+                    {
+                        {
+                            {"text", "🏠 В главное меню"},
+                            {"callback_data", "menu:start"}
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    nlohmann::json makeLinkInstructionsKeyboard()
+    {
+        return {
+            {
+                "inline_keyboard", {
+                    {
+                        {
+                            {"text", "🏠 В главное меню"},
+                            {"callback_data", "menu:start"}
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    nlohmann::json makeClanUnlinkKeyboard(
+        const std::vector<std::string>& clanTags)
+    {
+        nlohmann::json keyboard = {
+            {"inline_keyboard", nlohmann::json::array()}
+        };
+
+        for (const auto& clanTag : clanTags)
+        {
+            keyboard["inline_keyboard"].push_back({
+                {
+                    {"text", "❌ " + clanTag},
+                    {"callback_data", "clans:unlink:" + clanTag}
+                }
+            });
+        }
+
+        keyboard["inline_keyboard"].push_back({
+            {
+                {"text", "🏠 В главное меню"},
+                {"callback_data", "menu:start"}
+            }
+        });
+
+        return keyboard;
     }
 
     nlohmann::json makeGuideNavigationKeyboard(

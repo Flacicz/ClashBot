@@ -28,6 +28,8 @@ namespace telegram
         std::string data;
         long long chatId;
         long long messageId;
+        long long messageThreadId = 0;
+        std::string chatType;
     };
 
     struct AttackStrategy

@@ -11,8 +11,28 @@
 #include "telegram/TelegramValidation.h"
 
 #include <chrono>
+#include <optional>
 #include <spdlog/spdlog.h>
+#include <string_view>
 #include <thread>
+
+namespace
+{
+    std::optional<Audience> resolveAudience(const std::string_view chatType)
+    {
+        if (chatType == "private")
+        {
+            return Audience::Management;
+        }
+
+        if (chatType == "group" || chatType == "supergroup")
+        {
+            return Audience::Players;
+        }
+
+        return std::nullopt;
+    }
+}
 
 TelegramBotService::TelegramBotService(
     TelegramApiClient& telegramApi,
@@ -99,7 +119,9 @@ void TelegramBotService::handleMessage(const nlohmann::json& update) const
 
     if (command && command->name == "start" && command->arguments.empty())
     {
-        sendStartMenu(chatId);
+        sendStartMenu(
+            chatId,
+            update.value("message_thread_id", 0LL));
     }
     else if (command && command->name == "link")
     {
@@ -126,18 +148,9 @@ void TelegramBotService::handleLinkCommand(
     const std::vector<std::string>& arguments) const
 {
     const auto chatType = chat.value("type", "");
+    const auto audience = resolveAudience(chatType);
 
-    Audience audience;
-
-    if (chatType == "private")
-    {
-        audience = Audience::Management;
-    }
-    else if (chatType == "group" || chatType == "supergroup")
-    {
-        audience = Audience::Players;
-    }
-    else
+    if (!audience)
     {
         telegram_api_client_.sendMessage(
             chatId,
@@ -196,14 +209,14 @@ void TelegramBotService::handleLinkCommand(
             chatId,
             messageThreadId,
             clanTag,
-            audience);
+            *audience);
 
         transaction.commit();
 
         const std::string destination = chatType == "private"
                                             ? "Личный чат"
                                             : "Общий чат";
-        const std::string details = audience == Audience::Management
+        const std::string details = *audience == Audience::Management
                                         ? "управленческие уведомления: нарушения, ростер и другие отчёты для руководства"
                                         : "обычные отчёты и уведомления для игроков";
 
@@ -227,22 +240,59 @@ void TelegramBotService::handleLinkCommand(
     }
 }
 
-void TelegramBotService::handleUnlinkCommand(long long chatId, long long messageThreadId, const nlohmann::json& chat,
-                                             const std::vector<std::string>& arguments) const
+bool TelegramBotService::unlinkClanFromChat(
+    const long long chatId,
+    const long long messageThreadId,
+    const std::string& clanTag,
+    const Audience audience) const
+{
+    auto transaction = transaction_manager_.beginTransaction();
+
+    if (!subscription_repo_.hasSubscription(
+            chatId,
+            messageThreadId,
+            clanTag,
+            audience))
+    {
+        transaction.commit();
+        return false;
+    }
+
+    subscription_repo_.unsubscribeFromChat(
+        chatId,
+        messageThreadId,
+        clanTag,
+        audience);
+
+    const bool hasChatSubscriptions =
+        subscription_repo_.hasSubscriptionsForChat(chatId, messageThreadId);
+    const bool hasClanSubscriptions =
+        subscription_repo_.hasSubscriptionsForClan(clanTag);
+
+    if (!hasChatSubscriptions)
+    {
+        subscription_repo_.deleteTelegramChat(chatId, messageThreadId);
+    }
+
+    if (!hasClanSubscriptions)
+    {
+        clans_repo_.disableTracking(clanTag);
+    }
+
+    transaction.commit();
+    return true;
+}
+
+void TelegramBotService::handleUnlinkCommand(
+    const long long chatId,
+    const long long messageThreadId,
+    const nlohmann::json& chat,
+    const std::vector<std::string>& arguments) const
 {
     const auto chatType = chat.value("type", "");
+    const auto audience = resolveAudience(chatType);
 
-    Audience audience;
-
-    if (chatType == "private")
-    {
-        audience = Audience::Management;
-    }
-    else if (chatType == "group" || chatType == "supergroup")
-    {
-        audience = Audience::Players;
-    }
-    else
+    if (!audience)
     {
         telegram_api_client_.sendMessage(
             chatId,
@@ -275,46 +325,20 @@ void TelegramBotService::handleUnlinkCommand(long long chatId, long long message
     try
     {
         const std::string& clanTag = *requestedTag;
-
-        auto transaction = transaction_manager_.beginTransaction();
-
-        if (!subscription_repo_.hasSubscription(
+        const bool unlinked = unlinkClanFromChat(
             chatId,
             messageThreadId,
             clanTag,
-            audience))
-        {
-            transaction.commit();
+            *audience);
 
+        if (!unlinked)
+        {
             telegram_api_client_.sendMessage(
                 chatId,
                 "Этот чат не привязан к клану " + clanTag + ".",
                 messageThreadId);
             return;
         }
-
-        subscription_repo_.unsubscribeFromChat(
-            chatId,
-            messageThreadId,
-            clanTag,
-            audience);
-
-        const bool hasChatSubscriptions =
-            subscription_repo_.hasSubscriptionsForChat(chatId, messageThreadId);
-        const bool hasClanSubscriptions =
-            subscription_repo_.hasSubscriptionsForClan(clanTag);
-
-        if (!hasChatSubscriptions)
-        {
-            subscription_repo_.deleteTelegramChat(chatId, messageThreadId);
-        }
-
-        if (!hasClanSubscriptions)
-        {
-            clans_repo_.disableTracking(clanTag);
-        }
-
-        transaction.commit();
 
         const std::string destination = chatType == "private"
                                             ? "Личный чат"
@@ -370,6 +394,18 @@ void TelegramBotService::handleCallbackQuery(const nlohmann::json& callbackQuery
     {
         handleMainMenuCallback(*context);
     }
+    else if (callbackData->command == "clans:link")
+    {
+        handleLinkInstructionsCallback(*context);
+    }
+    else if (callbackData->command == "clans:list")
+    {
+        handleMyClansCallback(*context);
+    }
+    else if (callbackData->command == "clans:unlink")
+    {
+        handleUnlinkCallback(*context, *callbackData);
+    }
     else if (callbackData->command == "guides:townhalls")
     {
         handleTownHallListCallback(*context);
@@ -403,12 +439,14 @@ void TelegramBotService::answerCallbackQuery(const std::string& queryId) const
     }
 }
 
-void TelegramBotService::sendStartMenu(const long long chatId) const
+void TelegramBotService::sendStartMenu(
+    const long long chatId,
+    const long long messageThreadId) const
 {
     telegram_api_client_.sendMessage(
         chatId,
         "Добро пожаловать! Выберите раздел:",
-        0,
+        messageThreadId,
         telegram::keyboards::makeStartMenuKeyboard());
 }
 
@@ -419,6 +457,168 @@ void TelegramBotService::handleMainMenuCallback(const telegram::CallbackContext&
         context.messageId,
         "Добро пожаловать! Выберите раздел:",
         telegram::keyboards::makeStartMenuKeyboard());
+}
+
+void TelegramBotService::handleMyClansCallback(
+    const telegram::CallbackContext& context) const
+{
+    const auto audience = resolveAudience(context.chatType);
+
+    if (!audience)
+    {
+        telegram_api_client_.editMessageText(
+            context.chatId,
+            context.messageId,
+            "Этот тип Telegram-чата пока не поддерживается.",
+            telegram::keyboards::makeMyClansNavigationKeyboard());
+        return;
+    }
+
+    try
+    {
+        const auto clanTags = subscription_repo_.getClanTagsForChat(
+            context.chatId,
+            context.messageThreadId,
+            *audience);
+
+        std::string message;
+
+        if (clanTags.empty())
+        {
+            message =
+                "В этом чате пока нет подключённых кланов.\n\n"
+                "Чтобы подключить клан, используйте:\n"
+                "/link #ТЕГ_КЛАНА";
+        }
+        else
+        {
+            message = "Подключённые кланы:\n\n";
+
+            for (const auto& clanTag : clanTags)
+            {
+                message += "• " + clanTag + "\n";
+            }
+        }
+
+        telegram_api_client_.editMessageText(
+            context.chatId,
+            context.messageId,
+            message,
+            telegram::keyboards::makeMyClansNavigationKeyboard());
+    }
+    catch (const DatabaseException& error)
+    {
+        spdlog::error(
+            "[TelegramBotService] Failed to load clans for chat {}: {}",
+            context.chatId,
+            error.what());
+
+        telegram_api_client_.editMessageText(
+            context.chatId,
+            context.messageId,
+            "Не удалось загрузить список кланов. Попробуйте ещё раз позже.",
+            telegram::keyboards::makeMyClansNavigationKeyboard());
+    }
+}
+
+void TelegramBotService::handleLinkInstructionsCallback(
+    const telegram::CallbackContext& context) const
+{
+    telegram_api_client_.editMessageText(
+        context.chatId,
+        context.messageId,
+        "Чтобы подключить клан, отправьте команду:\n\n"
+        "/link #ТЕГ_КЛАНА\n\n"
+        "Например:\n"
+        "/link #2PPLQ",
+        telegram::keyboards::makeLinkInstructionsKeyboard());
+}
+
+void TelegramBotService::handleUnlinkCallback(
+    const telegram::CallbackContext& context,
+    const telegram::CallbackData& callbackData) const
+{
+    const auto audience = resolveAudience(context.chatType);
+
+    if (!audience)
+    {
+        telegram_api_client_.editMessageText(
+            context.chatId,
+            context.messageId,
+            "Этот тип Telegram-чата пока не поддерживается.",
+            telegram::keyboards::makeStartMenuKeyboard());
+        return;
+    }
+
+    if (callbackData.arguments.size() > 1)
+    {
+        spdlog::warn(
+            "[TelegramBotService] Invalid unlink callback arguments");
+        return;
+    }
+
+    try
+    {
+        if (callbackData.arguments.empty())
+        {
+            const auto clanTags = subscription_repo_.getClanTagsForChat(
+                context.chatId,
+                context.messageThreadId,
+                *audience);
+
+            const std::string message = clanTags.empty()
+                                            ? "В этом чате нет подключённых кланов."
+                                            : "Выберите клан для отключения:";
+
+            telegram_api_client_.editMessageText(
+                context.chatId,
+                context.messageId,
+                message,
+                telegram::keyboards::makeClanUnlinkKeyboard(clanTags));
+            return;
+        }
+
+        const auto requestedTag =
+            telegram::parseClanTag(callbackData.arguments.front());
+
+        if (!requestedTag)
+        {
+            spdlog::warn(
+                "[TelegramBotService] Invalid clan tag in unlink callback: {}",
+                callbackData.arguments.front());
+            return;
+        }
+
+        const std::string& clanTag = *requestedTag;
+        const bool unlinked = unlinkClanFromChat(
+            context.chatId,
+            context.messageThreadId,
+            clanTag,
+            *audience);
+
+        const std::string message = unlinked
+                                        ? "Готово! Клан " + clanTag + " отключён."
+                                        : "Этот чат не привязан к клану " + clanTag + ".";
+
+        telegram_api_client_.editMessageText(
+            context.chatId,
+            context.messageId,
+            message,
+            telegram::keyboards::makeStartMenuKeyboard());
+    }
+    catch (const DatabaseException& error)
+    {
+        spdlog::error(
+            "[TelegramBotService] Failed to unlink clan from chat {}: {}",
+            context.chatId,
+            error.what());
+
+        telegram_api_client_.editMessageText(
+            context.chatId,
+            context.messageId,
+            "Не удалось отключить клан. Попробуйте ещё раз позже.",
+            telegram::keyboards::makeStartMenuKeyboard());
+    }
 }
 
 void TelegramBotService::handleTownHallListCallback(const telegram::CallbackContext& context) const

@@ -13,6 +13,10 @@
 namespace telegram::keyboards
 {
     nlohmann::json makeStartMenuKeyboard();
+    nlohmann::json makeMyClansNavigationKeyboard();
+    nlohmann::json makeLinkInstructionsKeyboard();
+    nlohmann::json makeClanUnlinkKeyboard(
+        const std::vector<std::string>& clanTags);
     nlohmann::json makeGuideNavigationKeyboard(
         int townHall,
         std::string_view armyId,

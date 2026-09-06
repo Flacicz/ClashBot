@@ -89,11 +89,26 @@ namespace telegram
                              .at("message_id")
                              .get<long long>();
 
+            const auto& message = callbackQuery.at("message");
+            const auto& chat = message.at("chat");
+
+            const long long messageThreadId =
+                message.contains("message_thread_id")
+                    ? message.at("message_thread_id").get<long long>()
+                    : 0LL;
+
+            const std::string chatType =
+                chat.contains("type")
+                    ? chat.at("type").get<std::string>()
+                    : std::string{};
+
             return CallbackContext{
                 .queryId = queryId,
                 .data = data,
                 .chatId = chatId,
-                .messageId = messageId
+                .messageId = messageId,
+                .messageThreadId = messageThreadId,
+                .chatType = chatType
             };
         }
         catch (const nlohmann::json::exception&)

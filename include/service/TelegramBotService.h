@@ -32,6 +32,12 @@ private:
     void answerCallbackQuery(const std::string& queryId) const;
 
     void handleMainMenuCallback(const telegram::CallbackContext& context) const;
+    void handleMyClansCallback(const telegram::CallbackContext& context) const;
+    void handleLinkInstructionsCallback(
+        const telegram::CallbackContext& context) const;
+    void handleUnlinkCallback(
+        const telegram::CallbackContext& context,
+        const telegram::CallbackData& callbackData) const;
     void handleTownHallListCallback(const telegram::CallbackContext& context) const;
     void handleStrategyListCallback(
         const telegram::CallbackContext& context,
@@ -43,7 +49,7 @@ private:
         const telegram::CallbackContext& context,
         const telegram::CallbackData& callbackData) const;
 
-    void sendStartMenu(long long chatId) const;
+    void sendStartMenu(long long chatId, long long messageThreadId) const;
     void handleLinkCommand(
         long long chatId,
         long long messageThreadId,
@@ -55,6 +61,11 @@ private:
         const nlohmann::json& chat,
         const std::vector<std::string>& arguments
     ) const;
+    [[nodiscard]] bool unlinkClanFromChat(
+        long long chatId,
+        long long messageThreadId,
+        const std::string& clanTag,
+        Audience audience) const;
 
 public:
     TelegramBotService(
