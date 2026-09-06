@@ -127,6 +127,7 @@ void TelegramBotService::handleMessage(const nlohmann::json& update) const
     {
         handleLinkCommand(
             chatId,
+            update.at("from").at("id").get<long long>(),
             update.value("message_thread_id", 0LL),
             update.at("chat"),
             command->arguments);
@@ -135,14 +136,41 @@ void TelegramBotService::handleMessage(const nlohmann::json& update) const
     {
         handleUnlinkCommand(
             chatId,
+            update.at("from").at("id").get<long long>(),
             update.value("message_thread_id", 0LL),
             update.at("chat"),
             command->arguments);
     }
 }
 
+bool TelegramBotService::canManageCurrentChat(
+    const long long chatId,
+    const long long userId,
+    const std::string_view chatType,
+    const Audience audience) const
+{
+    if (audience == Audience::Management)
+    {
+        return chatType == "private" && chatId == userId;
+    }
+
+    if (audience != Audience::Players ||
+        (chatType != "group" && chatType != "supergroup"))
+    {
+        return false;
+    }
+
+    const auto member = telegram_api_client_.getChatMember(chatId, userId);
+    const auto memberStatus =
+        member.value("status", std::string{});
+
+    return memberStatus == "administrator" ||
+           memberStatus == "creator";
+}
+
 void TelegramBotService::handleLinkCommand(
     const long long chatId,
+    const long long userId,
     const long long messageThreadId,
     const nlohmann::json& chat,
     const std::vector<std::string>& arguments) const
@@ -182,6 +210,15 @@ void TelegramBotService::handleLinkCommand(
 
     try
     {
+        if (!canManageCurrentChat(chatId, userId, chatType, *audience))
+        {
+            telegram_api_client_.sendMessage(
+                chatId,
+                "Только администратор группы может управлять подключениями кланов.",
+                messageThreadId);
+            return;
+        }
+
         std::string title = chat.value("title", "");
 
         if (title.empty())
@@ -238,6 +275,18 @@ void TelegramBotService::handleLinkCommand(
             "Не удалось сохранить привязку. Попробуйте ещё раз позже.",
             messageThreadId);
     }
+    catch (const ApiException& error)
+    {
+        spdlog::error(
+            "[TelegramBotService] Failed to check permissions for chat {}: {}",
+            chatId,
+            error.what());
+
+        telegram_api_client_.sendMessage(
+            chatId,
+            "Не удалось проверить права пользователя. Попробуйте ещё раз позже.",
+            messageThreadId);
+    }
 }
 
 bool TelegramBotService::unlinkClanFromChat(
@@ -249,10 +298,10 @@ bool TelegramBotService::unlinkClanFromChat(
     auto transaction = transaction_manager_.beginTransaction();
 
     if (!subscription_repo_.hasSubscription(
-            chatId,
-            messageThreadId,
-            clanTag,
-            audience))
+        chatId,
+        messageThreadId,
+        clanTag,
+        audience))
     {
         transaction.commit();
         return false;
@@ -285,6 +334,7 @@ bool TelegramBotService::unlinkClanFromChat(
 
 void TelegramBotService::handleUnlinkCommand(
     const long long chatId,
+    const long long userId,
     const long long messageThreadId,
     const nlohmann::json& chat,
     const std::vector<std::string>& arguments) const
@@ -324,6 +374,15 @@ void TelegramBotService::handleUnlinkCommand(
 
     try
     {
+        if (!canManageCurrentChat(chatId, userId, chatType, *audience))
+        {
+            telegram_api_client_.sendMessage(
+                chatId,
+                "Только администратор группы может управлять подключениями кланов.",
+                messageThreadId);
+            return;
+        }
+
         const std::string& clanTag = *requestedTag;
         const bool unlinked = unlinkClanFromChat(
             chatId,
@@ -359,6 +418,18 @@ void TelegramBotService::handleUnlinkCommand(
         telegram_api_client_.sendMessage(
             chatId,
             "Не удалось отвязать чат. Попробуйте ещё раз позже.",
+            messageThreadId);
+    }
+    catch (const ApiException& error)
+    {
+        spdlog::error(
+            "[TelegramBotService] Failed to check permissions for chat {}: {}",
+            chatId,
+            error.what());
+
+        telegram_api_client_.sendMessage(
+            chatId,
+            "Не удалось проверить права пользователя. Попробуйте ещё раз позже.",
             messageThreadId);
     }
 }
@@ -559,6 +630,20 @@ void TelegramBotService::handleUnlinkCallback(
 
     try
     {
+        if (!canManageCurrentChat(
+            context.chatId,
+            context.userId,
+            context.chatType,
+            *audience))
+        {
+            telegram_api_client_.editMessageText(
+                context.chatId,
+                context.messageId,
+                "Только администратор группы может управлять подключениями кланов.",
+                telegram::keyboards::makeStartMenuKeyboard());
+            return;
+        }
+
         if (callbackData.arguments.empty())
         {
             const auto clanTags = subscription_repo_.getClanTagsForChat(
@@ -617,6 +702,19 @@ void TelegramBotService::handleUnlinkCallback(
             context.chatId,
             context.messageId,
             "Не удалось отключить клан. Попробуйте ещё раз позже.",
+            telegram::keyboards::makeStartMenuKeyboard());
+    }
+    catch (const ApiException& error)
+    {
+        spdlog::error(
+            "[TelegramBotService] Failed to check permissions for callback in chat {}: {}",
+            context.chatId,
+            error.what());
+
+        telegram_api_client_.editMessageText(
+            context.chatId,
+            context.messageId,
+            "Не удалось проверить права пользователя. Попробуйте ещё раз позже.",
             telegram::keyboards::makeStartMenuKeyboard());
     }
 }

@@ -31,6 +31,10 @@ public:
     void answerCallbackQuery(
         const std::string& callbackQueryId) const;
 
+    [[nodiscard]] nlohmann::json getChatMember(
+        long long chatId,
+        long long userId) const;
+
     [[nodiscard]] std::vector<nlohmann::json> getUpdates(long long offset, int timeout = 30) const;
 };
 

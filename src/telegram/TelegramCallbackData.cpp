@@ -102,12 +102,18 @@ namespace telegram
                     ? chat.at("type").get<std::string>()
                     : std::string{};
 
+            const long long userId =
+                callbackQuery.at("from")
+                             .at("id")
+                             .get<long long>();
+
             return CallbackContext{
                 .queryId = queryId,
                 .data = data,
                 .chatId = chatId,
                 .messageId = messageId,
                 .messageThreadId = messageThreadId,
+                .userId = userId,
                 .chatType = chatType
             };
         }

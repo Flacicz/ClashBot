@@ -13,6 +13,9 @@ namespace
         return {
             {"id", "callback-query-id"},
             {"data", "guides:townhall:10"},
+            {"from", {
+                {"id", 123456789LL}
+            }},
             {"message", {
                 {"message_id", 42},
                 {"chat", {
@@ -96,6 +99,7 @@ TEST(TelegramCallbackContextTest, ParsesAllFieldsFromValidCallbackQuery)
     EXPECT_EQ("guides:townhall:10", result->data);
     EXPECT_EQ(-1001234567890LL, result->chatId);
     EXPECT_EQ(42, result->messageId);
+    EXPECT_EQ(123456789LL, result->userId);
 }
 
 TEST(TelegramCallbackContextTest, UsesEmptyDataWhenDataFieldIsMissing)

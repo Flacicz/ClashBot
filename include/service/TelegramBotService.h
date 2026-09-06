@@ -7,6 +7,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
+#include <string_view>
 #include <vector>
 
 #include "api/TelegramApiClient.h"
@@ -52,15 +53,22 @@ private:
     void sendStartMenu(long long chatId, long long messageThreadId) const;
     void handleLinkCommand(
         long long chatId,
+        long long userId,
         long long messageThreadId,
         const nlohmann::json& chat,
         const std::vector<std::string>& arguments) const;
     void handleUnlinkCommand(
         long long chatId,
+        long long userId,
         long long messageThreadId,
         const nlohmann::json& chat,
         const std::vector<std::string>& arguments
     ) const;
+    [[nodiscard]] bool canManageCurrentChat(
+        long long chatId,
+        long long userId,
+        std::string_view chatType,
+        Audience audience) const;
     [[nodiscard]] bool unlinkClanFromChat(
         long long chatId,
         long long messageThreadId,

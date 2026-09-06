@@ -29,6 +29,7 @@ namespace telegram
         long long chatId;
         long long messageId;
         long long messageThreadId = 0;
+        long long userId = 0;
         std::string chatType;
     };
 

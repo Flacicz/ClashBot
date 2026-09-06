@@ -261,3 +261,60 @@ void TelegramApiClient::answerCallbackQuery(const std::string& callbackQueryId) 
             std::string("Invalid Telegram answerCallbackQuery response: ") + error.what());
     }
 }
+
+nlohmann::json TelegramApiClient::getChatMember(
+    const long long chatId,
+    const long long userId) const
+{
+    if (botToken.empty())
+    {
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            "Telegram bot token is not configured");
+    }
+
+    const std::string url =
+        "https://api.telegram.org/bot" + botToken + "/getChatMember";
+
+    const nlohmann::json requestBody = {
+        {"chat_id", chatId},
+        {"user_id", userId}
+    };
+
+    const cpr::Response response = cpr::Post(
+        cpr::Url{url},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{requestBody.dump()}
+    );
+
+    if (response.status_code == 0)
+    {
+        throw ApiException(
+            ApiError::Network,
+            std::string("Telegram network error: ") + response.error.message);
+    }
+
+    try
+    {
+        const auto responseJson = nlohmann::json::parse(response.text);
+
+        if (response.status_code == 200 &&
+            responseJson.value("ok", false))
+        {
+            return responseJson.at("result");
+        }
+
+        throw ApiException(
+            ApiError::UnexpectedResponse,
+            std::string("Telegram getChatMember failed: ") +
+            responseJson.value(
+                "description",
+                std::string("Unknown Telegram API error")));
+    }
+    catch (const nlohmann::json::exception& error)
+    {
+        throw ApiException(
+            ApiError::InvalidJSON,
+            std::string("Invalid Telegram getChatMember response: ") + error.what());
+    }
+}
