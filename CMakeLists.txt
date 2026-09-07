@@ -65,6 +65,10 @@ add_library(ClashBotCore STATIC
         src/models/raid/RaidModels.cpp
         src/models/clanwar/ClanwarModels.cpp
         src/models/cwl/CwlModels.cpp
+        src/database/Database.cpp
+        src/database/MigratorManager.cpp
+        src/database/repos/NotificationsRepo.cpp
+        src/database/repos/SubscriptionRepo.cpp
 )
 
 target_include_directories(ClashBotCore PUBLIC
@@ -75,31 +79,24 @@ target_link_libraries(ClashBotCore PUBLIC
         fmt::fmt
         nlohmann_json::nlohmann_json
         SQLite3::SQLite3
+        spdlog::spdlog
 )
 
 add_executable(${PROJECT_NAME}
         src/main.cpp
         src/api/APIClient.cpp
         src/config/ConfigLoader.cpp
-        src/database/Database.cpp
-        src/models/clan/ClanModels.cpp
-        src/models/raid/RaidModels.cpp
-        src/models/clanwar/ClanwarModels.cpp
-        src/models/cwl/CwlModels.cpp
         src/service/ClanManager.cpp
         src/service/ClanInfoService.cpp
         src/service/RaidService.cpp
         src/service/ClanwarService.cpp
         src/service/ClanwarLeagueService.cpp
         src/notifications/TelegramNotifier.cpp
-        src/notifications/NotificationService.cpp
         src/reports/ClanwarRosterFormatter.cpp
-        src/database/MigratorManager.cpp
-        src/database/repos/SubscriptionRepo.cpp
         src/events/EventDispatcher.cpp
-        src/database/repos/NotificationsRepo.cpp
         src/api/TelegramApiClient.cpp
         src/service/TelegramBotService.cpp
+        src/notifications/NotificationService.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -165,5 +162,46 @@ target_link_libraries(ClashBotTests PRIVATE
         GTest::gtest_main
 )
 
+add_executable(ClashBotIntegrationTests
+        tests/integration/DatabaseMigrationsTests.cpp
+        tests/integration/SubscriptionIntegrationTests.cpp
+        tests/integration/NotificationIntegrationTests.cpp
+        tests/integration/TransactionIntegrationTests.cpp
+        tests/integration/ClanInfoSyncIntegrationTests.cpp
+        tests/integration/RaidSyncIntegrationTests.cpp
+        tests/integration/ClanwarSyncIntegrationTests.cpp
+        tests/integration/ClanwarLeagueSyncIntegrationTests.cpp
+        tests/integration/NotificationServiceIntegrationTests.cpp
+        tests/integration/TelegramBotServiceIntegrationTests.cpp
+        src/api/APIClient.cpp
+        src/api/TelegramApiClient.cpp
+        src/service/ClanInfoService.cpp
+        src/service/RaidService.cpp
+        src/service/ClanwarService.cpp
+        src/service/ClanwarLeagueService.cpp
+        src/notifications/TelegramNotifier.cpp
+        src/notifications/NotificationService.cpp
+        src/reports/ClanwarRosterFormatter.cpp
+        src/service/TelegramBotService.cpp
+)
+
+target_include_directories(ClashBotIntegrationTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+target_compile_definitions(ClashBotIntegrationTests PRIVATE
+        CLASHBOT_MIGRATIONS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/src/database/migrations"
+)
+
+if (MSVC)
+    target_compile_options(ClashBotIntegrationTests PRIVATE /W4)
+endif ()
+
+target_link_libraries(ClashBotIntegrationTests PRIVATE
+        cpr::cpr
+        SQLite3::SQLite3
+        ClashBotCore
+        GTest::gtest_main
+)
+
 include(GoogleTest)
 gtest_discover_tests(ClashBotTests)
+gtest_discover_tests(ClashBotIntegrationTests)

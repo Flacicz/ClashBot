@@ -19,19 +19,23 @@ class APIClient
 
 public:
     APIClient(std::string token, bool tunnel, std::string baseUrl, std::string tunnelUrl);
+    virtual ~APIClient() = default;
 
     [[nodiscard]] bool getIsTunnel() const { return isTunnel; }
     [[nodiscard]] const std::string& getApiToken() const { return apiToken; }
 
     [[nodiscard]] nlohmann::json fetchJson(std::string_view endpoint) const;
 
-    [[nodiscard]] std::optional<CompleteClanData> getCompleteClanData(std::string_view clanTag) const;
+    [[nodiscard]] virtual std::optional<CompleteClanData> getCompleteClanData(
+        std::string_view clanTag) const;
 
-    [[nodiscard]] std::optional<CompleteRaidData> getCompleteRaidData(std::string_view clanTag) const;
+    [[nodiscard]] virtual std::optional<CompleteRaidData> getCompleteRaidData(
+        std::string_view clanTag) const;
 
-    [[nodiscard]] ClanwarsFetchResult getCompleteClanwarData(std::string_view clanTag) const;
+    [[nodiscard]] virtual ClanwarsFetchResult getCompleteClanwarData(
+        std::string_view clanTag) const;
 
-    [[nodiscard]] ClanwarsLeagueFetchResult getCompleteClanwarsLeagueData(
+    [[nodiscard]] virtual ClanwarsLeagueFetchResult getCompleteClanwarsLeagueData(
         std::string_view clanTag) const;
     [[nodiscard]] std::vector<CompleteClanwarData> getLeagueClanwarRoundsInfo(
         const nlohmann::json& parsed, std::string_view clanTag) const;

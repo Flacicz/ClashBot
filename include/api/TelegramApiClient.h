@@ -15,27 +15,30 @@ class TelegramApiClient
 
 public:
     explicit TelegramApiClient(std::string botToken);
+    virtual ~TelegramApiClient() = default;
 
-    void sendMessage(
+    virtual void sendMessage(
         long long chatId,
         const std::string& message,
         long long messageThreadId = 0,
         const nlohmann::json& replyMarkup = {}) const;
 
-    void editMessageText(
+    virtual void editMessageText(
         long long chatId,
         long long messageId,
         const std::string& text,
         const nlohmann::json& replyMarkup = {}) const;
 
-    void answerCallbackQuery(
+    virtual void answerCallbackQuery(
         const std::string& callbackQueryId) const;
 
-    [[nodiscard]] nlohmann::json getChatMember(
+    [[nodiscard]] virtual nlohmann::json getChatMember(
         long long chatId,
         long long userId) const;
 
-    [[nodiscard]] std::vector<nlohmann::json> getUpdates(long long offset, int timeout = 30) const;
+    [[nodiscard]] virtual std::vector<nlohmann::json> getUpdates(
+        long long offset,
+        int timeout = 30) const;
 };
 
 #endif //CLASHBOT_TELEGRAMAPICLIENT_H

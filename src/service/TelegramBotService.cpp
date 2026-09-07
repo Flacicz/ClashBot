@@ -32,18 +32,42 @@ TelegramBotService::TelegramBotService(
 
 void TelegramBotService::loop() const
 {
+    constexpr int pollingTimeoutSeconds = 2;
+    constexpr auto apiRetryDelay = std::chrono::seconds(1);
     long long offset = 0;
 
     while (running_.load())
     {
         try
         {
-            const auto updates = telegram_api_client_.getUpdates(offset, 30);
+            const auto updates = telegram_api_client_.getUpdates(
+                offset,
+                pollingTimeoutSeconds);
+
+            if (!running_.load())
+                break;
 
             for (const auto& update : updates)
             {
+                if (!running_.load())
+                    break;
+
+                long long updateId = 0;
+                bool hasValidUpdateId = false;
+
                 try
                 {
+                    if (!update.contains("update_id") ||
+                        !update.at("update_id").is_number_integer())
+                    {
+                        spdlog::warn(
+                            "[TelegramBotService] Ignoring update without a valid update_id: {}",
+                            update.dump());
+                        continue;
+                    }
+
+                    updateId = update.at("update_id").get<long long>();
+                    hasValidUpdateId = true;
                     processUpdate(update);
                 }
                 catch (const ApiException& error)
@@ -52,8 +76,21 @@ void TelegramBotService::loop() const
                         "[TelegramBotService] Failed to process update: {}",
                         error.what());
                 }
+                catch (const nlohmann::json::exception& error)
+                {
+                    spdlog::error(
+                        "[TelegramBotService] Invalid update payload: {}",
+                        error.what());
+                }
+                catch (const std::exception& error)
+                {
+                    spdlog::error(
+                        "[TelegramBotService] Unexpected update processing error: {}",
+                        error.what());
+                }
 
-                offset = update.at("update_id").get<long long>() + 1;
+                if (hasValidUpdateId)
+                    offset = updateId + 1;
             }
         }
         catch (const ApiException& error)
@@ -62,7 +99,23 @@ void TelegramBotService::loop() const
                 "[TelegramBotService] Failed to receive updates: {}",
                 error.what());
 
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            std::unique_lock lock(mutex_);
+            cv_.wait_for(lock, apiRetryDelay, [this]
+            {
+                return !running_.load();
+            });
+        }
+        catch (const std::exception& error)
+        {
+            spdlog::error(
+                "[TelegramBotService] Unexpected polling error: {}",
+                error.what());
+
+            std::unique_lock lock(mutex_);
+            cv_.wait_for(lock, apiRetryDelay, [this]
+            {
+                return !running_.load();
+            });
         }
     }
 }

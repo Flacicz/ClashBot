@@ -88,8 +88,8 @@ public:
     void stopLoop();
 
 private:
-    std::mutex mutex_;
-    std::condition_variable cv_;
+    mutable std::mutex mutex_;
+    mutable std::condition_variable cv_;
     std::atomic<bool> running_{true};
 };
 
