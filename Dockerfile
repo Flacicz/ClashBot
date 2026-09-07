@@ -26,7 +26,7 @@ RUN git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg && \
 WORKDIR /app
 
 COPY vcpkg.json ./
-RUN /opt/vcpkg/vcpkg install \
+RUN VCPKG_MAX_CONCURRENCY=2 /opt/vcpkg/vcpkg install \
         --triplet=x64-linux \
         --x-manifest-root=/app \
         --x-install-root=/opt/vcpkg_installed
@@ -41,7 +41,7 @@ RUN cmake -S . -B build \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
         -DVCPKG_INSTALLED_DIR=/opt/vcpkg_installed && \
-    cmake --build build --parallel && \
+    cmake --build build --parallel 2 && \
     ctest --test-dir build --output-on-failure
 
 # ==========================================

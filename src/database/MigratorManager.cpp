@@ -1,8 +1,11 @@
 #include "database/MigratorManager.h"
 #include "database/SQLiteHelpers.h"
 
-#include <spdlog/spdlog.h>
+#include <algorithm>
 #include <fstream>
+#include <sstream>
+
+#include <spdlog/spdlog.h>
 
 #include "core/Exceptions.h"
 
@@ -42,7 +45,14 @@ void MigratorManager::applyMigration(const std::string& version, const std::file
 {
     const std::ifstream in(file);
 
-    if (!in.is_open()) return;
+    if (!in.is_open())
+    {
+        throw DatabaseException(
+            fmt::format(
+                "[{}] Failed to open migration file: {}",
+                name,
+                file.string()));
+    }
 
     std::stringstream buffer;
     buffer << in.rdbuf();
@@ -81,6 +91,15 @@ bool MigratorManager::migrate(const std::string& migrationsPath) const
         if (entry.path().extension() == ".sql") files.push_back(entry.path());
     }
 
+    std::sort(
+        files.begin(),
+        files.end(),
+        [](const std::filesystem::path& left,
+           const std::filesystem::path& right)
+        {
+            return left.filename().string() < right.filename().string();
+        });
+
     for (const auto& file : files)
     {
         const std::string version =
@@ -93,8 +112,13 @@ bool MigratorManager::migrate(const std::string& migrationsPath) const
         {
             applyMigration(version, file);
         }
-        catch (const DatabaseException&)
+        catch (const DatabaseException& error)
         {
+            spdlog::error(
+                "[{}] Failed to apply migration '{}': {}",
+                name,
+                version,
+                error.what());
             return false;
         }
     }
