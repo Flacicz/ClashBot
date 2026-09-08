@@ -3,6 +3,7 @@
 .idea
 .vs
 .vscode
+.env
 
 build
 cmake-build-*

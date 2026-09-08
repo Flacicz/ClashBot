@@ -13,16 +13,25 @@ Telegram-подписки и состояние отслеживания кла�
 
 ## Конфигурация
 
-Параметры находятся в секции `bot` файла `config.json`:
+Путь к каталогу гайдов находится в секции `bot` файла `config.json`, а токен передаётся через переменную окружения
+`TELEGRAM_TOKEN`:
 
 ```json
 {
   "bot": {
-    "telegram_token": "<TELEGRAM_BOT_TOKEN>",
     "attack_guides_path": "resources/telegram/attack_guides.json"
   }
 }
 ```
+
+Для локального запуска переменную можно задать в `.env` рядом с `config.json`:
+
+```env
+TELEGRAM_TOKEN=<TELEGRAM_BOT_TOKEN>
+```
+
+В Docker переменная передаётся через `--env-file` или другим внешним secret-хранилищем. Токен не должен находиться в
+`config.json`, Dockerfile, Docker-образе или Git.
 
 `attack_guides_path` разрешается относительно текущего рабочего каталога процесса. В Docker используется путь
 `/app/resources/telegram/attack_guides.json`.

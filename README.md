@@ -94,9 +94,10 @@ vcpkg toolchain менеджер пакетов автоматически ус�
 #### Runtime requirements
 
 - для запуска нужен файл `config.json`;
+- для работы с внешними сервисами нужны переменные окружения `SUPERCELL_TOKEN` и `TELEGRAM_TOKEN`;
 - пути из конфигурации и каталоги для runtime-файлов, включая `data` и `logs`, должны быть доступны для записи;
 - заранее созданная SQLite-база не требуется: ClashBot создаёт файл базы и применяет миграции при запуске;
-- для реальной работы с внешними сервисами нужны Supercell API token и Telegram bot token.
+- локально переменные можно хранить в `.env`, а на сервере передавать через Docker или secret manager.
 
 #### Условные инструменты
 
@@ -119,7 +120,6 @@ cd ClashBot
 ```json
 {
   "api": {
-    "supercell_token": "<CLASH_OF_CLANS_API_TOKEN>",
     "use_tunnel": true,
     "tunnel_base_url": "https://localhost:8080/v1",
     "base_url": "https://api.clashofclans.com/v1"
@@ -129,18 +129,32 @@ cd ClashBot
     "migrations_path": "src/database/migrations"
   },
   "bot": {
-    "telegram_token": "<TELEGRAM_BOT_TOKEN>",
     "attack_guides_path": "resources/telegram/attack_guides.json"
   }
 }
 ```
+
+Создайте рядом с `config.json` локальный файл `.env`:
+
+```env
+SUPERCELL_TOKEN=<CLASH_OF_CLANS_API_TOKEN>
+TELEGRAM_TOKEN=<TELEGRAM_BOT_TOKEN>
+```
+
+Файл `.env` не добавляйте в Git. В репозитории можно хранить только `.env.example` без настоящих значений.
+Приложение загружает `.env` из каталога, где находится переданный `config.json`, если такой файл существует. Если
+переменные уже переданы операционной системой, Docker или CI/CD, они имеют приоритет.
 
 Параметр `use_tunnel` определяет способ подключения к API Clash of Clans:
 
 - `true` — запросы отправляются через SSH-туннель;
 - `false` — используется прямое подключение через `base_url`.
 
-> Файл `config.json` содержит секретные токены и не должен добавляться в Git.
+> Файл `config.json` не должен содержать секреты. Настоящие токены хранятся в `.env`, переменных окружения или secret
+> manager и не добавляются в Git.
+
+Архитектурные правила конфигурации и порядок приоритетов источников описаны в разделе
+[`Конфигурация и секреты`](docs/architecture.md#конфигурация-и-секреты).
 
 ### Получение идентификаторов Telegram-чата и темы
 
@@ -312,13 +326,12 @@ cmake --build cmake-build-debug
 
 #### Безопасный локальный smoke run
 
-Для проверки startup без настоящих секретов используйте новую пустую базу без отслеживаемых кланов и локальный
-`config.json` с фиктивными непустыми токенами и loopback URL:
+Для проверки startup без настоящих секретов используйте новую пустую базу без отслеживаемых кланов, локальный
+`config.json` с loopback URL и `.env` с фиктивными непустыми значениями.
 
 ```json
 {
   "api": {
-    "supercell_token": "DUMMY_SUPERCELL_TOKEN",
     "use_tunnel": false,
     "tunnel_base_url": "http://127.0.0.1:1/v1",
     "base_url": "http://127.0.0.1:1/v1"
@@ -328,13 +341,20 @@ cmake --build cmake-build-debug
     "migrations_path": "src/database/migrations"
   },
   "bot": {
-    "telegram_token": "DUMMY_TELEGRAM_TOKEN",
     "attack_guides_path": "resources/telegram/attack_guides.json"
   }
 }
 ```
 
-Не добавляйте локальный `config.json`, настоящие токены или созданную базу в Git. Запускайте приложение из корня
+Создайте рядом с ним временный `.env`:
+
+```env
+SUPERCELL_TOKEN=DUMMY_SUPERCELL_TOKEN
+TELEGRAM_TOKEN=DUMMY_TELEGRAM_TOKEN
+```
+
+После проверки удалите `.env` или оставьте его только локально. Не добавляйте локальный `config.json`, `.env`,
+настоящие токены или созданную базу в Git. Запускайте приложение из корня
 проекта, чтобы относительные пути к конфигурации, базе, миграциям и журналу разрешались от одного working directory:
 
 ```powershell
@@ -359,12 +379,16 @@ wsl bash ./scripts/startTunnel.sh
 Из-за ограниченных ресурсов сервера Docker-образ собирается локально, сохраняется в TAR-архив и передаётся на сервер
 через SCP.
 
+Docker Compose в проекте не используется: контейнер запускается напрямую командой `docker run`. Скрипт
+`scripts/deployProject.sh` автоматизирует сборку и передачу образа, подготовку каталогов и запуск контейнера.
+`config.json` и секреты должны быть подготовлены на сервере отдельно; секреты передаются через `--env-file` или
+переменные окружения сервера.
+
 Для серверного запуска измените конфигурацию:
 
 ```json
 {
   "api": {
-    "supercell_token": "<CLASH_OF_CLANS_API_TOKEN>",
     "use_tunnel": false,
     "tunnel_base_url": "https://localhost:8080/v1",
     "base_url": "https://api.clashofclans.com/v1"
@@ -374,11 +398,20 @@ wsl bash ./scripts/startTunnel.sh
     "migrations_path": "/app/migrations"
   },
   "bot": {
-    "telegram_token": "<TELEGRAM_BOT_TOKEN>",
     "attack_guides_path": "/app/resources/telegram/attack_guides.json"
   }
 }
 ```
+
+Подготовьте в безопасном месте файл `.env` с секретами:
+
+```env
+SUPERCELL_TOKEN=<CLASH_OF_CLANS_API_TOKEN>
+TELEGRAM_TOKEN=<TELEGRAM_BOT_TOKEN>
+```
+
+После передачи на сервер ограничьте доступ к файлу командой `chmod 600 ~/clashbot/.env`. Файл `.env` хранится на
+сервере отдельно от Docker-образа. Не добавляйте его в Git и не копируйте внутрь образа через `Dockerfile`.
 
 Соберите Docker-образ на локальной машине:
 
@@ -403,6 +436,7 @@ ssh <SSH_USER>@<SERVER_IP> "mkdir -p ~/clashbot/data ~/clashbot/logs"
 ```powershell
 scp .\clashbot.tar <SSH_USER>@<SERVER_IP>:~/clashbot/
 scp .\config.json <SSH_USER>@<SERVER_IP>:~/clashbot/config.json
+scp .\.env <SSH_USER>@<SERVER_IP>:~/clashbot/.env
 ```
 
 Подключитесь к серверу:
@@ -423,6 +457,7 @@ docker load -i ~/clashbot/clashbot.tar
 docker run -d \
   --name clashbot \
   --restart unless-stopped \
+  --env-file "$HOME/clashbot/.env" \
   -v "$HOME/clashbot/config.json:/app/config.json:ro" \
   -v "$HOME/clashbot/data:/app/data" \
   -v "$HOME/clashbot/logs:/app/logs" \
