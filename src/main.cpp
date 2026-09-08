@@ -4,6 +4,7 @@
 #include <string>
 #include <csignal>
 #include <atomic>
+#include <filesystem>
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -98,11 +99,20 @@ int main(const int argc, char* argv[])
 
     try
     {
-        std::string configPath = argc > 1 ? argv[1] : "../config.json";
+        const std::filesystem::path configPath =
+            argc > 1 ? argv[1] : "../config.json";
 
-        spdlog::info("[Main] Loading configuration from '{}'.", configPath);
+        const std::filesystem::path envPath =
+            std::filesystem::absolute(configPath).parent_path() / ".env";
 
-        AppConfig config = loadConfig(configPath);
+        if (std::filesystem::exists(envPath))
+        {
+            Config::loadDotEnv(envPath.string());
+        }
+
+        spdlog::info("[Main] Loading configuration from '{}'.", configPath.string());
+
+        auto config = Config::loadConfig(configPath.string());
 
         spdlog::info("[Main] Configuration loaded successfully.");
 

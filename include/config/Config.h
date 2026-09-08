@@ -3,17 +3,37 @@
 #include <string>
 #include <vector>
 
-struct AppConfig {
-	std::string supercellToken;
-	std::string baseUrl;
-	std::string tunnelBaseUrl;
-	bool useTunnel;
+namespace Config
+{
+	struct JsonSettings
+	{
+		bool useTunnel;
+		std::string tunnelBaseUrl;
+		std::string baseUrl;
 
-	std::string databasePath;
-	std::string migrationPath;
+		std::string databasePath;
+		std::string migrationPath;
 
-	std::vector<std::string> defaultClanTags;
-	std::string telegramToken;
-	std::string telegramChatId;
-	std::string attackGuidesPath;
-};
+		std::string attackGuidesPath;
+	};
+
+	struct EnvSettings
+	{
+		std::string supercellToken;
+		std::string telegramToken;
+	};
+
+	struct AppConfig {
+		bool useTunnel;
+		std::string tunnelBaseUrl;
+		std::string baseUrl;
+
+		std::string databasePath;
+		std::string migrationPath;
+
+		std::string attackGuidesPath;
+
+		std::string supercellToken;
+		std::string telegramToken;
+	};
+}
