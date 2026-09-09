@@ -29,13 +29,14 @@ ssh "$SERVER" "docker load -i '$REMOTE_DIR'/'$ARCHIVE'"
 
 ssh "$SERVER" "
   docker run -d \
-     --name '$REMOTE_DOCKER_CONTAINER' \
-     --restart unless-stopped \
-     -v '$REMOTE_DIR/config.json:/app/config.json:ro' \
-     -v '$REMOTE_DIR/data:/app/data' \
-     -v '$REMOTE_DIR/logs:/app/logs' \
-        '$IMAGE'
-"
+    --name '$REMOTE_DOCKER_CONTAINER' \
+    --restart unless-stopped \
+    --env-file '$REMOTE_DIR/.env' \
+    -v '$REMOTE_DIR/config.json:/app/config.json:ro' \
+    -v '$REMOTE_DIR/data:/app/data' \
+    -v '$REMOTE_DIR/logs:/app/logs' \
+    '$IMAGE'
+    "
 
 ssh "$SERVER" "docker ps -a"
 ssh "$SERVER" "docker logs '$REMOTE_DOCKER_CONTAINER'"
