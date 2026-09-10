@@ -113,43 +113,55 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
 
     try
     {
-        SyncResult syncResult;
-        auto transaction = transaction_manager_.beginTransaction();
-
-        std::vector<ApplicationEvent> events;
-
-        const long long lastCWLId = clanwars_league_repo_.saveCompleteCWLData(
-            clanwarsLeagueSeason, clanwarsLeagueMembers);
-
-        int roundNumber = 1;
-        for (auto& [war, clans, attacks, members] : warDetails)
+        const auto syncResult = transaction_manager_.retryInTransaction([&]
         {
-            try
+            std::vector<ApplicationEvent> events;
+
+            const long long lastCWLId = clanwars_league_repo_.saveCompleteCWLData(
+                clanwarsLeagueSeason, clanwarsLeagueMembers);
+
+            int roundNumber = 1;
+            for (const auto& warDetailsItem : warDetails)
             {
-                war.seasonId = lastCWLId;
-                war.roundNumber = roundNumber++;
+                const auto& [war, clans, attacks, members] = warDetailsItem;
 
-                auto warReference = clanwar_repo_.saveCompleteClanwarData(war, clans, attacks, members);
-
-                auto roundEvents = generateEvents(tag, lastCWLId, war, warReference);
-                for (auto& event : roundEvents)
+                try
                 {
-                    events.emplace_back(std::move(event));
+                    auto warToSave = war;
+                    warToSave.seasonId = lastCWLId;
+                    warToSave.roundNumber = roundNumber++;
+
+                    const auto warReference =
+                        clanwar_repo_.saveCompleteClanwarData(
+                            warToSave,
+                            clans,
+                            attacks,
+                            members);
+
+                    auto roundEvents =
+                        generateEvents(tag, lastCWLId, warToSave, warReference);
+
+                    for (auto& event : roundEvents)
+                    {
+                        events.emplace_back(std::move(event));
+                    }
+                }
+                catch (const DatabaseException&)
+                {
+                    throw;
+                }
+                catch (const std::exception& e)
+                {
+                    throw std::runtime_error(
+                        fmt::format(
+                            "Failed to save war '{}' in CWL season: {}",
+                            war.warUID,
+                            e.what()));
                 }
             }
-            catch (const std::exception& e)
-            {
-                throw std::runtime_error(
-                    fmt::format(
-                        "Failed to save war '{}' in CWL season: {}",
-                        war.warUID,
-                        e.what()));
-            }
-        }
 
-        syncResult = SyncResult::success(svc, std::string(tag), std::move(events));
-
-        transaction.commit();
+            return SyncResult::success(svc, std::string(tag), std::move(events));
+        });
 
         spdlog::info(
             "[Service: {}] Successfully updated Clan War League for clan '{}'. "

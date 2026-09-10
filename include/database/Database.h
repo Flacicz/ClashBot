@@ -31,6 +31,7 @@ class Database
     std::unique_ptr<NotificationRepo> notificationRepo;
 
     static constexpr std::string_view name = "DB";
+    static constexpr int SQLITE_BUSY_TIMEOUT_MS = 5000;
 
 public:
     explicit Database(std::string path);

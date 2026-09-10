@@ -1,5 +1,6 @@
 #include "database/Database.h"
 #include "database/MigratorManager.h"
+#include "database/TransactionManager.h"
 #include "notifications/NotificationService.h"
 
 #include "FakeTelegramApiClient.h"
@@ -18,6 +19,7 @@ namespace
     protected:
         std::filesystem::path databasePath;
         std::unique_ptr<Database> database;
+        std::unique_ptr<TransactionManager> transactionManager;
         FakeTelegramApiClient telegramApiClient;
 
         std::unique_ptr<TelegramNotifier> telegramNotifier;
@@ -59,6 +61,9 @@ namespace
             const MigratorManager migratorManager(*database);
             ASSERT_TRUE(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
 
+            transactionManager = std::make_unique<TransactionManager>(
+                database->getDBInstance());
+
             telegramNotifier = std::make_unique<TelegramNotifier>(telegramApiClient);
             playerJoinedFormatter = std::make_unique<PlayerJoinedFormatter>(database->clans());
             playerLeftFormatter = std::make_unique<PlayerLeftFormatter>(database->clans());
@@ -78,6 +83,7 @@ namespace
             notificationService = std::make_unique<NotificationService>(
                 database->notifications(),
                 database->subscriptions(),
+                *transactionManager,
                 *telegramNotifier,
                 *playerJoinedFormatter,
                 *playerLeftFormatter,
@@ -109,6 +115,7 @@ namespace
             playerLeftFormatter.reset();
             playerJoinedFormatter.reset();
             telegramNotifier.reset();
+            transactionManager.reset();
             database.reset();
             removeDatabaseFiles(databasePath);
         }

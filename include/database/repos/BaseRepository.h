@@ -44,7 +44,7 @@ public:
 
         if (rc != SQLITE_DONE)
         {
-            throwDbException(operation, context);
+            throwDbException(operation, context, rc);
         }
 
         return result;
@@ -77,7 +77,7 @@ public:
             );
         }
 
-        throwDbException(operation, context);
+        throwDbException(operation, context, rc);
     }
 
     template <typename T, typename M, typename... Params>
@@ -104,7 +104,7 @@ public:
             return std::nullopt;
         }
 
-        throwDbException(operation, context);
+        throwDbException(operation, context, rc);
     }
 
     template <typename... Params>
@@ -118,17 +118,21 @@ public:
 
         bindParams(stmt.get(), 1, std::forward<Params>(params)...);
 
-        if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+        const int rc = sqlite3_step(stmt.get());
+
+        if (rc != SQLITE_DONE)
         {
-            throwDbException(operation, context);
+            throwDbException(operation, context, rc);
         }
     }
 
 protected:
     [[noreturn]] void throwDbException(std::string_view operation,
-                                       std::string_view context) const
+                                       std::string_view context,
+                                       const int sqliteErrorCode) const
     {
         throw DatabaseException(
+            sqliteErrorCode,
             fmt::format("[{}] Failed to {} ({}): {}",
                         repoName, operation, context, sqlite3_errmsg(db)
             )

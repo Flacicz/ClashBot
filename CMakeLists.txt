@@ -120,6 +120,7 @@ add_executable(ClashBotTests
         tests/common/ClanwarUtilsTests.cpp
         tests/common/TimeParserTests.cpp
         tests/common/SyncResultTests.cpp
+        tests/common/RetryPolicyTests.cpp
         tests/common/CommonModelsTests.cpp
         tests/events/ApplicationEventsTests.cpp
         tests/analytics/ClanwarComparisonAnalyzerTests.cpp

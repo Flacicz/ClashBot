@@ -116,49 +116,65 @@ int main(const int argc, char* argv[])
 
         spdlog::info("[Main] Configuration loaded successfully.");
 
-        auto apiClient = APIClient(
+        Database syncDb(config.databasePath);
+
+        MigratorManager migratorManager(syncDb);
+        if (!migratorManager.migrate(config.migrationPath))
+        {
+            spdlog::critical("[DB] Failed to apply migrations. Startup aborted.");
+            return EXIT_FAILURE;
+        }
+        spdlog::info("[DB] Database migrations completed successfully.");
+
+        constexpr RetryPolicy databaseRetryPolicy{
+            RetryPolicy::defaultMaxAttempts,
+            RetryPolicy::defaultInitialDelay};
+        constexpr RetryPolicy syncRetryPolicy{
+            RetryPolicy::defaultMaxAttempts,
+            std::chrono::seconds(2)};
+
+        TransactionManager syncTransactions(
+            syncDb.getDBInstance(), databaseRetryPolicy);
+        Database telegramDb(config.databasePath);
+        TransactionManager telegramTransactions(
+            telegramDb.getDBInstance(), databaseRetryPolicy);
+        spdlog::info("[DB] Worker database connections initialized successfully.");
+
+        APIClient apiClient(
             std::move(config.supercellToken),
             config.useTunnel,
             std::move(config.baseUrl),
             std::move(config.tunnelBaseUrl)
         );
 
-        auto db = Database(
-            std::move(config.databasePath)
-        );
+        TelegramApiClient telegramApiClient(std::move(config.telegramToken));
+        telegram::AttackGuideCatalog attackGuideCatalog(config.attackGuidesPath);
+        TelegramNotifier telegramNotifier(telegramApiClient);
 
-        auto migratorManager = MigratorManager(db);
-        if (!migratorManager.migrate(config.migrationPath))
-        {
-            spdlog::critical("[DB] Failed to apply migrations. Startup aborted.");
-            return EXIT_FAILURE;
-        }
+        TelegramBotService telegramBotService(
+            telegramApiClient,
+            attackGuideCatalog,
+            telegramDb.clans(),
+            telegramDb.subscriptions(),
+            telegramTransactions);
 
-        auto transactions = TransactionManager(db.getDBInstance());
+        PlayerJoinedFormatter playerJoinedFormatter(syncDb.clans());
+        PlayerLeftFormatter playerLeftFormatter(syncDb.clans());
+        PlayerRoleChangedFormatter playerRoleChangedFormatter(syncDb.clans());
+        RaidsEndedFormatter raidsEndedFormatter(syncDb.clans(), syncDb.raids());
+        RaidsComparisonFormatter raidsComparisonFormatter(syncDb.clans(), syncDb.raids());
+        RaidsViolationsFormatter raidsViolationsFormatter(syncDb.raids());
+        ClanwarEndedFormatter clanwarEndedFormatter(syncDb.war());
+        ClanwarViolationsFormatter clanwarViolationsFormatter(syncDb.war());
+        ClanwarComparisonFormatter clanwarComparisonFormatter(syncDb.war());
+        ClanwarRosterFormatter clanwarRosterFormatter(syncDb.clans(), syncDb.war());
+        ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(syncDb.leagueWar(), syncDb.war());
+        ClanwarsLeagueRoundViolationsFormatter clanwarsLeagueRoundViolationsFormatter(syncDb.leagueWar(), syncDb.war());
 
-        spdlog::info("[DB] Database migrations completed successfully.");
-
-
-        auto telegramApiClient = TelegramApiClient(std::move(config.telegramToken));
-        const telegram::AttackGuideCatalog attackGuideCatalog(
-            config.attackGuidesPath);
-        auto telegramNotifier = TelegramNotifier(telegramApiClient);
-        PlayerJoinedFormatter playerJoinedFormatter(db.clans());
-        PlayerLeftFormatter playerLeftFormatter(db.clans());
-        PlayerRoleChangedFormatter playerRoleChangedFormatter(db.clans());
-        RaidsEndedFormatter raidsEndedFormatter(db.clans(), db.raids());
-        RaidsComparisonFormatter raidsComparisonFormatter(db.clans(), db.raids());
-        RaidsViolationsFormatter raidsViolationsFormatter(db.raids());
-        ClanwarEndedFormatter clanwarEndedFormatter(db.war());
-        ClanwarViolationsFormatter clanwarViolationsFormatter(db.war());
-        ClanwarComparisonFormatter clanwarComparisonFormatter(db.war());
-        ClanwarRosterFormatter clanwarRosterFormatter(db.clans(), db.war());
-        ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(db.leagueWar(), db.war());
-        ClanwarsLeagueRoundViolationsFormatter clanwarsLeagueRoundViolationsFormatter(db.leagueWar(), db.war());
-
-        auto notificationService = NotificationService(
-            db.notifications(),
-            db.subscriptions(),
+        NotificationService notificationService(
+            syncDb.notifications(),
+            syncDb.subscriptions(),
+            syncTransactions,
             telegramNotifier,
             playerJoinedFormatter,
             playerLeftFormatter,
@@ -174,19 +190,25 @@ int main(const int argc, char* argv[])
             clanwarsLeagueRoundViolationsFormatter
         );
 
-        auto eventDispatcher = EventDispatcher(notificationService);
+        EventDispatcher eventDispatcher(notificationService);
 
         std::vector<std::unique_ptr<ISyncService>> services;
-        services.push_back(std::make_unique<ClanInfoService>(db.clans(), apiClient, transactions));
-        services.push_back(std::make_unique<ClanwarService>(db.war(), apiClient, transactions));
-        services.push_back(std::make_unique<RaidService>(db.clans(), db.raids(), apiClient, transactions));
-        services.push_back(std::make_unique<ClanwarLeagueService>(db.war(), db.leagueWar(), apiClient, transactions));
+        services.push_back(std::make_unique<ClanInfoService>(syncDb.clans(), apiClient, syncTransactions));
+        services.push_back(std::make_unique<ClanwarService>(syncDb.war(), apiClient, syncTransactions));
+        services.push_back(std::make_unique<RaidService>(syncDb.clans(), syncDb.raids(), apiClient, syncTransactions));
+        services.push_back(
+            std::make_unique<ClanwarLeagueService>(syncDb.war(), syncDb.leagueWar(), apiClient, syncTransactions));
 
-        ClanManager clanManager(eventDispatcher, std::move(services), db.clans());
+        ClanManager clanManager(
+            eventDispatcher,
+            std::move(services),
+            syncDb.clans(),
+            syncRetryPolicy);
+
+        spdlog::info("[Main] Synchronization services initialized successfully.");
+        spdlog::info("[Main] Telegram service initialized successfully.");
 
         spdlog::info("[Main] All application services initialized successfully.");
-
-        spdlog::info("[Main] Application startup completed successfully.");
 
         std::thread syncThread([&clanManager]
         {
@@ -206,20 +228,44 @@ int main(const int argc, char* argv[])
             }
         });
 
-        TelegramBotService telegramBotService(
-            telegramApiClient,
-            attackGuideCatalog,
-            db.clans(),
-            db.subscriptions(),
-            transactions);
+        std::thread telegramThread;
 
-        std::thread telegramThread(
-            [&telegramBotService]
+        try
+        {
+            telegramThread = std::thread(
+                [&telegramBotService]
+                {
+                    try
+                    {
+                        telegramBotService.loop();
+                    }
+                    catch (const std::exception& error)
+                    {
+                        spdlog::critical(
+                            "[FATAL] Telegram thread crashed: {}",
+                            error.what());
+                        g_shutdown_requested.store(true);
+                    }
+                    catch (...)
+                    {
+                        spdlog::critical(
+                            "[FATAL] Telegram thread crashed with unknown exception!");
+                        g_shutdown_requested.store(true);
+                    }
+                }
+            );
+        }
+        catch (...)
+        {
+            clanManager.stop();
+            if (syncThread.joinable())
             {
-                telegramBotService.loop();
+                syncThread.join();
             }
-        );
+            throw;
+        }
 
+        spdlog::info("[Main] Application startup completed successfully.");
         spdlog::info("[Main] Bot is running. Press Ctrl+C or send SIGTERM to stop.");
 
         while (!g_shutdown_requested.load())

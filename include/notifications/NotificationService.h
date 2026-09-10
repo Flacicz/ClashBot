@@ -6,6 +6,7 @@
 
 #include "TelegramNotifier.h"
 #include "database/Database.h"
+#include "database/TransactionManager.h"
 #include "reports/ClanwarComparisonFormatter.h"
 #include "reports/ClanwarEndedFormatter.h"
 #include "reports/ClanwarRosterFormatter.h"
@@ -25,6 +26,7 @@ class NotificationService
 {
     NotificationRepo& notification_repo_;
     SubscriptionRepo& subscription_repo_;
+    TransactionManager& transaction_manager_;
 
     TelegramNotifier telegramNotifier;
 
@@ -56,6 +58,7 @@ class NotificationService
 public:
     NotificationService(NotificationRepo& notification_repo,
                         SubscriptionRepo& subscription_repo,
+                        TransactionManager& transaction_manager,
                         TelegramNotifier telegram_notifier,
                         PlayerJoinedFormatter playerJoinedFormatter,
                         PlayerLeftFormatter playerLeftFormatter,

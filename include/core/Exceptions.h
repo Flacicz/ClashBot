@@ -4,7 +4,11 @@
 
 #ifndef CLASHBOT_EXCEPTIONS_H
 #define CLASHBOT_EXCEPTIONS_H
+#include <optional>
 #include <stdexcept>
+#include <string>
+
+#include <sqlite3.h>
 
 class ClashBotException : public std::runtime_error
 {
@@ -14,8 +18,31 @@ public:
 
 class DatabaseException : public ClashBotException
 {
+    std::optional<int> sqliteCode_;
+
+    static constexpr int SQLITE_PRIMARY_RESULT_CODE_MASK = 0xFF;
+
 public:
     using ClashBotException::ClashBotException;
+
+    DatabaseException(int sqliteCode, const std::string& message)
+        : ClashBotException(message),
+          sqliteCode_(sqliteCode)
+    {
+    }
+
+    [[nodiscard]] std::optional<int> sqliteCode() const noexcept
+    {
+        return sqliteCode_;
+    }
+
+    [[nodiscard]] bool isBusy() const noexcept
+    {
+        if (!sqliteCode_)
+            return false;
+
+        return (*sqliteCode_ & SQLITE_PRIMARY_RESULT_CODE_MASK) == SQLITE_BUSY;
+    }
 };
 
 enum class ApiError

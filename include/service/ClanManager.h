@@ -1,9 +1,11 @@
 #pragma once
+#include <chrono>
 #include <mutex>
 #include <condition_variable>
 
 #include "database/repos/ClansRepo.h"
 #include "ISyncService.h"
+#include "database/RetryPolicy.h"
 #include "events/EventDispatcher.h"
 #include "notifications/NotificationService.h"
 
@@ -13,6 +15,7 @@ class ClanManager
     EventDispatcher eventDispatcher;
     std::vector<std::unique_ptr<ISyncService>> services;
     ClansRepo& clans_repo_;
+    RetryPolicy syncRetryPolicy_;
 
     std::mutex mtx;
     std::condition_variable cv;
@@ -25,9 +28,8 @@ class ClanManager
     };
 
     std::map<std::string, ServiceStatus> trackingStatuses;
-    constexpr static int MAX_RETRIES = 3;
 
-    static SyncResult syncWithRetry(ISyncService* service, std::string_view clanTag);
+    SyncResult syncWithRetry(ISyncService* service, std::string_view clanTag) const;
     void handleSyncFailure(const SyncResult& syncResult);
     void handleSyncRecovery(const SyncResult& syncResult);
 
@@ -35,7 +37,10 @@ public:
     ClanManager(
         EventDispatcher event_dispatcher,
         std::vector<std::unique_ptr<ISyncService>> services,
-        ClansRepo& clans_repo
+        ClansRepo& clans_repo,
+        RetryPolicy retryPolicy = RetryPolicy{
+            RetryPolicy::defaultMaxAttempts,
+            std::chrono::seconds(2)}
     );
 
     void syncAll();

@@ -9,35 +9,37 @@
 ClanManager::ClanManager(
     const EventDispatcher event_dispatcher,
     std::vector<std::unique_ptr<ISyncService>> services,
-    ClansRepo& clans_repo
+    ClansRepo& clans_repo,
+    const RetryPolicy syncRetryPolicy
 )
     : eventDispatcher(event_dispatcher),
       services(std::move(services)),
-      clans_repo_(clans_repo)
+      clans_repo_(clans_repo),
+      syncRetryPolicy_(syncRetryPolicy)
 {
 }
 
-SyncResult ClanManager::syncWithRetry(ISyncService* service, const std::string_view clanTag)
+SyncResult ClanManager::syncWithRetry(ISyncService* service, const std::string_view clanTag) const
 {
     SyncResult result{};
 
-    for (int attempt = 1; attempt <= MAX_RETRIES; ++attempt)
+    for (int attempt = 1; attempt <= syncRetryPolicy_.maxAttempts(); ++attempt)
     {
         result = service->updateData(clanTag);
 
         if (result.successFlag)
             return result;
 
-        if (attempt < MAX_RETRIES)
+        if (attempt < syncRetryPolicy_.maxAttempts())
         {
             spdlog::warn(
                 "[Manager] Service '{}' failed for clan '{}' (attempt {}/{}). Retrying...",
                 service->getServiceName(),
                 clanTag,
                 attempt,
-                MAX_RETRIES);
+                syncRetryPolicy_.maxAttempts());
 
-            std::this_thread::sleep_for(std::chrono::seconds(attempt * 2));
+            std::this_thread::sleep_for(syncRetryPolicy_.delayForAttempt(attempt));
         }
     }
 
@@ -122,7 +124,7 @@ void ClanManager::syncAll()
                     if (!result.successFlag)
                     {
                         spdlog::error("[ClanManager] Service '{}' completely failed after {} attempts.",
-                                      service->getServiceName(), MAX_RETRIES);
+                                      service->getServiceName(), syncRetryPolicy_.maxAttempts());
                         handleSyncFailure(result);
                         continue;
                     }

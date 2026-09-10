@@ -8,6 +8,7 @@
 
 NotificationService::NotificationService(NotificationRepo& notification_repo,
                                          SubscriptionRepo& subscription_repo,
+                                         TransactionManager& transaction_manager,
                                          TelegramNotifier telegram_notifier,
                                          const PlayerJoinedFormatter playerJoinedFormatter,
                                          const PlayerLeftFormatter playerLeftFormatter,
@@ -24,6 +25,7 @@ NotificationService::NotificationService(NotificationRepo& notification_repo,
                                          clanwarLeagueRoundViolationsFormatter) :
     notification_repo_(notification_repo),
     subscription_repo_(subscription_repo),
+    transaction_manager_(transaction_manager),
     telegramNotifier(std::move(telegram_notifier)),
     playerJoinedFormatter(playerJoinedFormatter),
     playerLeftFormatter(playerLeftFormatter),
@@ -76,25 +78,37 @@ void NotificationService::sendToDestinationsWithDeduplication(const std::string_
 
     for (const auto& [chatId, messageThreadId] : destinations)
     {
-        if (notification_repo_.wasSent(eventType,
-                                       eventId,
-                                       chatId,
-                                       messageThreadId))
-            continue;
-
         try
         {
+            if (notification_repo_.wasSent(eventType,
+                                           eventId,
+                                           chatId,
+                                           messageThreadId))
+                continue;
+
             telegramNotifier.sendMessage(chatId, message, messageThreadId);
 
-            notification_repo_.markAsSent(eventType,
-                                          eventId,
-                                          chatId,
-                                          messageThreadId);
+            transaction_manager_.retryInTransaction([&]
+            {
+                notification_repo_.markAsSent(eventType,
+                                              eventId,
+                                              chatId,
+                                              messageThreadId);
+            });
         }
         catch (const ApiException& error)
         {
             spdlog::error(
                 "[NotificationService] Failed to send {} message. ClanTag - {}, Chat ID - {}, Error - {}",
+                eventName,
+                clanTag,
+                chatId,
+                error.what());
+        }
+        catch (const DatabaseException& error)
+        {
+            spdlog::error(
+                "[NotificationService] Failed to persist {} notification. ClanTag - {}, Chat ID - {}, Error - {}",
                 eventName,
                 clanTag,
                 chatId,

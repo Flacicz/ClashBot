@@ -1,5 +1,10 @@
 #ifndef CLASHBOT_TRANSACTIONGUARD_H
 #define CLASHBOT_TRANSACTIONGUARD_H
+
+#include <exception>
+
+#include <spdlog/spdlog.h>
+
 #include "Database.h"
 
 class TransactionGuard
@@ -10,14 +15,42 @@ class TransactionGuard
 public:
     explicit TransactionGuard(sqlite3* connection) : connection(connection)
     {
-        sqlite::execute(connection, "BEGIN TRANSACTION;");
+        sqlite::execute(connection, "BEGIN IMMEDIATE;");
     }
 
-    ~TransactionGuard()
+    TransactionGuard(const TransactionGuard&) = delete;
+    TransactionGuard& operator=(const TransactionGuard&) = delete;
+    TransactionGuard(TransactionGuard&&) = delete;
+    TransactionGuard& operator=(TransactionGuard&&) = delete;
+
+    ~TransactionGuard() noexcept
     {
         if (!committed)
         {
-            sqlite::execute(connection, "ROLLBACK;");
+            try
+            {
+                sqlite::execute(connection, "ROLLBACK;");
+            }
+            catch (const std::exception& error)
+            {
+                try
+                {
+                    spdlog::error("Failed to rollback SQLite transaction: {}", error.what());
+                }
+                catch (...)
+                {
+                }
+            }
+            catch (...)
+            {
+                try
+                {
+                    spdlog::error("Failed to rollback SQLite transaction: unknown error");
+                }
+                catch (...)
+                {
+                }
+            }
         }
     }
 

@@ -13,9 +13,12 @@ sqlite::SQLiteStmt sqlite::prepare(sqlite3* db, const std::string_view sql)
 {
     sqlite3_stmt* raw_stmt = nullptr;
 
-    if (sqlite3_prepare_v2(db, sql.data(), -1, &raw_stmt, nullptr) != SQLITE_OK)
+    const int rc = sqlite3_prepare_v2(db, sql.data(), -1, &raw_stmt, nullptr);
+
+    if (rc != SQLITE_OK)
     {
         throw DatabaseException(
+            rc,
             fmt::format(
                 "Failed to prepare SQL:\n{}\nSQLite: {}",
                 sql,
@@ -27,9 +30,12 @@ sqlite::SQLiteStmt sqlite::prepare(sqlite3* db, const std::string_view sql)
 
 void sqlite::bind(sqlite3_stmt* stmt, const int index, const int value)
 {
-    if (sqlite3_bind_int(stmt, index, value) != SQLITE_OK)
+    const int rc = sqlite3_bind_int(stmt, index, value);
+
+    if (rc != SQLITE_OK)
     {
         throw DatabaseException(
+            rc,
             fmt::format(
                 "sqlite3_bind_int failed: parameter {}, value {}: {}",
                 index, value,
@@ -42,9 +48,12 @@ void sqlite::bind(sqlite3_stmt* stmt, const int index, const int value)
 
 void sqlite::bind(sqlite3_stmt* stmt, const int index, const long long value)
 {
-    if (sqlite3_bind_int64(stmt, index, value) != SQLITE_OK)
+    const int rc = sqlite3_bind_int64(stmt, index, value);
+
+    if (rc != SQLITE_OK)
     {
         throw DatabaseException(
+            rc,
             fmt::format(
                 "sqlite3_bind_int64 failed: parameter {}, value {}: {}",
                 index, value,
@@ -57,9 +66,12 @@ void sqlite::bind(sqlite3_stmt* stmt, const int index, const long long value)
 
 void sqlite::bind(sqlite3_stmt* stmt, const int index, const double value)
 {
-    if (sqlite3_bind_double(stmt, index, value) != SQLITE_OK)
+    const int rc = sqlite3_bind_double(stmt, index, value);
+
+    if (rc != SQLITE_OK)
     {
         throw DatabaseException(
+            rc,
             fmt::format(
                 "sqlite3_bind_double failed: parameter {}, value {}: {}",
                 index, value,
@@ -72,9 +84,17 @@ void sqlite::bind(sqlite3_stmt* stmt, const int index, const double value)
 
 void sqlite::bind(sqlite3_stmt* stmt, const int index, const std::string_view value)
 {
-    if (sqlite3_bind_text(stmt, index, value.data(), static_cast<int>(value.size()), SQLITE_TRANSIENT) != SQLITE_OK)
+    const int rc = sqlite3_bind_text(
+        stmt,
+        index,
+        value.data(),
+        static_cast<int>(value.size()),
+        SQLITE_TRANSIENT);
+
+    if (rc != SQLITE_OK)
     {
         throw DatabaseException(
+            rc,
             fmt::format(
                 "sqlite3_bind_text(string_view) failed: parameter {}, value {}: {}",
                 index, value,
@@ -87,9 +107,12 @@ void sqlite::bind(sqlite3_stmt* stmt, const int index, const std::string_view va
 
 void sqlite::bind(sqlite3_stmt* stmt, const int index)
 {
-    if (sqlite3_bind_null(stmt, index) != SQLITE_OK)
+    const int rc = sqlite3_bind_null(stmt, index);
+
+    if (rc != SQLITE_OK)
     {
         throw DatabaseException(
+            rc,
             fmt::format(
                 "sqlite3_bind_null failed: parameter {}: {}",
                 index,
@@ -129,11 +152,14 @@ std::string sqlite::getString(sqlite3_stmt* stmt, const int index)
 void sqlite::execute(sqlite3* db, const std::string_view sql)
 {
     char* err = nullptr;
-    if (sqlite3_exec(db, sql.data(), nullptr, nullptr, &err) != SQLITE_OK)
+    const int rc = sqlite3_exec(db, sql.data(), nullptr, nullptr, &err);
+
+    if (rc != SQLITE_OK)
     {
-        std::unique_ptr<char, decltype(&sqlite3_free)> errGuard(err, sqlite3_free);
+        const std::unique_ptr<char, decltype(&sqlite3_free)> errGuard(err, sqlite3_free);
 
         throw DatabaseException(
+            rc,
             fmt::format(
                 "[{}] Failed to execute SQL (sql = {}): {}",
                 name,

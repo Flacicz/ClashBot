@@ -148,25 +148,31 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
 
     try
     {
-        auto transaction = transaction_manager_.beginTransaction();
+        const auto syncResult = transaction_manager_.retryInTransaction([&]
+        {
+            const auto roleChanges =
+                detectRoleChanges(std::string(tag), playerSnapshots);
 
-        const auto roleChanges = detectRoleChanges(std::string(tag), playerSnapshots);
+            clans_repo_.saveCompleteClanData(
+                clan,
+                clanSnapshot,
+                players,
+                playerSnapshots);
 
-        clans_repo_.saveCompleteClanData(clan, clanSnapshot, players, playerSnapshots);
+            const auto changes =
+                detectMembershipChanges(tag, players);
 
-        const auto changes = detectMembershipChanges(tag, std::move(players));
+            clans_repo_.saveMembershipChanges(changes);
 
-        clans_repo_.saveMembershipChanges(changes);
-
-        SyncResult syncResult = SyncResult::success(
-            svc,
-            std::string(tag),
-            generateEvents(changes, roleChanges));
-
-        transaction.commit();
+            return SyncResult::success(
+                svc,
+                std::string(tag),
+                generateEvents(changes, roleChanges));
+        });
 
         spdlog::info(
-            "[Service: {}] Successfully updated clan '{}' ({}). Members: {}, Events generated: {}.",
+            "[Service: {}] Successfully updated clan '{}' ({}). "
+            "Members: {}, Events generated: {}.",
             svc,
             tag,
             clan.name,
@@ -182,6 +188,10 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
             svc,
             tag,
             e.what());
-        return SyncResult::error(getServiceName(), std::string(tag), e.what());
+
+        return SyncResult::error(
+            getServiceName(),
+            std::string(tag),
+            e.what());
     }
 }

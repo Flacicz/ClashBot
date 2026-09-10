@@ -7,25 +7,57 @@
 
 Database::Database(std::string path) : pathToDb(path)
 {
-    if (sqlite3_open(path.c_str(), &db) != SQLITE_OK)
+    const int rc = sqlite3_open(path.c_str(), &db);
+
+    if (rc != SQLITE_OK)
     {
+        const std::string sqliteError = db
+                                            ? sqlite3_errmsg(db)
+                                            : "SQLite did not return an error message";
+
+        if (db)
+        {
+            sqlite3_close(db);
+            db = nullptr;
+        }
+
         throw DatabaseException(
+            rc,
             fmt::format("[{}] Failed to open database (path = {}): {}",
-                        name, path, sqlite3_errmsg(db)));
+                        name, path, sqliteError));
     }
 
-    spdlog::info("[{}] Database successfully opened (path = {})", name, path);
+    try
+    {
+        spdlog::info("[{}] Database successfully opened (path = {})", name, path);
 
-    sqlite::execute(db, "PRAGMA foreign_keys = ON;");
-    sqlite::execute(db, "PRAGMA journal_mode = WAL;");
-    sqlite::execute(db, "PRAGMA synchronous = NORMAL;");
+        const int busyTimeoutRc = sqlite3_busy_timeout(db, SQLITE_BUSY_TIMEOUT_MS);
 
-    clansRepo = std::make_unique<ClansRepo>(db);
-    raidRepo = std::make_unique<RaidRepo>(db);
-    cwRepo = std::make_unique<ClanwarRepo>(db);
-    cwlRepo = std::make_unique<ClanwarsLeagueRepo>(db);
-    subscriptionRepo = std::make_unique<SubscriptionRepo>(db);
-    notificationRepo = std::make_unique<NotificationRepo>(db);
+        if (busyTimeoutRc != SQLITE_OK)
+        {
+            throw DatabaseException(
+                busyTimeoutRc,
+                fmt::format("[{}] Failed to configure SQLite busy timeout: {}",
+                            name, sqlite3_errmsg(db)));
+        }
+
+        sqlite::execute(db, "PRAGMA foreign_keys = ON;");
+        sqlite::execute(db, "PRAGMA journal_mode = WAL;");
+        sqlite::execute(db, "PRAGMA synchronous = NORMAL;");
+
+        clansRepo = std::make_unique<ClansRepo>(db);
+        raidRepo = std::make_unique<RaidRepo>(db);
+        cwRepo = std::make_unique<ClanwarRepo>(db);
+        cwlRepo = std::make_unique<ClanwarsLeagueRepo>(db);
+        subscriptionRepo = std::make_unique<SubscriptionRepo>(db);
+        notificationRepo = std::make_unique<NotificationRepo>(db);
+    }
+    catch (...)
+    {
+        sqlite3_close(db);
+        db = nullptr;
+        throw;
+    }
 }
 
 Database::~Database()

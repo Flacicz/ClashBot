@@ -103,16 +103,16 @@ SyncResult ClanwarService::updateData(std::string_view tag)
 
     try
     {
-        auto transaction = transaction_manager_.beginTransaction();
+        const auto syncResult = transaction_manager_.retryInTransaction([&]
+        {
+            const auto warReference =
+                clanwar_repo_.saveCompleteClanwarData(clanwar, clans, attacks, members);
 
-        const auto warReference = clanwar_repo_.saveCompleteClanwarData(clanwar, clans, attacks, members);
-
-        SyncResult syncResult = SyncResult::success(
-            svc,
-            std::string(tag),
-            generateEvents(tag, clanwar.state, clanwar, warReference));
-
-        transaction.commit();
+            return SyncResult::success(
+                svc,
+                std::string(tag),
+                generateEvents(tag, clanwar.state, clanwar, warReference));
+        });
 
         spdlog::info(
             "[Service: {}] Successfully updated Clan War for clan '{}'. Members: {}, Attacks: {}, Events generated: {}.",

@@ -33,12 +33,25 @@ bool MigratorManager::isMigrationApplied(const std::string& version) const
 
     sqlite::bind(stmt.get(), 1, version);
 
-    if (sqlite3_step(stmt.get()) != SQLITE_ROW)
+    const int rc = sqlite3_step(stmt.get());
+
+    if (rc == SQLITE_DONE)
     {
         return false;
     }
 
-    return true;
+    if (rc == SQLITE_ROW)
+    {
+        return true;
+    }
+
+    throw DatabaseException(
+        rc,
+        fmt::format(
+            "[{}] Failed to check migration version (version = {}): {}",
+            name,
+            version,
+            sqlite3_errmsg(db.getDBInstance())));
 }
 
 void MigratorManager::applyMigration(const std::string& version, const std::filesystem::path& file) const
@@ -69,9 +82,12 @@ void MigratorManager::applyMigration(const std::string& version, const std::file
 
     sqlite::bind(stmt.get(), 1, version);
 
-    if (sqlite3_step(stmt.get()) != SQLITE_DONE)
+    const int rc = sqlite3_step(stmt.get());
+
+    if (rc != SQLITE_DONE)
     {
         throw DatabaseException(
+            rc,
             fmt::format(
                 "[{}] Failed to save migration version (version = {}): {}",
                 name,

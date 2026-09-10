@@ -273,17 +273,16 @@ void TelegramBotService::handleLinkCommand(
 
         const std::string& clanTag = *requestedTag;
 
-        auto transaction = transaction_manager_.beginTransaction();
-
-        clans_repo_.insertMinimalClan(clanTag);
-        subscription_repo_.saveTelegramChat(chatId, messageThreadId, title);
-        subscription_repo_.subscribeToChat(
-            chatId,
-            messageThreadId,
-            clanTag,
-            *audience);
-
-        transaction.commit();
+        transaction_manager_.retryInTransaction([&]
+        {
+            clans_repo_.insertMinimalClan(clanTag);
+            subscription_repo_.saveTelegramChat(chatId, messageThreadId, title);
+            subscription_repo_.subscribeToChat(
+                chatId,
+                messageThreadId,
+                clanTag,
+                *audience);
+        });
 
         const std::string destination = chatType == "private"
                                             ? "Личный чат"
@@ -330,41 +329,40 @@ bool TelegramBotService::unlinkClanFromChat(
     const std::string& clanTag,
     const Audience audience) const
 {
-    auto transaction = transaction_manager_.beginTransaction();
-
-    if (!subscription_repo_.hasSubscription(
-        chatId,
-        messageThreadId,
-        clanTag,
-        audience))
+    return transaction_manager_.retryInTransaction([&]
     {
-        transaction.commit();
-        return false;
-    }
+        if (!subscription_repo_.hasSubscription(
+            chatId,
+            messageThreadId,
+            clanTag,
+            audience))
+        {
+            return false;
+        }
 
-    subscription_repo_.unsubscribeFromChat(
-        chatId,
-        messageThreadId,
-        clanTag,
-        audience);
+        subscription_repo_.unsubscribeFromChat(
+            chatId,
+            messageThreadId,
+            clanTag,
+            audience);
 
-    const bool hasChatSubscriptions =
-        subscription_repo_.hasSubscriptionsForChat(chatId, messageThreadId);
-    const bool hasClanSubscriptions =
-        subscription_repo_.hasSubscriptionsForClan(clanTag);
+        const bool hasChatSubscriptions =
+            subscription_repo_.hasSubscriptionsForChat(chatId, messageThreadId);
+        const bool hasClanSubscriptions =
+            subscription_repo_.hasSubscriptionsForClan(clanTag);
 
-    if (!hasChatSubscriptions)
-    {
-        subscription_repo_.deleteTelegramChat(chatId, messageThreadId);
-    }
+        if (!hasChatSubscriptions)
+        {
+            subscription_repo_.deleteTelegramChat(chatId, messageThreadId);
+        }
 
-    if (!hasClanSubscriptions)
-    {
-        clans_repo_.disableTracking(clanTag);
-    }
+        if (!hasClanSubscriptions)
+        {
+            clans_repo_.disableTracking(clanTag);
+        }
 
-    transaction.commit();
-    return true;
+        return true;
+    });
 }
 
 void TelegramBotService::handleUnlinkCommand(

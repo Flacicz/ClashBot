@@ -104,21 +104,18 @@ SyncResult RaidService::updateData(std::string_view tag)
 
     try
     {
-        SyncResult syncResult;
+        const auto syncResult = transaction_manager_.retryInTransaction([&]
+        {
+            ensurePlayersExist(playerRaidSnapshots);
 
-        auto transaction = transaction_manager_.beginTransaction();
+            const RaidReference reference =
+                raid_repo_.saveCompleteRaidData(clanRaid, playerRaidSnapshots);
 
-        ensurePlayersExist(playerRaidSnapshots);
-
-        const RaidReference reference =
-            raid_repo_.saveCompleteRaidData(clanRaid, playerRaidSnapshots);
-
-        syncResult = SyncResult::success(
-            svc,
-            std::string(tag),
-            generateEvents(tag, clanRaid, reference));
-
-        transaction.commit();
+            return SyncResult::success(
+                svc,
+                std::string(tag),
+                generateEvents(tag, clanRaid, reference));
+        });
 
         spdlog::info(
             "[Service: {}] Successfully updated Capital Raid for clan '{}'. Participants: {}, Events generated: {}.",
