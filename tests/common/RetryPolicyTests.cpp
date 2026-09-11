@@ -14,10 +14,24 @@ TEST(RetryPolicyTest, CalculatesLinearDelay)
     EXPECT_EQ(policy.delayForAttempt(2), std::chrono::milliseconds(200));
 }
 
+TEST(RetryPolicyTest, UsesExpectedDefaults)
+{
+    const RetryPolicy policy;
+
+    EXPECT_EQ(policy.maxAttempts(), RetryPolicy::defaultMaxAttempts);
+    EXPECT_EQ(
+        policy.delayForAttempt(1),
+        RetryPolicy::defaultInitialDelay);
+}
+
 TEST(RetryPolicyTest, RejectsNonPositiveAttempts)
 {
     EXPECT_THROW(
         RetryPolicy(0, std::chrono::milliseconds(100)),
+        std::invalid_argument);
+
+    EXPECT_THROW(
+        RetryPolicy(-1, std::chrono::milliseconds(100)),
         std::invalid_argument);
 }
 

@@ -69,6 +69,16 @@ add_library(ClashBotCore STATIC
         src/database/MigratorManager.cpp
         src/database/repos/NotificationsRepo.cpp
         src/database/repos/SubscriptionRepo.cpp
+        src/api/APIClient.cpp
+        src/api/TelegramApiClient.cpp
+        src/service/ClanInfoService.cpp
+        src/service/RaidService.cpp
+        src/service/ClanwarService.cpp
+        src/service/ClanwarLeagueService.cpp
+        src/notifications/TelegramNotifier.cpp
+        src/notifications/NotificationService.cpp
+        src/reports/ClanwarRosterFormatter.cpp
+        src/service/TelegramBotService.cpp
 )
 
 target_include_directories(ClashBotCore PUBLIC
@@ -84,19 +94,9 @@ target_link_libraries(ClashBotCore PUBLIC
 
 add_executable(${PROJECT_NAME}
         src/main.cpp
-        src/api/APIClient.cpp
         src/config/ConfigLoader.cpp
         src/service/ClanManager.cpp
-        src/service/ClanInfoService.cpp
-        src/service/RaidService.cpp
-        src/service/ClanwarService.cpp
-        src/service/ClanwarLeagueService.cpp
-        src/notifications/TelegramNotifier.cpp
-        src/reports/ClanwarRosterFormatter.cpp
         src/events/EventDispatcher.cpp
-        src/api/TelegramApiClient.cpp
-        src/service/TelegramBotService.cpp
-        src/notifications/NotificationService.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -121,6 +121,8 @@ add_executable(ClashBotTests
         tests/common/TimeParserTests.cpp
         tests/common/SyncResultTests.cpp
         tests/common/RetryPolicyTests.cpp
+        tests/common/DatabaseExceptionTests.cpp
+        tests/common/TransactionManagerTests.cpp
         tests/common/CommonModelsTests.cpp
         tests/events/ApplicationEventsTests.cpp
         tests/analytics/ClanwarComparisonAnalyzerTests.cpp
@@ -164,29 +166,23 @@ target_link_libraries(ClashBotTests PRIVATE
 )
 
 add_executable(ClashBotIntegrationTests
-        tests/integration/DatabaseMigrationsTests.cpp
-        tests/integration/SubscriptionIntegrationTests.cpp
-        tests/integration/NotificationIntegrationTests.cpp
-        tests/integration/TransactionIntegrationTests.cpp
-        tests/integration/ClanInfoSyncIntegrationTests.cpp
-        tests/integration/RaidSyncIntegrationTests.cpp
-        tests/integration/ClanwarSyncIntegrationTests.cpp
-        tests/integration/ClanwarLeagueSyncIntegrationTests.cpp
-        tests/integration/NotificationServiceIntegrationTests.cpp
-        tests/integration/TelegramBotServiceIntegrationTests.cpp
-        src/api/APIClient.cpp
-        src/api/TelegramApiClient.cpp
-        src/service/ClanInfoService.cpp
-        src/service/RaidService.cpp
-        src/service/ClanwarService.cpp
-        src/service/ClanwarLeagueService.cpp
-        src/notifications/TelegramNotifier.cpp
-        src/notifications/NotificationService.cpp
-        src/reports/ClanwarRosterFormatter.cpp
-        src/service/TelegramBotService.cpp
+        tests/integration/database/DatabaseMigrationsTests.cpp
+        tests/integration/database/TransactionIntegrationTests.cpp
+        tests/integration/notifications/NotificationIntegrationTests.cpp
+        tests/integration/notifications/NotificationServiceIntegrationTests.cpp
+        tests/integration/sync/ClanInfoSyncIntegrationTests.cpp
+        tests/integration/sync/RaidSyncIntegrationTests.cpp
+        tests/integration/sync/ClanwarSyncIntegrationTests.cpp
+        tests/integration/sync/ClanwarLeagueSyncIntegrationTests.cpp
+        tests/integration/telegram/SubscriptionIntegrationTests.cpp
+        tests/integration/telegram/TelegramBotServiceIntegrationTests.cpp
+        tests/integration/database/WorkerConnectionsIntegrationTests.cpp
 )
 
-target_include_directories(ClashBotIntegrationTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(ClashBotIntegrationTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration
+)
 
 target_compile_definitions(ClashBotIntegrationTests PRIVATE
         CLASHBOT_MIGRATIONS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/src/database/migrations"
