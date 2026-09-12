@@ -20,6 +20,7 @@
 #include "database/MigratorManager.h"
 
 #include "api/APIClient.h"
+#include "common/RetryPolicies.h"
 
 #include "config/ConfigLoader.h"
 #include "config/Config.h"
@@ -126,18 +127,11 @@ int main(const int argc, char* argv[])
         }
         spdlog::info("[DB] Database migrations completed successfully.");
 
-        constexpr RetryPolicy databaseRetryPolicy{
-            RetryPolicy::defaultMaxAttempts,
-            RetryPolicy::defaultInitialDelay};
-        constexpr RetryPolicy syncRetryPolicy{
-            RetryPolicy::defaultMaxAttempts,
-            std::chrono::seconds(2)};
-
         TransactionManager syncTransactions(
-            syncDb.getDBInstance(), databaseRetryPolicy);
+            syncDb.getDBInstance(), retryPolicies::databaseRetryPolicy);
         Database telegramDb(config.databasePath);
         TransactionManager telegramTransactions(
-            telegramDb.getDBInstance(), databaseRetryPolicy);
+            telegramDb.getDBInstance(), retryPolicies::databaseRetryPolicy);
         spdlog::info("[DB] Worker database connections initialized successfully.");
 
         APIClient apiClient(
@@ -147,7 +141,8 @@ int main(const int argc, char* argv[])
             std::move(config.tunnelBaseUrl)
         );
 
-        TelegramApiClient telegramApiClient(std::move(config.telegramToken));
+        TelegramHttpTransport telegramHttpTransport(std::move(config.telegramToken));
+        TelegramApiClient telegramApiClient(telegramHttpTransport);
         telegram::AttackGuideCatalog attackGuideCatalog(config.attackGuidesPath);
         TelegramNotifier telegramNotifier(telegramApiClient);
 
@@ -203,7 +198,7 @@ int main(const int argc, char* argv[])
             eventDispatcher,
             std::move(services),
             syncDb.clans(),
-            syncRetryPolicy);
+            retryPolicies::syncRetryPolicy);
 
         spdlog::info("[Main] Synchronization services initialized successfully.");
         spdlog::info("[Main] Telegram service initialized successfully.");

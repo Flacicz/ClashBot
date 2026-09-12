@@ -13,6 +13,12 @@
 
 class FakeTelegramApiClient final : public TelegramApiClient
 {
+    static TelegramHttpTransport& fakeTransport()
+    {
+        static TelegramHttpTransport transport("");
+        return transport;
+    }
+
 public:
     struct SentMessage
     {
@@ -47,7 +53,7 @@ public:
     bool failAllSends = false;
     bool failGetChatMember = false;
 
-    FakeTelegramApiClient() : TelegramApiClient({})
+    FakeTelegramApiClient() : TelegramApiClient(fakeTransport())
     {
     }
 
