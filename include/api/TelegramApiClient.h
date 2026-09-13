@@ -9,12 +9,14 @@
 
 #include <nlohmann/json.hpp>
 
+#include "TelegramHttpTransport.h"
+
 class TelegramApiClient
 {
-    std::string botToken;
+    TelegramHttpTransport& telegramHttpTransport;
 
 public:
-    explicit TelegramApiClient(std::string botToken);
+    explicit TelegramApiClient(TelegramHttpTransport& telegramHttpTransport);
     virtual ~TelegramApiClient() = default;
 
     virtual void sendMessage(

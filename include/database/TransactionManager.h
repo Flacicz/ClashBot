@@ -11,7 +11,7 @@
 #include <thread>
 #include <type_traits>
 
-#include "RetryPolicy.h"
+#include "common/RetryPolicy.h"
 #include "TransactionGuard.h"
 
 namespace concepts

@@ -52,6 +52,17 @@ namespace telegram
         int sortOrder = 0;
         bool enabled = true;
     };
+
+    struct PendingNotification
+    {
+        long long id;
+        std::string eventType;
+        std::string eventId;
+        long long chatId;
+        long long messageThreadId;
+        std::string messageText;
+        int attempts;
+    };
 }
 
 #endif //CLASHBOT_TELEGRAMMODELS_H

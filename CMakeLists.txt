@@ -77,8 +77,11 @@ add_library(ClashBotCore STATIC
         src/service/ClanwarLeagueService.cpp
         src/notifications/TelegramNotifier.cpp
         src/notifications/NotificationService.cpp
+        src/notifications/NotificationWorker.cpp
         src/reports/ClanwarRosterFormatter.cpp
         src/service/TelegramBotService.cpp
+        src/common/RetryPolicy.cpp
+        src/api/TelegramHttpTransport.cpp
 )
 
 target_include_directories(ClashBotCore PUBLIC
@@ -86,10 +89,12 @@ target_include_directories(ClashBotCore PUBLIC
 )
 
 target_link_libraries(ClashBotCore PUBLIC
+        cpr::cpr
         fmt::fmt
         nlohmann_json::nlohmann_json
         SQLite3::SQLite3
         spdlog::spdlog
+        Threads::Threads
 )
 
 add_executable(${PROJECT_NAME}

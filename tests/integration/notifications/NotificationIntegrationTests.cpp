@@ -51,44 +51,43 @@ namespace
     };
 }
 
-TEST_F(NotificationIntegrationTest, DoesNotRecordTheSameEventTwiceForDestination)
+TEST_F(NotificationIntegrationTest, EnqueuesTheSameEventOnlyOnceForDestination)
 {
     constexpr std::string_view eventType = "RaidsEndedEvent";
     constexpr std::string_view eventId = "raid-42";
     constexpr long long chatId = -1001234567890LL;
     constexpr long long messageThreadId = 456;
 
-    EXPECT_FALSE(database->notifications().wasSent(
+    EXPECT_TRUE(database->notifications().enqueueIfAbsent(
+        "raid report",
         eventType,
         eventId,
         chatId,
         messageThreadId));
 
-    database->notifications().markAsSent(
-        eventType,
-        eventId,
-        chatId,
-        messageThreadId);
-
-    EXPECT_TRUE(database->notifications().wasSent(
+    EXPECT_FALSE(database->notifications().enqueueIfAbsent(
+        "raid report",
         eventType,
         eventId,
         chatId,
         messageThreadId));
 
-    EXPECT_NO_THROW(database->notifications().markAsSent(
-        eventType,
-        eventId,
-        chatId,
-        messageThreadId));
+    const auto pending = database->notifications().getPending(10);
+    ASSERT_EQ(1U, pending.size());
+    EXPECT_EQ(eventType, pending.front().eventType);
+    EXPECT_EQ(eventId, pending.front().eventId);
+    EXPECT_EQ(chatId, pending.front().chatId);
+    EXPECT_EQ(messageThreadId, pending.front().messageThreadId);
+    EXPECT_EQ("raid report", pending.front().messageText);
 
-    EXPECT_TRUE(database->notifications().wasSent(
-        eventType,
-        eventId,
-        chatId,
-        messageThreadId));
+    database->notifications().markAsSent(pending.front().id);
 
-    EXPECT_FALSE(database->notifications().wasSent(
+    EXPECT_TRUE(database->notifications().getPending(10).empty());
+
+    EXPECT_NO_THROW(database->notifications().markAsSent(pending.front().id));
+
+    EXPECT_TRUE(database->notifications().enqueueIfAbsent(
+        "raid report",
         eventType,
         eventId,
         chatId + 1,

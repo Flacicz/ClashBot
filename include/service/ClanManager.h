@@ -5,7 +5,7 @@
 
 #include "database/repos/ClansRepo.h"
 #include "ISyncService.h"
-#include "database/RetryPolicy.h"
+#include "common/RetryPolicy.h"
 #include "events/EventDispatcher.h"
 #include "notifications/NotificationService.h"
 
