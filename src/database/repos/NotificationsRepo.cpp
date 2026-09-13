@@ -10,49 +10,152 @@ NotificationRepo::NotificationRepo(sqlite3* db) : BaseRepository(db, std::string
 {
 }
 
-bool NotificationRepo::wasSent(
-    const std::string_view eventType,
-    const std::string_view eventId,
-    const long long chatId,
-    const long long messageThreadId) const
+bool NotificationRepo::enqueueIfAbsent(const std::string& message,
+                                       const std::string_view eventType,
+                                       const std::string_view eventId,
+                                       const long long chatId,
+                                       const long long messageThreadId) const
 {
     static constexpr std::string_view sql = R"(
-        SELECT EXISTS (
-            SELECT 1
-            FROM notifications
-            WHERE event_type = ?
-              AND event_id = ?
-              AND chat_id = ?
-              AND message_thread_id = ?
-        );
+        INSERT INTO notifications (event_type, event_id, chat_id, message_thread_id, message_text)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT (
+            event_type,
+            event_id,
+            chat_id,
+            message_thread_id,
+            part_index
+        ) DO NOTHING
+        RETURNING id;
     )";
 
-    auto mapper = [](sqlite3_stmt* stmt) -> bool
+    auto mapper = [](sqlite3_stmt* stmt) -> long long
     {
-        return sqlite::getInt(stmt, 0) != 0;
+        return sqlite::getLong(stmt, 0);
     };
 
-    return queryOne<bool>(sql, "load notification",
-                          fmt::format("entity_type = {}, entity_id = {}, chat_id = {}, message_thread_id = {}",
-                                      eventType, eventId, chatId, messageThreadId),
-                          mapper,
-                          eventType, eventId, chatId, messageThreadId);
+    return queryOptional<long long>(
+               sql,
+               "enqueue notification",
+               fmt::format(
+                   "event_type = {}, event_id = {}, chat_id = {}, message_thread_id = {}",
+                   eventType,
+                   eventId,
+                   chatId,
+                   messageThreadId),
+               mapper,
+               eventType,
+               eventId,
+               chatId,
+               messageThreadId,
+               message)
+        .has_value();
 }
 
-void NotificationRepo::markAsSent(
-    const std::string_view eventType,
-    const std::string_view eventId,
-    const long long chatId,
-    const long long messageThreadId) const
+std::vector<telegram::PendingNotification> NotificationRepo::getPending(const int limit) const
 {
+    if (limit <= 0)
+    {
+        return {};
+    }
+
     static constexpr std::string_view sql = R"(
-        INSERT OR IGNORE INTO notifications
-            (event_type, event_id, chat_id, message_thread_id)
-        VALUES (?, ?, ?, ?);
+        SELECT id,
+               event_type,
+               event_id,
+               chat_id,
+               message_thread_id,
+               message_text,
+               attempts
+        FROM notifications
+        WHERE status = 'pending'
+          AND (next_attempt_at IS NULL
+               OR next_attempt_at <= strftime('%s', 'now'))
+        ORDER BY created_at, id
+        LIMIT ?;
     )";
 
-    execute(sql, "save notification",
-            fmt::format("entity_type = {}, entity_id = {}, chat_id = {}, message_thread_id = {}",
-                        eventType, eventId, chatId, messageThreadId),
-            eventType, eventId, chatId, messageThreadId);
+    auto mapper = [](sqlite3_stmt* stmt) -> telegram::PendingNotification
+    {
+        return telegram::PendingNotification{
+            .id = sqlite::getLong(stmt, 0),
+            .eventType = sqlite::getString(stmt, 1),
+            .eventId = sqlite::getString(stmt, 2),
+            .chatId = sqlite::getLong(stmt, 3),
+            .messageThreadId = sqlite::getLong(stmt, 4),
+            .messageText = sqlite::getString(stmt, 5),
+            .attempts = sqlite::getInt(stmt, 6)
+        };
+    };
+
+    return query<telegram::PendingNotification>(
+        sql,
+        "load pending notifications",
+        fmt::format("limit = {}", limit),
+        mapper,
+        limit);
+}
+
+void NotificationRepo::markAsSent(const long long notificationId) const
+{
+    static constexpr std::string_view sql = R"(
+        UPDATE notifications
+        SET status = 'sent',
+            sent_at = strftime('%s', 'now'),
+            next_attempt_at = NULL,
+            last_error = NULL
+        WHERE id = ?
+          AND status = 'pending';
+    )";
+
+    execute(
+        sql,
+        "mark notification as sent",
+        fmt::format("notification_id = {}", notificationId),
+        notificationId);
+}
+
+void NotificationRepo::reschedule(const long long notificationId,
+                                  const long long nextAttemptAt,
+                                  const std::string_view error) const
+{
+    static constexpr std::string_view sql = R"(
+        UPDATE notifications
+        SET status = 'pending',
+            attempts = attempts + 1,
+            next_attempt_at = ?,
+            last_error = ?
+        WHERE id = ?
+          AND status = 'pending';
+    )";
+
+    execute(
+        sql,
+        "reschedule notification",
+        fmt::format("notification_id = {}", notificationId),
+        nextAttemptAt,
+        error,
+        notificationId);
+}
+
+void NotificationRepo::markAsFailed(const long long notificationId,
+                                    const std::string_view error) const
+{
+    static constexpr std::string_view sql = R"(
+        UPDATE notifications
+        SET status = 'failed',
+            attempts = attempts + 1,
+            next_attempt_at = NULL,
+            last_error = ?,
+            sent_at = NULL
+        WHERE id = ?
+          AND status = 'pending';
+    )";
+
+    execute(
+        sql,
+        "mark notification as failed",
+        fmt::format("notification_id = {}", notificationId),
+        error,
+        notificationId);
 }

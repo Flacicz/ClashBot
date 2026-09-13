@@ -77,6 +77,7 @@ add_library(ClashBotCore STATIC
         src/service/ClanwarLeagueService.cpp
         src/notifications/TelegramNotifier.cpp
         src/notifications/NotificationService.cpp
+        src/notifications/NotificationWorker.cpp
         src/reports/ClanwarRosterFormatter.cpp
         src/service/TelegramBotService.cpp
         src/common/RetryPolicy.cpp

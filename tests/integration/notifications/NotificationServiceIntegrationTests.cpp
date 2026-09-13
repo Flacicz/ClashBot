@@ -2,6 +2,7 @@
 #include "database/MigratorManager.h"
 #include "database/TransactionManager.h"
 #include "notifications/NotificationService.h"
+#include "notifications/NotificationWorker.h"
 
 #include "support/FakeTelegramApiClient.h"
 
@@ -23,6 +24,7 @@ namespace
         FakeTelegramApiClient telegramApiClient;
 
         std::unique_ptr<TelegramNotifier> telegramNotifier;
+        std::unique_ptr<NotificationWorker> notificationWorker;
         std::unique_ptr<PlayerJoinedFormatter> playerJoinedFormatter;
         std::unique_ptr<PlayerLeftFormatter> playerLeftFormatter;
         std::unique_ptr<PlayerRoleChangedFormatter> playerRoleChangedFormatter;
@@ -65,6 +67,9 @@ namespace
                 database->getDBInstance());
 
             telegramNotifier = std::make_unique<TelegramNotifier>(telegramApiClient);
+            notificationWorker = std::make_unique<NotificationWorker>(
+                database->notifications(),
+                *telegramNotifier);
             playerJoinedFormatter = std::make_unique<PlayerJoinedFormatter>(database->clans());
             playerLeftFormatter = std::make_unique<PlayerLeftFormatter>(database->clans());
             playerRoleChangedFormatter = std::make_unique<PlayerRoleChangedFormatter>(database->clans());
@@ -84,7 +89,7 @@ namespace
                 database->notifications(),
                 database->subscriptions(),
                 *transactionManager,
-                *telegramNotifier,
+                *notificationWorker,
                 *playerJoinedFormatter,
                 *playerLeftFormatter,
                 *playerRoleChangedFormatter,
@@ -114,6 +119,7 @@ namespace
             playerRoleChangedFormatter.reset();
             playerLeftFormatter.reset();
             playerJoinedFormatter.reset();
+            notificationWorker.reset();
             telegramNotifier.reset();
             transactionManager.reset();
             database.reset();
@@ -122,7 +128,7 @@ namespace
     };
 }
 
-TEST_F(NotificationServiceIntegrationTest, SendsMembershipEventToPlayerDestination)
+TEST_F(NotificationServiceIntegrationTest, EnqueuesMembershipEventForPlayerDestination)
 {
     constexpr std::string_view clanTag = "#2PPLQ";
     constexpr long long chatId = -1001;
@@ -142,11 +148,14 @@ TEST_F(NotificationServiceIntegrationTest, SendsMembershipEventToPlayerDestinati
         .playerName = "Alice"
     });
 
-    ASSERT_EQ(1U, telegramApiClient.sentMessages.size());
-    EXPECT_EQ(chatId, telegramApiClient.sentMessages.front().chatId);
-    EXPECT_EQ(threadId, telegramApiClient.sentMessages.front().messageThreadId);
+    const auto pending = database->notifications().getPending(10);
+
+    ASSERT_EQ(1U, pending.size());
+    EXPECT_EQ(chatId, pending.front().chatId);
+    EXPECT_EQ(threadId, pending.front().messageThreadId);
     EXPECT_NE(std::string::npos,
-              telegramApiClient.sentMessages.front().text.find("Alice"));
+              pending.front().messageText.find("Alice"));
+    EXPECT_TRUE(telegramApiClient.sentMessages.empty());
 }
 
 TEST_F(NotificationServiceIntegrationTest, DeduplicatesPersistentEventForEveryDestination)
@@ -169,63 +178,13 @@ TEST_F(NotificationServiceIntegrationTest, DeduplicatesPersistentEventForEveryDe
     notificationService->handle(event);
     notificationService->handle(event);
 
-    ASSERT_EQ(2U, telegramApiClient.sentMessages.size());
-    EXPECT_TRUE(database->notifications().wasSent(
-        RaidReminderEvent::Type,
-        event.key(),
-        1001,
-        0));
-    EXPECT_TRUE(database->notifications().wasSent(
-        RaidReminderEvent::Type,
-        event.key(),
-        1002,
-        4));
-}
+    const auto pending = database->notifications().getPending(10);
 
-TEST_F(NotificationServiceIntegrationTest, FailedPersistentNotificationCanBeRetried)
-{
-    constexpr std::string_view clanTag = "#2PPLQ";
-    constexpr long long chatId = 1001;
-    constexpr long long threadId = 3;
-
-    database->clans().insertMinimalClan(clanTag);
-    database->subscriptions().saveTelegramChat(chatId, threadId, "Players");
-    database->subscriptions().subscribeToChat(
-        chatId,
-        threadId,
-        clanTag,
-        Audience::Players);
-
-    const RaidReminderEvent event{
-        .clanTag = std::string(clanTag),
-        .raidReference = RaidReference{.raidId = 43},
-        .endTime = 2000,
-        .kind = RaidReminderEvent::RaidReminderKind::Started
-    };
-
-    telegramApiClient.failNextSend = true;
-    notificationService->handle(event);
-
-    EXPECT_FALSE(database->notifications().wasSent(
-        RaidReminderEvent::Type,
-        event.key(),
-        chatId,
-        threadId));
-    EXPECT_EQ(1U, telegramApiClient.attemptedMessages.size());
+    ASSERT_EQ(2U, pending.size());
     EXPECT_TRUE(telegramApiClient.sentMessages.empty());
-
-    notificationService->handle(event);
-
-    EXPECT_TRUE(database->notifications().wasSent(
-        RaidReminderEvent::Type,
-        event.key(),
-        chatId,
-        threadId));
-    EXPECT_EQ(2U, telegramApiClient.attemptedMessages.size());
-    EXPECT_EQ(1U, telegramApiClient.sentMessages.size());
 }
 
-TEST_F(NotificationServiceIntegrationTest, RoutesSynchronizationFailureToManagementDestination)
+TEST_F(NotificationServiceIntegrationTest, EnqueuesSynchronizationFailureForManagementDestination)
 {
     constexpr std::string_view clanTag = "#2PPLQ";
     constexpr long long chatId = 2001;
@@ -245,8 +204,11 @@ TEST_F(NotificationServiceIntegrationTest, RoutesSynchronizationFailureToManagem
         .attempts = 3
     });
 
-    ASSERT_EQ(1U, telegramApiClient.sentMessages.size());
-    EXPECT_EQ(chatId, telegramApiClient.sentMessages.front().chatId);
+    const auto pending = database->notifications().getPending(10);
+
+    ASSERT_EQ(1U, pending.size());
+    EXPECT_EQ(chatId, pending.front().chatId);
     EXPECT_NE(std::string::npos,
-              telegramApiClient.sentMessages.front().text.find("RaidService"));
+              pending.front().messageText.find("RaidService"));
+    EXPECT_TRUE(telegramApiClient.sentMessages.empty());
 }

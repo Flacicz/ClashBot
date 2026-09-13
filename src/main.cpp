@@ -44,6 +44,7 @@
 
 #include "notifications/TelegramNotifier.h"
 #include "notifications/NotificationService.h"
+#include "notifications/NotificationWorker.h"
 #include "service/TelegramBotService.h"
 #include "telegram/AttackGuideCatalog.h"
 
@@ -132,6 +133,7 @@ int main(const int argc, char* argv[])
         Database telegramDb(config.databasePath);
         TransactionManager telegramTransactions(
             telegramDb.getDBInstance(), retryPolicies::databaseRetryPolicy);
+        Database notificationDb(config.databasePath);
         spdlog::info("[DB] Worker database connections initialized successfully.");
 
         APIClient apiClient(
@@ -145,6 +147,9 @@ int main(const int argc, char* argv[])
         TelegramApiClient telegramApiClient(telegramHttpTransport);
         telegram::AttackGuideCatalog attackGuideCatalog(config.attackGuidesPath);
         TelegramNotifier telegramNotifier(telegramApiClient);
+        NotificationWorker notificationWorker(
+            notificationDb.notifications(),
+            telegramNotifier);
 
         TelegramBotService telegramBotService(
             telegramApiClient,
@@ -170,7 +175,7 @@ int main(const int argc, char* argv[])
             syncDb.notifications(),
             syncDb.subscriptions(),
             syncTransactions,
-            telegramNotifier,
+            notificationWorker,
             playerJoinedFormatter,
             playerLeftFormatter,
             playerRoleChangedFormatter,
@@ -223,10 +228,33 @@ int main(const int argc, char* argv[])
             }
         });
 
+        std::thread notificationThread;
         std::thread telegramThread;
 
         try
         {
+            notificationThread = std::thread(
+                [&notificationWorker]
+                {
+                    try
+                    {
+                        notificationWorker.run();
+                    }
+                    catch (const std::exception& error)
+                    {
+                        spdlog::critical(
+                            "[FATAL] Notification worker crashed: {}",
+                            error.what());
+                        g_shutdown_requested.store(true);
+                    }
+                    catch (...)
+                    {
+                        spdlog::critical(
+                            "[FATAL] Notification worker crashed with unknown exception!");
+                        g_shutdown_requested.store(true);
+                    }
+                });
+
             telegramThread = std::thread(
                 [&telegramBotService]
                 {
@@ -252,6 +280,12 @@ int main(const int argc, char* argv[])
         }
         catch (...)
         {
+            notificationWorker.requestStop();
+            if (notificationThread.joinable())
+            {
+                notificationThread.join();
+            }
+
             clanManager.stop();
             if (syncThread.joinable())
             {
@@ -280,6 +314,12 @@ int main(const int argc, char* argv[])
         if (telegramThread.joinable())
         {
             telegramThread.join();
+        }
+
+        notificationWorker.requestStop();
+        if (notificationThread.joinable())
+        {
+            notificationThread.join();
         }
 
         spdlog::info("[Main] Shutdown completed successfully.");

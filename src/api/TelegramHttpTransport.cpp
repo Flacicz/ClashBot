@@ -80,7 +80,7 @@ nlohmann::json TelegramHttpTransport::post(std::string_view method,
                     const auto telegramDelay = std::chrono::duration_cast<
                         std::chrono::milliseconds>(retryAfter(responseJson));
 
-                    delay = std::max(delay, telegramDelay);
+                    delay = max(delay, telegramDelay);
                 }
                 catch (const nlohmann::json::parse_error& error)
                 {

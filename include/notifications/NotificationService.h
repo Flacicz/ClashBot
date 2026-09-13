@@ -4,7 +4,6 @@
 #include <string>
 #include <string_view>
 
-#include "TelegramNotifier.h"
 #include "database/Database.h"
 #include "database/TransactionManager.h"
 #include "reports/ClanwarComparisonFormatter.h"
@@ -21,14 +20,14 @@
 #include "reports/RaidReminderFormatter.h"
 #include "reports/RaidsViolationsFormatter.h"
 
+class NotificationWorker;
 
 class NotificationService
 {
     NotificationRepo& notification_repo_;
     SubscriptionRepo& subscription_repo_;
     TransactionManager& transaction_manager_;
-
-    TelegramNotifier telegramNotifier;
+    NotificationWorker& notification_worker_;
 
     PlayerJoinedFormatter playerJoinedFormatter;
     PlayerLeftFormatter playerLeftFormatter;
@@ -43,23 +42,18 @@ class NotificationService
     ClanwarsLeagueRoundEndedFormatter clanwarLeagueRoundEndedFormatter;
     ClanwarsLeagueRoundViolationsFormatter clanwarLeagueRoundViolationsFormatter;
 
-    void sendToDestinations(std::string_view clanTag,
-                            std::string_view eventName,
-                            const std::string& message,
-                            Audience audience) const;
-
-    void sendToDestinationsWithDeduplication(std::string_view clanTag,
-                                             std::string_view eventType,
-                                             std::string_view eventId,
-                                             std::string_view eventName,
-                                             const std::string& message,
-                                             Audience audience) const;
+    void enqueueToDestinations(std::string_view clanTag,
+                               std::string_view eventType,
+                               std::string_view eventId,
+                               std::string_view eventName,
+                               const std::string& message,
+                               Audience audience) const;
 
 public:
     NotificationService(NotificationRepo& notification_repo,
                         SubscriptionRepo& subscription_repo,
                         TransactionManager& transaction_manager,
-                        TelegramNotifier telegram_notifier,
+                        NotificationWorker& notification_worker,
                         PlayerJoinedFormatter playerJoinedFormatter,
                         PlayerLeftFormatter playerLeftFormatter,
                         PlayerRoleChangedFormatter playerRoleChangedFormatter,

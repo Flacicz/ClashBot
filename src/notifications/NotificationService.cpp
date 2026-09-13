@@ -1,15 +1,39 @@
 #include "notifications/NotificationService.h"
+#include "notifications/NotificationWorker.h"
 #include "core/Exceptions.h"
 #include <spdlog/spdlog.h>
+
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+
+#include <fmt/format.h>
 
 #include "reports/SystemAlertReportFormatter.h"
 #include "reports/RaidReminderFormatter.h"
 #include "reports/WarReminderFormatter.h"
 
+namespace
+{
+    std::string makeTransientEventId(const std::string_view eventType)
+    {
+        static std::atomic<std::uint64_t> sequence{0};
+
+        const auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+        return fmt::format(
+            "{}:{}:{}",
+            eventType,
+            timestamp,
+            sequence.fetch_add(1, std::memory_order_relaxed));
+    }
+}
+
 NotificationService::NotificationService(NotificationRepo& notification_repo,
                                          SubscriptionRepo& subscription_repo,
                                          TransactionManager& transaction_manager,
-                                         TelegramNotifier telegram_notifier,
+                                         NotificationWorker& notification_worker,
                                          const PlayerJoinedFormatter playerJoinedFormatter,
                                          const PlayerLeftFormatter playerLeftFormatter,
                                          const PlayerRoleChangedFormatter playerRoleChangedFormatter,
@@ -26,7 +50,7 @@ NotificationService::NotificationService(NotificationRepo& notification_repo,
     notification_repo_(notification_repo),
     subscription_repo_(subscription_repo),
     transaction_manager_(transaction_manager),
-    telegramNotifier(std::move(telegram_notifier)),
+    notification_worker_(notification_worker),
     playerJoinedFormatter(playerJoinedFormatter),
     playerLeftFormatter(playerLeftFormatter),
     playerRoleChangedFormatter(playerRoleChangedFormatter),
@@ -42,78 +66,49 @@ NotificationService::NotificationService(NotificationRepo& notification_repo,
 {
 }
 
-void NotificationService::sendToDestinations(const std::string_view clanTag,
-                                             const std::string_view eventName,
-                                             const std::string& message,
-                                             const Audience audience) const
+void NotificationService::enqueueToDestinations(const std::string_view clanTag,
+                                                const std::string_view eventType,
+                                                const std::string_view eventId,
+                                                const std::string_view eventName,
+                                                const std::string& message,
+                                                const Audience audience) const
 {
     const auto destinations = subscription_repo_.getDestinationsForClan(clanTag, audience);
 
-    for (const auto& [chatId, messageThreadId] : destinations)
+    try
     {
-        try
+        transaction_manager_.retryInTransaction([&]
         {
-            telegramNotifier.sendMessage(chatId, message, messageThreadId);
-        }
-        catch (const ApiException& error)
-        {
-            spdlog::error(
-                "[NotificationService] Failed to send {} message. ClanTag - {}, Chat ID - {}, Error - {}",
-                eventName,
-                clanTag,
-                chatId,
-                error.what());
-        }
-    }
-}
-
-void NotificationService::sendToDestinationsWithDeduplication(const std::string_view clanTag,
-                                                              const std::string_view eventType,
-                                                              const std::string_view eventId,
-                                                              const std::string_view eventName,
-                                                              const std::string& message,
-                                                              const Audience audience) const
-{
-    const auto destinations = subscription_repo_.getDestinationsForClan(clanTag, audience);
-
-    for (const auto& [chatId, messageThreadId] : destinations)
-    {
-        try
-        {
-            if (notification_repo_.wasSent(eventType,
-                                           eventId,
-                                           chatId,
-                                           messageThreadId))
-                continue;
-
-            telegramNotifier.sendMessage(chatId, message, messageThreadId);
-
-            transaction_manager_.retryInTransaction([&]
+            for (const auto& [chatId, messageThreadId] : destinations)
             {
-                notification_repo_.markAsSent(eventType,
-                                              eventId,
-                                              chatId,
-                                              messageThreadId);
-            });
-        }
-        catch (const ApiException& error)
-        {
-            spdlog::error(
-                "[NotificationService] Failed to send {} message. ClanTag - {}, Chat ID - {}, Error - {}",
-                eventName,
-                clanTag,
-                chatId,
-                error.what());
-        }
-        catch (const DatabaseException& error)
-        {
-            spdlog::error(
-                "[NotificationService] Failed to persist {} notification. ClanTag - {}, Chat ID - {}, Error - {}",
-                eventName,
-                clanTag,
-                chatId,
-                error.what());
-        }
+                const bool inserted = notification_repo_.enqueueIfAbsent(
+                    message,
+                    eventType,
+                    eventId,
+                    chatId,
+                    messageThreadId);
+
+                if (!inserted)
+                {
+                    spdlog::debug(
+                        "[NotificationService] Notification {} is already queued. "
+                        "ClanTag - {}, Chat ID - {}",
+                        eventName,
+                        clanTag,
+                        chatId);
+                }
+            }
+        });
+
+        notification_worker_.notify();
+    }
+    catch (const DatabaseException& error)
+    {
+        spdlog::error(
+            "[NotificationService] Failed to enqueue {} notification. ClanTag - {}, Error - {}",
+            eventName,
+            clanTag,
+            error.what());
     }
 }
 
@@ -131,35 +126,59 @@ void NotificationService::handle(const ApplicationEvent& application_event)
 void NotificationService::handleEvent(const PlayerJoinedClanEvent& event) const
 {
     const auto message = playerJoinedFormatter.format(event);
-    sendToDestinations(event.clanTag, "PlayerJoinedClanEvent", message, Audience::Players);
+    const auto eventId = makeTransientEventId("PlayerJoinedClanEvent");
+
+    enqueueToDestinations(
+        event.clanTag,
+        "PlayerJoinedClanEvent",
+        eventId,
+        "PlayerJoinedClanEvent",
+        message,
+        Audience::Players);
 }
 
 void NotificationService::handleEvent(const PlayerLeftClanEvent& event) const
 {
     const auto message = playerLeftFormatter.format(event);
-    sendToDestinations(event.clanTag, "PlayerLeftClanEvent", message, Audience::Players);
+    const auto eventId = makeTransientEventId("PlayerLeftClanEvent");
+
+    enqueueToDestinations(
+        event.clanTag,
+        "PlayerLeftClanEvent",
+        eventId,
+        "PlayerLeftClanEvent",
+        message,
+        Audience::Players);
 }
 
 void NotificationService::handleEvent(const PlayerRoleChangedEvent& event) const
 {
     const auto message = playerRoleChangedFormatter.format(event);
-    sendToDestinations(event.clanTag, "PlayerRoleChangedEvent", message, Audience::Players);
+    const auto eventId = makeTransientEventId("PlayerRoleChangedEvent");
+
+    enqueueToDestinations(
+        event.clanTag,
+        "PlayerRoleChangedEvent",
+        eventId,
+        "PlayerRoleChangedEvent",
+        message,
+        Audience::Players);
 }
 
 void NotificationService::handleEvent(const RaidsEndedEvent& event) const
 {
     const auto message = raidsEndedFormatter.format(event);
-    sendToDestinationsWithDeduplication(event.clanTag,
-                                        RaidsEndedEvent::Type,
-                                        event.key(),
-                                        "RaidsReport",
-                                        message,
-                                        Audience::Players);
+    enqueueToDestinations(event.clanTag,
+                          RaidsEndedEvent::Type,
+                          event.key(),
+                          "RaidsReport",
+                          message,
+                          Audience::Players);
 
     const auto comparisonMessage = raidsComparisonFormatter.format(event);
     if (!comparisonMessage.empty())
     {
-        sendToDestinationsWithDeduplication(
+        enqueueToDestinations(
             event.clanTag,
             RaidsComparisonFormatter::EventType,
             event.key(),
@@ -170,84 +189,100 @@ void NotificationService::handleEvent(const RaidsEndedEvent& event) const
     }
 
     const auto violationsMessage = raidsViolationsFormatter.format(event);
-    sendToDestinationsWithDeduplication(event.clanTag,
-                                        RaidsViolationsFormatter::EventType,
-                                        event.key(),
-                                        "RaidsViolationsReport",
-                                        violationsMessage,
-                                        Audience::Management);
+    enqueueToDestinations(event.clanTag,
+                          RaidsViolationsFormatter::EventType,
+                          event.key(),
+                          "RaidsViolationsReport",
+                          violationsMessage,
+                          Audience::Management);
 }
 
 void NotificationService::handleEvent(const WarEndedEvent& event) const
 {
     const auto message = clanwarEndedFormatter.format(event);
-    sendToDestinationsWithDeduplication(event.clanTag,
-                                        WarEndedEvent::Type,
-                                        event.key(),
-                                        "WarReport",
-                                        message,
-                                        Audience::Players);
+    enqueueToDestinations(event.clanTag,
+                          WarEndedEvent::Type,
+                          event.key(),
+                          "WarReport",
+                          message,
+                          Audience::Players);
 
     const auto violationsMessage = clanwarViolationsFormatter.format(event);
-    sendToDestinationsWithDeduplication(event.clanTag,
-                                        ClanwarViolationsFormatter::EventType,
-                                        event.key(),
-                                        "WarViolationsReport",
-                                        violationsMessage,
-                                        Audience::Management);
+    enqueueToDestinations(event.clanTag,
+                          ClanwarViolationsFormatter::EventType,
+                          event.key(),
+                          "WarViolationsReport",
+                          violationsMessage,
+                          Audience::Management);
 
     const auto comparisonMessage = clanwarComparisonFormatter.format(event);
     if (!comparisonMessage.empty())
     {
-        sendToDestinationsWithDeduplication(event.clanTag,
-                                            ClanwarComparisonFormatter::EventType,
-                                            event.key(),
-                                            "WarComparisonReport",
-                                            comparisonMessage,
-                                            Audience::Players);
+        enqueueToDestinations(event.clanTag,
+                              ClanwarComparisonFormatter::EventType,
+                              event.key(),
+                              "WarComparisonReport",
+                              comparisonMessage,
+                              Audience::Players);
     }
 
     const auto rosterMessage = clanwarRosterFormatter.format(event);
     if (!rosterMessage.empty())
     {
-        sendToDestinationsWithDeduplication(event.clanTag,
-                                            ClanwarRosterFormatter::EventType,
-                                            event.key(),
-                                            "WarRosterReport",
-                                            rosterMessage,
-                                            Audience::Management);
+        enqueueToDestinations(event.clanTag,
+                              ClanwarRosterFormatter::EventType,
+                              event.key(),
+                              "WarRosterReport",
+                              rosterMessage,
+                              Audience::Management);
     }
 }
 
 void NotificationService::handleEvent(const ClanwarsLeagueRoundEndedEvent& event) const
 {
     const auto message = clanwarLeagueRoundEndedFormatter.format(event);
-    sendToDestinationsWithDeduplication(event.clanTag,
-                                        ClanwarsLeagueRoundEndedEvent::Type,
-                                        event.key(),
-                                        "CwlRoundReport",
-                                        message,
-                                        Audience::Players);
+    enqueueToDestinations(event.clanTag,
+                          ClanwarsLeagueRoundEndedEvent::Type,
+                          event.key(),
+                          "CwlRoundReport",
+                          message,
+                          Audience::Players);
 
     const auto violationsMessage = clanwarLeagueRoundViolationsFormatter.format(event);
-    sendToDestinationsWithDeduplication(event.clanTag,
-                                        ClanwarsLeagueRoundViolationsFormatter::EventType,
-                                        event.key(),
-                                        "CwlRoundViolationsReport",
-                                        violationsMessage,
-                                        Audience::Management);
+    enqueueToDestinations(event.clanTag,
+                          ClanwarsLeagueRoundViolationsFormatter::EventType,
+                          event.key(),
+                          "CwlRoundViolationsReport",
+                          violationsMessage,
+                          Audience::Management);
 }
 
 void NotificationService::handleEvent(const SyncFailureEvent& event) const
 {
     const auto message = SystemAlertReportFormatter::formatFailureAlert(event);
-    sendToDestinations(event.clanTag, "SyncFailureEvent", message, Audience::Management);
+    const auto eventId = makeTransientEventId("SyncFailureEvent");
+
+    enqueueToDestinations(
+        event.clanTag,
+        "SyncFailureEvent",
+        eventId,
+        "SyncFailureEvent",
+        message,
+        Audience::Management);
 }
 
 void NotificationService::handleEvent(const SyncRecoveryEvent& event) const
 {
     const auto message = SystemAlertReportFormatter::formatRecoveryAlert(event);
-    sendToDestinations(event.clanTag, "SyncRecoveryEvent", message, Audience::Management);
+    const auto eventId = makeTransientEventId("SyncRecoveryEvent");
+
+    enqueueToDestinations(
+        event.clanTag,
+        "SyncRecoveryEvent",
+        eventId,
+        "SyncRecoveryEvent",
+        message,
+        Audience::Management);
 }
 
 void NotificationService::handleEvent(const WarReminderEvent& event) const
@@ -273,12 +308,12 @@ void NotificationService::handleEvent(const WarReminderEvent& event) const
         break;
     }
 
-    sendToDestinationsWithDeduplication(event.clanTag,
-                                        WarReminderEvent::Type,
-                                        event.key(),
-                                        "WarReminderEvent",
-                                        message,
-                                        Audience::Players);
+    enqueueToDestinations(event.clanTag,
+                          WarReminderEvent::Type,
+                          event.key(),
+                          "WarReminderEvent",
+                          message,
+                          Audience::Players);
 }
 
 void NotificationService::handleEvent(const RaidReminderEvent& event) const
@@ -304,10 +339,10 @@ void NotificationService::handleEvent(const RaidReminderEvent& event) const
         break;
     }
 
-    sendToDestinationsWithDeduplication(event.clanTag,
-                                        RaidReminderEvent::Type,
-                                        event.key(),
-                                        "RaidReminderEvent",
-                                        message,
-                                        Audience::Players);
+    enqueueToDestinations(event.clanTag,
+                          RaidReminderEvent::Type,
+                          event.key(),
+                          "RaidReminderEvent",
+                          message,
+                          Audience::Players);
 }
