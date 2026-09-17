@@ -191,11 +191,13 @@ TEST_F(ClanInfoSyncIntegrationTest, SavesClanStateAndMembershipChanges)
         {
             ++joinedEvents;
             EXPECT_EQ("#P2", joined->playerTag);
+            EXPECT_GT(joined->membershipId, 0);
         }
         else if (const auto* left = std::get_if<PlayerLeftClanEvent>(&event))
         {
             ++leftEvents;
             EXPECT_EQ("#POLD", left->playerTag);
+            EXPECT_GT(left->membershipId, 0);
         }
         else if (const auto* roleChanged = std::get_if<PlayerRoleChangedEvent>(&event))
         {
@@ -203,6 +205,7 @@ TEST_F(ClanInfoSyncIntegrationTest, SavesClanStateAndMembershipChanges)
             EXPECT_EQ("#P1", roleChanged->playerTag);
             EXPECT_EQ("member", roleChanged->oldRole);
             EXPECT_EQ("elder", roleChanged->newRole);
+            EXPECT_GT(roleChanged->snapshotId, 0);
         }
     }
 

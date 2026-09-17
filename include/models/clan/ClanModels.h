@@ -2,6 +2,7 @@
 
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -76,6 +77,8 @@ struct PlayerSnapshot
     static std::vector<PlayerSnapshot> parsePlayerSnapshotList(const nlohmann::json& j, std::string_view clanTag);
 };
 
+using PlayerSnapshotIds = std::unordered_map<std::string, long long>;
+
 struct CompleteClanData
 {
     Clan clan;
@@ -84,7 +87,18 @@ struct CompleteClanData
     std::vector<PlayerSnapshot> playerSnapshots;
 };
 
+struct SavedClanData
+{
+    PlayerSnapshotIds snapshotIds;
+};
+
 // Synchronization and change models.
+struct ActiveMembership
+{
+    long long membershipId;
+    Player player;
+};
+
 struct LatestPlayerState
 {
     std::string clanTag;
@@ -106,6 +120,12 @@ struct MembershipChanges
 {
     std::vector<Player> leftPlayers;
     std::vector<Player> joinedPlayers;
+};
+
+struct MembershipChangeIds
+{
+    std::vector<long long> leftMembershipIds;
+    std::vector<long long> joinedMembershipIds;
 };
 
 struct RoleChange

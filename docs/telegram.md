@@ -190,18 +190,42 @@ AttackGuideCatalog:
 
 ## Доставка уведомлений
 
-TelegramNotifier знает только chat_id, message и message_thread_id. TelegramApiClient отправляет sendMessage с:
+Доставка разделена на постановку намерения и HTTP-отправку. NotificationService получает назначения из
+clan_subscriptions, формирует HTML-сообщение и в транзакции добавляет его в notifications со статусом `pending`.
+TelegramNotifier знает только chat_id, message и message_thread_id и вызывается NotificationWorker-ом после commit.
+
+Worker выбирает записи `pending`, для которых наступил `next_attempt_at`, и передаёт сообщение в TelegramApiClient.
+После успешного ответа он меняет статус на `sent`. Временные ошибки оставляют запись в очереди и переносят следующую
+попытку, а постоянные ошибки или исчерпание попыток переводят запись в `failed`.
+
+TelegramApiClient отправляет `sendMessage` с:
 
 - parse_mode = HTML;
 - chat_id;
 - text;
 - message_thread_id, если он не равен 0.
 
-NotificationService выбирает подписчиков из clan_subscriptions по audience. Ошибка отправки не ломает доставку в
-остальные назначения: она логируется с chat_id и тегом клана.
+Каждый HTTP-запрос Telegram проходит через TelegramHttpTransport. Значения по умолчанию:
 
-Для итогов, сравнений и reminders проверяется таблица notifications до отправки и запись создаётся только после успешного
-ответа Telegram. Изменения состава, роли и системные события такой защиты не имеют.
+- timeout запроса — 10 секунд;
+- до 4 попыток для сетевых ошибок, HTTP 429 и ответов 5xx;
+- exponential backoff начинается с 500 мс, удваивается на каждой попытке и ограничен 8 секундами;
+- для HTTP 429 используется `parameters.retry_after` из JSON-ответа Telegram, если оно корректно задано;
+- для `getUpdates` timeout HTTP автоматически увеличивается относительно long-polling timeout.
+
+При достижении лимита попыток transport возвращает `ApiException`. Для HTTP 429 исключение дополнительно содержит
+`retry_after`, а NotificationWorker учитывает это значение при расчёте следующей попытки и сохраняет результат в
+`notifications.next_attempt_at`. Используется максимальная задержка из retry policy и ограничения Telegram, поэтому
+сохранённое время переживает перезапуск worker. Если процесс завершится во время внутреннего ожидания transport до
+передачи ошибки worker, это значение не успеет попасть в outbox.
+
+Атомарная дедупликация выполняется уникальным ключом
+`(event_type, event_id, chat_id, message_thread_id, part_index)`. Повторная постановка одной и той же записи не создаёт
+дубликат. Если процесс завершился после успешной отправки, но до `markAsSent`, возможна повторная доставка — гарантия
+имеет at-least-once семантику, а не exactly-once.
+
+После перезапуска worker снова видит записи `pending`, сохранённые в SQLite. Сообщения со статусом `failed` автоматически
+не возвращаются в очередь; для этого нужен отдельный операционный requeue-механизм.
 
 ## Получение chat_id и message_thread_id
 
@@ -223,6 +247,8 @@ Telegram-компоненты тестируются без сети:
 - TelegramKeyboardsTests — JSON inline-клавиатур;
 - AttackGuideCatalogTests — схема каталога, сортировка и фильтрация;
 - TelegramValidationTests — диапазон ратуш;
-- TelegramBotServiceIntegrationTests — команды, права, темы, polling, ошибки и callback-сценарии.
+- TelegramBotServiceIntegrationTests — команды, права, темы, polling, ошибки и callback-сценарии;
+- NotificationIntegrationTests — постановка в outbox, атомарная дедупликация, выборка pending и переход в `sent`;
+- NotificationServiceIntegrationTests — построение событий и постановка сообщений вместо прямого вызова Telegram.
 
 FakeTelegramApiClient записывает отправленные и отредактированные сообщения, callback-ответы и вызовы getUpdates.

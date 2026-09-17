@@ -3,32 +3,9 @@
 #include "core/Exceptions.h"
 #include <spdlog/spdlog.h>
 
-#include <atomic>
-#include <chrono>
-#include <cstdint>
-
-#include <fmt/format.h>
-
 #include "reports/SystemAlertReportFormatter.h"
 #include "reports/RaidReminderFormatter.h"
 #include "reports/WarReminderFormatter.h"
-
-namespace
-{
-    std::string makeTransientEventId(const std::string_view eventType)
-    {
-        static std::atomic<std::uint64_t> sequence{0};
-
-        const auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-
-        return fmt::format(
-            "{}:{}:{}",
-            eventType,
-            timestamp,
-            sequence.fetch_add(1, std::memory_order_relaxed));
-    }
-}
 
 NotificationService::NotificationService(NotificationRepo& notification_repo,
                                          SubscriptionRepo& subscription_repo,
@@ -126,12 +103,11 @@ void NotificationService::handle(const ApplicationEvent& application_event)
 void NotificationService::handleEvent(const PlayerJoinedClanEvent& event) const
 {
     const auto message = playerJoinedFormatter.format(event);
-    const auto eventId = makeTransientEventId("PlayerJoinedClanEvent");
 
     enqueueToDestinations(
         event.clanTag,
-        "PlayerJoinedClanEvent",
-        eventId,
+        PlayerJoinedClanEvent::Type,
+        event.key(),
         "PlayerJoinedClanEvent",
         message,
         Audience::Players);
@@ -140,12 +116,11 @@ void NotificationService::handleEvent(const PlayerJoinedClanEvent& event) const
 void NotificationService::handleEvent(const PlayerLeftClanEvent& event) const
 {
     const auto message = playerLeftFormatter.format(event);
-    const auto eventId = makeTransientEventId("PlayerLeftClanEvent");
 
     enqueueToDestinations(
         event.clanTag,
-        "PlayerLeftClanEvent",
-        eventId,
+        PlayerLeftClanEvent::Type,
+        event.key(),
         "PlayerLeftClanEvent",
         message,
         Audience::Players);
@@ -154,12 +129,11 @@ void NotificationService::handleEvent(const PlayerLeftClanEvent& event) const
 void NotificationService::handleEvent(const PlayerRoleChangedEvent& event) const
 {
     const auto message = playerRoleChangedFormatter.format(event);
-    const auto eventId = makeTransientEventId("PlayerRoleChangedEvent");
 
     enqueueToDestinations(
         event.clanTag,
-        "PlayerRoleChangedEvent",
-        eventId,
+        PlayerRoleChangedEvent::Type,
+        event.key(),
         "PlayerRoleChangedEvent",
         message,
         Audience::Players);
@@ -260,12 +234,11 @@ void NotificationService::handleEvent(const ClanwarsLeagueRoundEndedEvent& event
 void NotificationService::handleEvent(const SyncFailureEvent& event) const
 {
     const auto message = SystemAlertReportFormatter::formatFailureAlert(event);
-    const auto eventId = makeTransientEventId("SyncFailureEvent");
 
     enqueueToDestinations(
         event.clanTag,
-        "SyncFailureEvent",
-        eventId,
+        SyncFailureEvent::Type,
+        event.key(),
         "SyncFailureEvent",
         message,
         Audience::Management);
@@ -274,12 +247,11 @@ void NotificationService::handleEvent(const SyncFailureEvent& event) const
 void NotificationService::handleEvent(const SyncRecoveryEvent& event) const
 {
     const auto message = SystemAlertReportFormatter::formatRecoveryAlert(event);
-    const auto eventId = makeTransientEventId("SyncRecoveryEvent");
 
     enqueueToDestinations(
         event.clanTag,
-        "SyncRecoveryEvent",
-        eventId,
+        SyncRecoveryEvent::Type,
+        event.key(),
         "SyncRecoveryEvent",
         message,
         Audience::Management);

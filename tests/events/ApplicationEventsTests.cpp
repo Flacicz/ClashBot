@@ -135,6 +135,11 @@ TEST(ApplicationEventTypeTest, ExposesStableEventTypes)
     EXPECT_STREQ("war_ended", WarEndedEvent::Type);
     EXPECT_STREQ("raids_ended", RaidsEndedEvent::Type);
     EXPECT_STREQ("cwl_round_ended", ClanwarsLeagueRoundEndedEvent::Type);
+    EXPECT_STREQ("PlayerJoinedClanEvent", PlayerJoinedClanEvent::Type);
+    EXPECT_STREQ("PlayerLeftClanEvent", PlayerLeftClanEvent::Type);
+    EXPECT_STREQ("PlayerRoleChangedEvent", PlayerRoleChangedEvent::Type);
+    EXPECT_STREQ("SyncFailureEvent", SyncFailureEvent::Type);
+    EXPECT_STREQ("SyncRecoveryEvent", SyncRecoveryEvent::Type);
     EXPECT_STREQ("war_reminder", WarReminderEvent::Type);
     EXPECT_STREQ("raid_reminder", RaidReminderEvent::Type);
 }

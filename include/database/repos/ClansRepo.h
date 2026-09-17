@@ -24,18 +24,30 @@ public:
     void saveClan(const Clan& clan) const;
     void saveClanSnapshot(const ClanSnapshot& clanSnapshot) const;
     void savePlayers(const std::vector<Player>& players) const;
-    void savePlayerSnapshots(const std::vector<PlayerSnapshot>& playerSnapshots) const;
+    [[nodiscard]] PlayerSnapshotIds savePlayerSnapshots(
+        const std::vector<PlayerSnapshot>& playerSnapshots) const;
 
-    void saveCompleteClanData(const Clan& clan,
-                              const ClanSnapshot& clanSnapshot,
-                              const std::vector<Player>& players,
-                              const std::vector<PlayerSnapshot>& playerSnapshots) const;
+    [[nodiscard]] SavedClanData saveCompleteClanData(
+        const Clan& clan,
+        const ClanSnapshot& clanSnapshot,
+        const std::vector<Player>& players,
+        const std::vector<PlayerSnapshot>& playerSnapshots) const;
 
     [[nodiscard]] std::vector<Player> getActiveMembers(std::string_view clanTag) const;
 
-    void registerPlayerJoin(std::string_view playerTag, std::string_view clanTag) const;
-    void registerPlayerLeave(std::string_view playerTag, std::string_view clanTag) const;
-    void saveMembershipChanges(const MembershipChanges& changes) const;
+    [[nodiscard]] std::vector<ActiveMembership> getActiveMemberships(
+        std::string_view clanTag) const;
+
+    [[nodiscard]] long long registerPlayerJoin(
+        std::string_view playerTag,
+        std::string_view clanTag) const;
+
+    [[nodiscard]] long long registerPlayerLeave(
+        std::string_view playerTag,
+        std::string_view clanTag) const;
+
+    [[nodiscard]] MembershipChangeIds saveMembershipChanges(
+        const MembershipChanges& changes) const;
 
     [[nodiscard]] std::vector<LatestPlayerState> getLatestPlayerSnapshots(std::string_view clanTag) const;
 };

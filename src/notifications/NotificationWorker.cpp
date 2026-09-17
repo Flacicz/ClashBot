@@ -99,7 +99,11 @@ void NotificationWorker::processPending() const
             const bool retryable = error.error() != ApiError::NotFound &&
                                    error.error() != ApiError::Forbidden;
 
-            handleFailure(notification, error.what(), retryable);
+            handleFailure(
+                notification,
+                error.what(),
+                retryable,
+                error.retryAfter());
             continue;
         }
         catch (const std::exception& error)
@@ -125,7 +129,8 @@ void NotificationWorker::processPending() const
 void NotificationWorker::handleFailure(
     const telegram::PendingNotification& notification,
     const std::string_view error,
-    const bool retryable) const
+    const bool retryable,
+    const std::optional<std::chrono::seconds> retryAfter) const
 {
     const int nextAttempt = notification.attempts + 1;
     const bool attemptsExhausted = nextAttempt >= retryPolicy_.maxAttempts();
@@ -145,7 +150,7 @@ void NotificationWorker::handleFailure(
 
         notificationRepo_.reschedule(
             notification.id,
-            nextAttemptAt(nextAttempt),
+            nextAttemptAt(nextAttempt, retryAfter),
             error);
 
         spdlog::warn(
@@ -164,9 +169,20 @@ void NotificationWorker::handleFailure(
     }
 }
 
-long long NotificationWorker::nextAttemptAt(const int attempt) const
+long long NotificationWorker::nextAttemptAt(
+    const int attempt,
+    const std::optional<std::chrono::seconds> retryAfter) const
 {
-    const auto delay = retryPolicy_.delayForAttempt(attempt);
+    auto delay = retryPolicy_.delayForAttempt(attempt);
+
+    if (retryAfter)
+    {
+        const auto retryAfterDelay = std::chrono::duration_cast<
+            std::chrono::milliseconds>(*retryAfter);
+
+        delay = std::max(delay, retryAfterDelay);
+    }
+
     const auto delayMilliseconds = delay.count();
     const auto delaySeconds = std::max<long long>(
         1,

@@ -24,7 +24,14 @@ std::string ClanInfoService::getServiceName() const
 MembershipChanges ClanInfoService::detectMembershipChanges(
     const std::string_view clanTag, std::vector<Player> players) const
 {
-    std::vector<Player> activeClanPlayers = clans_repo_.getActiveMembers(clanTag);
+    const auto activeMemberships = clans_repo_.getActiveMemberships(clanTag);
+    std::vector<Player> activeClanPlayers;
+    activeClanPlayers.reserve(activeMemberships.size());
+
+    for (const auto& membership : activeMemberships)
+    {
+        activeClanPlayers.push_back(membership.player);
+    }
 
     auto compare_tags = [](const Player& a, const Player& b)
     {
@@ -88,29 +95,38 @@ RoleChanges ClanInfoService::detectRoleChanges(const std::string& clanTag,
 }
 
 std::vector<ApplicationEvent> ClanInfoService::generateEvents(const MembershipChanges& changes,
-                                                              const RoleChanges& roleChanges)
+                                                              const RoleChanges& roleChanges,
+                                                              const MembershipChangeIds& membershipIds,
+                                                              const PlayerSnapshotIds& snapshotIds)
 {
     std::vector<ApplicationEvent> events;
-    events.reserve(changes.joinedPlayers.size() + changes.leftPlayers.size());
+    events.reserve(
+        changes.joinedPlayers.size() +
+        changes.leftPlayers.size() +
+        roleChanges.changes.size());
 
-    for (const auto& [tag, name, clanTag] : changes.leftPlayers)
+    for (std::size_t index = 0; index < changes.leftPlayers.size(); ++index)
     {
+        const auto& [tag, name, clanTag] = changes.leftPlayers[index];
         events.emplace_back(
             PlayerLeftClanEvent(
                 clanTag,
                 tag,
-                name
+                name,
+                membershipIds.leftMembershipIds.at(index)
             )
         );
     }
 
-    for (const auto& [tag, name, clanTag] : changes.joinedPlayers)
+    for (std::size_t index = 0; index < changes.joinedPlayers.size(); ++index)
     {
+        const auto& [tag, name, clanTag] = changes.joinedPlayers[index];
         events.emplace_back(
             PlayerJoinedClanEvent(
                 clanTag,
                 tag,
-                name
+                name,
+                membershipIds.joinedMembershipIds.at(index)
             )
         );
     }
@@ -123,7 +139,8 @@ std::vector<ApplicationEvent> ClanInfoService::generateEvents(const MembershipCh
                 .playerTag = playerTag,
                 .playerName = playerName,
                 .oldRole = oldRole,
-                .newRole = newRole
+                .newRole = newRole,
+                .snapshotId = snapshotIds.at(playerTag)
             }
         );
     }
@@ -153,21 +170,25 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
             const auto roleChanges =
                 detectRoleChanges(std::string(tag), playerSnapshots);
 
-            clans_repo_.saveCompleteClanData(
+            const auto changes =
+                detectMembershipChanges(tag, players);
+
+            const auto savedClanData = clans_repo_.saveCompleteClanData(
                 clan,
                 clanSnapshot,
                 players,
                 playerSnapshots);
 
-            const auto changes =
-                detectMembershipChanges(tag, players);
-
-            clans_repo_.saveMembershipChanges(changes);
+            const auto membershipIds = clans_repo_.saveMembershipChanges(changes);
 
             return SyncResult::success(
                 svc,
                 std::string(tag),
-                generateEvents(changes, roleChanges));
+                generateEvents(
+                    changes,
+                    roleChanges,
+                    membershipIds,
+                    savedClanData.snapshotIds));
         });
 
         spdlog::info(

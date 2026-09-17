@@ -203,6 +203,7 @@ int main(const int argc, char* argv[])
             eventDispatcher,
             std::move(services),
             syncDb.clans(),
+            syncDb.syncOutages(),
             retryPolicies::syncRetryPolicy);
 
         spdlog::info("[Main] Synchronization services initialized successfully.");

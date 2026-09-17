@@ -4,6 +4,7 @@
 
 #ifndef CLASHBOT_EXCEPTIONS_H
 #define CLASHBOT_EXCEPTIONS_H
+#include <chrono>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -58,17 +59,27 @@ enum class ApiError
 class ApiException : public ClashBotException
 {
     ApiError apiError;
+    std::optional<std::chrono::seconds> retryAfter_;
 
 public:
-    ApiException(const ApiError error, const std::string& message)
+    ApiException(
+        const ApiError error,
+        const std::string& message,
+        const std::optional<std::chrono::seconds> retryAfter = std::nullopt)
         : ClashBotException(message),
-          apiError(error)
+          apiError(error),
+          retryAfter_(retryAfter)
     {
     }
 
     [[nodiscard]] ApiError error() const noexcept
     {
         return apiError;
+    }
+
+    [[nodiscard]] std::optional<std::chrono::seconds> retryAfter() const noexcept
+    {
+        return retryAfter_;
     }
 };
 

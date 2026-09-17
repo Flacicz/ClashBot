@@ -34,7 +34,8 @@ strftime('%s', 'now').
     telegram_chats
      └── clan_subscriptions ── clans
 
-    notifications  (отдельный журнал идемпотентной доставки)
+    notifications  (устойчивая outbox-очередь Telegram)
+    sync_outages    (эпизоды сбоев синхронизации)
     schema_migrations
 
 ## Кланы и игроки
@@ -230,12 +231,25 @@ Telegram-назначение определяется составным клю
 
 ### notifications
 
-Журнал успешно отправленных дедуплицируемых сообщений:
+Outbox-очередь намерений отправки в Telegram. Запись создаётся до HTTP-вызова и живёт в базе независимо от процесса
+приложения.
 
-event_type, event_id, chat_id, message_thread_id, notified_at.
+| Поле | Содержание |
+| --- | --- |
+| id | идентификатор outbox-записи |
+| event_type, event_id | тип и стабильный идентификатор доменного события |
+| chat_id, message_thread_id | Telegram-назначение |
+| message_text | готовый HTML-текст сообщения |
+| part_index, part_count | номер части и общее количество частей; сейчас всегда `1/1` |
+| status | `pending`, `sent` или `failed` |
+| attempts | количество неудачных попыток доставки |
+| next_attempt_at | Unix-время, после которого разрешена следующая попытка |
+| last_error | последняя ошибка доставки |
+| created_at, sent_at | время постановки в очередь и успешной отправки |
 
-Первичный ключ — (event_type, event_id, chat_id, message_thread_id). Это позволяет независимо доставлять одно событие в
-разные чаты и темы.
+`id` — первичный ключ. Уникальный ключ дедупликации —
+`(event_type, event_id, chat_id, message_thread_id, part_index)`. Это позволяет независимо доставлять одно событие в
+разные чаты и темы, а в будущем — разные части одного сообщения.
 
 Типовые ключи:
 
@@ -245,8 +259,27 @@ event_type, event_id, chat_id, message_thread_id, notified_at.
     raid_reminder | 15:twenty_four_hours_left
     raids_ended   | 15
 
-В таблицу не записываются события вступления, выхода, изменения роли, SyncFailureEvent и SyncRecoveryEvent: они
-отправляются без дедупликации.
+Новые записи получают статус `pending` и становятся доступными worker-у сразу после commit. После успешного ответа
+Telegram статус меняется на `sent`; временная ошибка оставляет запись `pending` и обновляет `next_attempt_at` и
+`last_error`; окончательная ошибка переводит запись в `failed`.
+
+События вступления и выхода используют ID строки `clan_memberships`, изменение роли — ID текущего `player_snapshots`.
+Системные события используют ID строки `sync_outages`, поэтому ошибка и восстановление ссылаются на один эпизод.
+
+### sync_outages
+
+Таблица хранит один открытый эпизод сбоя для каждой пары `(clan_tag, service_name)`:
+
+| Поле | Содержание |
+| --- | --- |
+| id | стабильный ID эпизода сбоя |
+| clan_tag, service_name | клан и сервис, для которых возник сбой |
+| failure_count | количество последовательных неудачных циклов |
+| started_at | начало эпизода |
+| recovered_at | время восстановления; `NULL` означает открытый эпизод |
+
+Частичный уникальный индекс не позволяет открыть два одновременных эпизода для одного сервиса и клана. После
+восстановления следующий сбой получает новый ID.
 
 ## schema_migrations
 
@@ -271,6 +304,8 @@ event_type, event_id, chat_id, message_thread_id, notified_at.
 | 006_telegram_topics.sql | темы Telegram и перенос старых назначений в thread 0 |
 | 007_subscription_audience.sql | разделение подписок на players и management |
 | 008_clan_tracking.sql | отдельный флаг включённого отслеживания |
+| 009_notification_outbox.sql | переход notifications к outbox-очереди и статусам доставки |
+| 010_sync_outages.sql | эпизоды сбоев синхронизации и стабильные IDs системных событий |
 
 Не редактируйте уже применённую миграцию для изменения рабочей базы. Добавляйте следующую миграцию с новым числовым
 префиксом.
@@ -287,7 +322,8 @@ event_type, event_id, chat_id, message_thread_id, notified_at.
 - атаки по войне, атакующему и защитнику;
 - сезоны CWL по клану;
 - рейды по клану;
-- snapshots рейдов по игроку.
+- snapshots рейдов по игроку;
+- очередь pending-уведомлений по `(status, next_attempt_at, created_at, id)`.
 
 Внешние ключи с ON DELETE CASCADE удаляют дочерние данные войны, рейда, сезона или Telegram-подписки вместе с
 родителем. Исторические данные игрока сохраняются через ON DELETE NO ACTION на players.
@@ -299,4 +335,6 @@ event_type, event_id, chat_id, message_thread_id, notified_at.
 - не удаляйте строки из schema_migrations в работающей базе;
 - не меняйте clan_tag вручную без проверки внешних ключей;
 - после ручного добавления подписки убедитесь, что message_thread_id и audience корректны;
+- для диагностики очереди используйте status, attempts, next_attempt_at и last_error;
+- перед ручным изменением notifications остановите приложение, чтобы worker не отправлял изменяемую запись;
 - для штатного подключения используйте /link, потому что команда атомарно создаёт клан, назначение и подписку.

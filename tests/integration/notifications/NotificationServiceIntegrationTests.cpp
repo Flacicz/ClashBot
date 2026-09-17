@@ -145,7 +145,8 @@ TEST_F(NotificationServiceIntegrationTest, EnqueuesMembershipEventForPlayerDesti
     notificationService->handle(PlayerJoinedClanEvent{
         .clanTag = std::string(clanTag),
         .playerTag = "#P1",
-        .playerName = "Alice"
+        .playerName = "Alice",
+        .membershipId = 42
     });
 
     const auto pending = database->notifications().getPending(10);
@@ -155,6 +156,7 @@ TEST_F(NotificationServiceIntegrationTest, EnqueuesMembershipEventForPlayerDesti
     EXPECT_EQ(threadId, pending.front().messageThreadId);
     EXPECT_NE(std::string::npos,
               pending.front().messageText.find("Alice"));
+    EXPECT_EQ("42", pending.front().eventId);
     EXPECT_TRUE(telegramApiClient.sentMessages.empty());
 }
 
@@ -201,7 +203,8 @@ TEST_F(NotificationServiceIntegrationTest, EnqueuesSynchronizationFailureForMana
         .clanTag = std::string(clanTag),
         .serviceName = "RaidService",
         .errorMsg = "API unavailable",
-        .attempts = 3
+        .attempts = 3,
+        .outageId = 7
     });
 
     const auto pending = database->notifications().getPending(10);
@@ -210,5 +213,6 @@ TEST_F(NotificationServiceIntegrationTest, EnqueuesSynchronizationFailureForMana
     EXPECT_EQ(chatId, pending.front().chatId);
     EXPECT_NE(std::string::npos,
               pending.front().messageText.find("RaidService"));
+    EXPECT_EQ("7", pending.front().eventId);
     EXPECT_TRUE(telegramApiClient.sentMessages.empty());
 }

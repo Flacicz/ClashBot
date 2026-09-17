@@ -3,6 +3,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <optional>
 #include <string_view>
 
 #include "common/RetryPolicies.h"
@@ -28,9 +29,12 @@ private:
     void processPending() const;
     void handleFailure(const telegram::PendingNotification& notification,
                       std::string_view error,
-                      bool retryable) const;
+                      bool retryable,
+                      std::optional<std::chrono::seconds> retryAfter = std::nullopt) const;
 
-    [[nodiscard]] long long nextAttemptAt(int attempt) const;
+    [[nodiscard]] long long nextAttemptAt(
+        int attempt,
+        std::optional<std::chrono::seconds> retryAfter) const;
 
     NotificationRepo& notificationRepo_;
     TelegramNotifier& telegramNotifier_;

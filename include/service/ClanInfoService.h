@@ -17,7 +17,9 @@ class ClanInfoService : public ISyncService
                                                 const std::vector<PlayerSnapshot>& currentPlayers) const;
 
     static std::vector<ApplicationEvent> generateEvents(const MembershipChanges& changes,
-                                                   const RoleChanges& roleChanges);
+                                                         const RoleChanges& roleChanges,
+                                                         const MembershipChangeIds& membershipIds,
+                                                         const PlayerSnapshotIds& snapshotIds);
 
 public:
     ClanInfoService(ClansRepo& clans_repo, APIClient& api_client, TransactionManager& transaction_manager);

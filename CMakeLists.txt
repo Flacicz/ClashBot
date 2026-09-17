@@ -69,6 +69,7 @@ add_library(ClashBotCore STATIC
         src/database/MigratorManager.cpp
         src/database/repos/NotificationsRepo.cpp
         src/database/repos/SubscriptionRepo.cpp
+        src/database/repos/SyncOutageRepo.cpp
         src/api/APIClient.cpp
         src/api/TelegramApiClient.cpp
         src/service/ClanInfoService.cpp

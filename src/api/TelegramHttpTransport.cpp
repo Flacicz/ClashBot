@@ -52,6 +52,29 @@ nlohmann::json TelegramHttpTransport::post(std::string_view method,
             response.status_code >= 500 &&
             response.status_code <= 599;
 
+        std::optional<std::chrono::seconds> telegramRetryAfter;
+
+        if (rateLimited && !response.text.empty())
+        {
+            try
+            {
+                const auto responseJson = nlohmann::json::parse(response.text);
+                const auto retryDelay = retryAfter(responseJson);
+
+                if (retryDelay > std::chrono::seconds::zero())
+                {
+                    telegramRetryAfter = retryDelay;
+                }
+            }
+            catch (const nlohmann::json::parse_error& error)
+            {
+                spdlog::warn(
+                    "Telegram returned invalid JSON for 429 response: {}. "
+                    "Using retry policy delay.",
+                    error.what());
+            }
+        }
+
         if (networkError || rateLimited || serverError)
         {
             if (attempt == maxAttempts)
@@ -67,28 +90,18 @@ nlohmann::json TelegramHttpTransport::post(std::string_view method,
                     fmt::format(
                         "Telegram {} failed after {} attempts",
                         method,
-                        maxAttempts));
+                        maxAttempts),
+                    telegramRetryAfter);
             }
 
             auto delay = policy_.retry.delayForAttempt(attempt);
 
-            if (rateLimited && !response.text.empty())
+            if (telegramRetryAfter)
             {
-                try
-                {
-                    const auto responseJson = nlohmann::json::parse(response.text);
-                    const auto telegramDelay = std::chrono::duration_cast<
-                        std::chrono::milliseconds>(retryAfter(responseJson));
+                const auto telegramDelay = std::chrono::duration_cast<
+                    std::chrono::milliseconds>(*telegramRetryAfter);
 
-                    delay = max(delay, telegramDelay);
-                }
-                catch (const nlohmann::json::parse_error& error)
-                {
-                    spdlog::warn(
-                        "Telegram returned invalid JSON for 429 response: {}. "
-                        "Using retry policy delay.",
-                        error.what());
-                }
+                delay = (std::max)(delay, telegramDelay);
             }
 
             std::this_thread::sleep_for(delay);

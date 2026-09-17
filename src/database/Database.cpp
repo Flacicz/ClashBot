@@ -51,6 +51,7 @@ Database::Database(std::string path) : pathToDb(path)
         cwlRepo = std::make_unique<ClanwarsLeagueRepo>(db);
         subscriptionRepo = std::make_unique<SubscriptionRepo>(db);
         notificationRepo = std::make_unique<NotificationRepo>(db);
+        syncOutageRepo = std::make_unique<SyncOutageRepo>(db);
     }
     catch (...)
     {
@@ -63,6 +64,7 @@ Database::Database(std::string path) : pathToDb(path)
 Database::~Database()
 {
     notificationRepo.reset();
+    syncOutageRepo.reset();
     subscriptionRepo.reset();
     cwlRepo.reset();
     cwRepo.reset();
@@ -85,6 +87,7 @@ Database::Database(Database&& other) noexcept
       , cwlRepo(std::move(other.cwlRepo))
       , subscriptionRepo(std::move(other.subscriptionRepo))
       , notificationRepo(std::move(other.notificationRepo))
+      , syncOutageRepo(std::move(other.syncOutageRepo))
 {
 }
 
@@ -105,6 +108,7 @@ Database& Database::operator=(Database&& other) noexcept
         cwlRepo = std::move(other.cwlRepo);
         subscriptionRepo = std::move(other.subscriptionRepo);
         notificationRepo = std::move(other.notificationRepo);
+        syncOutageRepo = std::move(other.syncOutageRepo);
     }
     return *this;
 }

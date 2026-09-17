@@ -124,9 +124,12 @@ void ClansRepo::savePlayers(const std::vector<Player>& players) const
     }
 }
 
-void ClansRepo::savePlayerSnapshots(const std::vector<PlayerSnapshot>& playerSnapshots) const
+PlayerSnapshotIds ClansRepo::savePlayerSnapshots(
+    const std::vector<PlayerSnapshot>& playerSnapshots) const
 {
-    if (playerSnapshots.empty()) return;
+    PlayerSnapshotIds snapshotIds;
+
+    if (playerSnapshots.empty()) return snapshotIds;
 
     static constexpr std::string_view sql = R"(
         INSERT INTO player_snapshots (
@@ -139,67 +142,124 @@ void ClansRepo::savePlayerSnapshots(const std::vector<PlayerSnapshot>& playerSna
             ?, ?, ?, ?, ?,
             ?, ?
         )
+        RETURNING id;
     )";
+
+    auto mapper = [](sqlite3_stmt* stmt) -> long long
+    {
+        return sqlite::getLong(stmt, 0);
+    };
 
     for (const auto& [playerTag, clanTag, role, townHallLevel,
              expLevel, clanRank, leagueId, builderBaseLeagueId,trophies,
              builderBaseTrophies, donations, donationsReceived] : playerSnapshots)
     {
-        execute(sql, "save player snapshot",
-                fmt::format("clan_tag = {}, player_tag = {}", clanTag, playerTag),
-                playerTag, clanTag, role, townHallLevel,
-                expLevel, clanRank, leagueId,
-                builderBaseLeagueId, trophies, builderBaseTrophies,
-                donations, donationsReceived
-        );
+        const auto snapshotId = queryOne<long long>(
+            sql,
+            "save player snapshot",
+            fmt::format("clan_tag = {}, player_tag = {}", clanTag, playerTag),
+            mapper,
+            playerTag,
+            clanTag,
+            role,
+            townHallLevel,
+            expLevel,
+            clanRank,
+            leagueId,
+            builderBaseLeagueId,
+            trophies,
+            builderBaseTrophies,
+            donations,
+            donationsReceived);
+
+        snapshotIds[playerTag] = snapshotId;
     }
+
+    return snapshotIds;
 }
 
-void ClansRepo::saveCompleteClanData(const Clan& clan,
-                                     const ClanSnapshot& clanSnapshot,
-                                     const std::vector<Player>& players,
-                                     const std::vector<PlayerSnapshot>& playerSnapshots) const
+SavedClanData ClansRepo::saveCompleteClanData(
+    const Clan& clan,
+    const ClanSnapshot& clanSnapshot,
+    const std::vector<Player>& players,
+    const std::vector<PlayerSnapshot>& playerSnapshots) const
 {
     saveClan(clan);
     saveClanSnapshot(clanSnapshot);
     savePlayers(players);
-    savePlayerSnapshots(playerSnapshots);
+
+    return SavedClanData{
+        .snapshotIds = savePlayerSnapshots(playerSnapshots)
+    };
 }
 
 std::vector<Player> ClansRepo::getActiveMembers(const std::string_view clanTag) const
 {
+    const auto memberships = getActiveMemberships(clanTag);
+    std::vector<Player> players;
+    players.reserve(memberships.size());
+
+    for (const auto& membership : memberships)
+    {
+        players.push_back(membership.player);
+    }
+
+    return players;
+}
+
+std::vector<ActiveMembership> ClansRepo::getActiveMemberships(
+    const std::string_view clanTag) const
+{
     static constexpr std::string_view sql = R"(
-        SELECT cm.player_tag, p.name, cm.clan_tag
+        SELECT cm.id, cm.player_tag, p.name, cm.clan_tag
         FROM clan_memberships cm
         JOIN players p ON cm.player_tag = p.tag
         WHERE cm.clan_tag = ? AND cm.left_at IS NULL;
     )";
 
-    auto mapper = [](sqlite3_stmt* stmt) -> Player
+    auto mapper = [](sqlite3_stmt* stmt) -> ActiveMembership
     {
-        return Player{
-            .tag = sqlite::getString(stmt, 0),
-            .name = sqlite::getString(stmt, 1),
-            .clanTag = sqlite::getString(stmt, 2)
+        return ActiveMembership{
+            .membershipId = sqlite::getLong(stmt, 0),
+            .player = Player{
+                .tag = sqlite::getString(stmt, 1),
+                .name = sqlite::getString(stmt, 2),
+                .clanTag = sqlite::getString(stmt, 3)
+            }
         };
     };
 
-    return query<Player>(sql, "load active members",
-                         fmt::format("clan_tag = {}", clanTag),
-                         mapper, clanTag);
+    return query<ActiveMembership>(
+        sql,
+        "load active memberships",
+        fmt::format("clan_tag = {}", clanTag),
+        mapper,
+        clanTag);
 }
 
-void ClansRepo::registerPlayerLeave(const std::string_view playerTag, const std::string_view clanTag) const
+long long ClansRepo::registerPlayerLeave(
+    const std::string_view playerTag,
+    const std::string_view clanTag) const
 {
     static constexpr std::string_view sql1 = R"(
         UPDATE clan_memberships
         SET left_at = strftime('%s', 'now')
-        WHERE clan_tag = ? AND player_tag = ? AND left_at IS NULL;
+        WHERE clan_tag = ? AND player_tag = ? AND left_at IS NULL
+        RETURNING id;
     )";
 
-    execute(sql1, "update clan membership",
-            fmt::format("clan_tag = {}, player_tag = {}", clanTag, playerTag),
-            clanTag, playerTag);
+    auto mapper = [](sqlite3_stmt* stmt) -> long long
+    {
+        return sqlite::getLong(stmt, 0);
+    };
+
+    const auto membershipId = queryOne<long long>(
+        sql1,
+        "update clan membership",
+        fmt::format("clan_tag = {}, player_tag = {}", clanTag, playerTag),
+        mapper,
+        clanTag,
+        playerTag);
 
     static constexpr std::string_view sql2 = R"(
         UPDATE players
@@ -210,27 +270,54 @@ void ClansRepo::registerPlayerLeave(const std::string_view playerTag, const std:
     execute(sql2, "update player",
             fmt::format("clan_tag = {}, player_tag = {}", clanTag, playerTag),
             playerTag);
+
+    return membershipId;
 }
 
-void ClansRepo::registerPlayerJoin(const std::string_view playerTag, const std::string_view clanTag) const
+long long ClansRepo::registerPlayerJoin(
+    const std::string_view playerTag,
+    const std::string_view clanTag) const
 {
     static constexpr std::string_view sql = R"(
         INSERT INTO clan_memberships (clan_tag, player_tag, joined_at)
-        VALUES (?, ?, strftime('%s', 'now'));
+        VALUES (?, ?, strftime('%s', 'now'))
+        RETURNING id;
     )";
 
-    execute(sql, "save joined player",
-            fmt::format("clan_tag = {}, player_tag = {}", clanTag, playerTag),
-            clanTag, playerTag);
+    auto mapper = [](sqlite3_stmt* stmt) -> long long
+    {
+        return sqlite::getLong(stmt, 0);
+    };
+
+    return queryOne<long long>(
+        sql,
+        "save joined player",
+        fmt::format("clan_tag = {}, player_tag = {}", clanTag, playerTag),
+        mapper,
+        clanTag,
+        playerTag);
 }
 
-void ClansRepo::saveMembershipChanges(const MembershipChanges& changes) const
+MembershipChangeIds ClansRepo::saveMembershipChanges(
+    const MembershipChanges& changes) const
 {
+    MembershipChangeIds ids;
+    ids.leftMembershipIds.reserve(changes.leftPlayers.size());
+    ids.joinedMembershipIds.reserve(changes.joinedPlayers.size());
+
     for (const auto& leftPlayer : changes.leftPlayers)
-        registerPlayerLeave(leftPlayer.tag, leftPlayer.clanTag);
+    {
+        ids.leftMembershipIds.push_back(
+            registerPlayerLeave(leftPlayer.tag, leftPlayer.clanTag));
+    }
 
     for (const auto& joinedPlayer : changes.joinedPlayers)
-        registerPlayerJoin(joinedPlayer.tag, joinedPlayer.clanTag);
+    {
+        ids.joinedMembershipIds.push_back(
+            registerPlayerJoin(joinedPlayer.tag, joinedPlayer.clanTag));
+    }
+
+    return ids;
 }
 
 std::string ClansRepo::getClanNameByTag(const std::string_view clanTag) const

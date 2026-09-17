@@ -13,6 +13,14 @@ struct PlayerJoinedClanEvent
     std::string clanTag;
     std::string playerTag;
     std::string playerName;
+    long long membershipId = 0;
+
+    static constexpr auto Type = "PlayerJoinedClanEvent";
+
+    [[nodiscard]] std::string key() const
+    {
+        return std::to_string(membershipId);
+    }
 };
 
 struct PlayerLeftClanEvent
@@ -20,6 +28,14 @@ struct PlayerLeftClanEvent
     std::string clanTag;
     std::string playerTag;
     std::string playerName;
+    long long membershipId = 0;
+
+    static constexpr auto Type = "PlayerLeftClanEvent";
+
+    [[nodiscard]] std::string key() const
+    {
+        return std::to_string(membershipId);
+    }
 };
 
 struct PlayerRoleChangedEvent
@@ -29,6 +45,14 @@ struct PlayerRoleChangedEvent
     std::string playerName;
     std::string oldRole;
     std::string newRole;
+    long long snapshotId = 0;
+
+    static constexpr auto Type = "PlayerRoleChangedEvent";
+
+    [[nodiscard]] std::string key() const
+    {
+        return std::to_string(snapshotId);
+    }
 };
 
 struct WarEndedEvent
@@ -77,12 +101,28 @@ struct SyncFailureEvent
     std::string serviceName;
     std::string errorMsg;
     int attempts;
+    long long outageId = 0;
+
+    static constexpr auto Type = "SyncFailureEvent";
+
+    [[nodiscard]] std::string key() const
+    {
+        return std::to_string(outageId);
+    }
 };
 
 struct SyncRecoveryEvent
 {
     std::string clanTag;
     std::string serviceName;
+    long long outageId = 0;
+
+    static constexpr auto Type = "SyncRecoveryEvent";
+
+    [[nodiscard]] std::string key() const
+    {
+        return std::to_string(outageId);
+    }
 };
 
 struct WarReminderEvent

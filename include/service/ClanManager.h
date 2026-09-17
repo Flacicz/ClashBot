@@ -4,6 +4,7 @@
 #include <condition_variable>
 
 #include "database/repos/ClansRepo.h"
+#include "database/repos/SyncOutageRepo.h"
 #include "ISyncService.h"
 #include "common/RetryPolicy.h"
 #include "events/EventDispatcher.h"
@@ -15,19 +16,12 @@ class ClanManager
     EventDispatcher eventDispatcher;
     std::vector<std::unique_ptr<ISyncService>> services;
     ClansRepo& clans_repo_;
+    SyncOutageRepo& sync_outage_repo_;
     RetryPolicy syncRetryPolicy_;
 
     std::mutex mtx;
     std::condition_variable cv;
     std::atomic<bool> isRunning{true};
-
-    struct ServiceStatus
-    {
-        int consecutiveFailures = 0;
-        bool alertSent = false;
-    };
-
-    std::map<std::string, ServiceStatus> trackingStatuses;
 
     SyncResult syncWithRetry(ISyncService* service, std::string_view clanTag) const;
     void handleSyncFailure(const SyncResult& syncResult);
@@ -38,6 +32,7 @@ public:
         EventDispatcher event_dispatcher,
         std::vector<std::unique_ptr<ISyncService>> services,
         ClansRepo& clans_repo,
+        SyncOutageRepo& sync_outage_repo,
         RetryPolicy retryPolicy = RetryPolicy{
             RetryPolicy::defaultMaxAttempts,
             std::chrono::seconds(2)}

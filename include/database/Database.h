@@ -11,6 +11,7 @@
 #include "repos/ClanwarRepo.h"
 #include "repos/NotificationsRepo.h"
 #include "repos/SubscriptionRepo.h"
+#include "repos/SyncOutageRepo.h"
 
 class SubscriptionRepo;
 class ClansRepo;
@@ -29,6 +30,7 @@ class Database
     std::unique_ptr<ClanwarsLeagueRepo> cwlRepo;
     std::unique_ptr<SubscriptionRepo> subscriptionRepo;
     std::unique_ptr<NotificationRepo> notificationRepo;
+    std::unique_ptr<SyncOutageRepo> syncOutageRepo;
 
     static constexpr std::string_view name = "DB";
     static constexpr int SQLITE_BUSY_TIMEOUT_MS = 5000;
@@ -51,4 +53,5 @@ public:
     [[nodiscard]] ClanwarsLeagueRepo& leagueWar() const { return *cwlRepo; }
     [[nodiscard]] SubscriptionRepo& subscriptions() const { return *subscriptionRepo; }
     [[nodiscard]] NotificationRepo& notifications() const { return *notificationRepo; }
+    [[nodiscard]] SyncOutageRepo& syncOutages() const { return *syncOutageRepo; }
 };

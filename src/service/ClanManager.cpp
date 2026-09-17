@@ -10,11 +10,13 @@ ClanManager::ClanManager(
     const EventDispatcher event_dispatcher,
     std::vector<std::unique_ptr<ISyncService>> services,
     ClansRepo& clans_repo,
+    SyncOutageRepo& sync_outage_repo,
     const RetryPolicy syncRetryPolicy
 )
     : eventDispatcher(event_dispatcher),
       services(std::move(services)),
       clans_repo_(clans_repo),
+      sync_outage_repo_(sync_outage_repo),
       syncRetryPolicy_(syncRetryPolicy)
 {
 }
@@ -48,38 +50,35 @@ SyncResult ClanManager::syncWithRetry(ISyncService* service, const std::string_v
 
 void ClanManager::handleSyncFailure(const SyncResult& syncResult)
 {
-    const std::string trackingKey = syncResult.serviceName + "_" + syncResult.clanTag;
-    auto& [consecutiveFailures, alertSent] = trackingStatuses[trackingKey];
-
-    consecutiveFailures++;
-
-    if (alertSent) return;
+    const auto outage = sync_outage_repo_.recordFailure(
+        syncResult.clanTag,
+        syncResult.serviceName);
 
     eventDispatcher.dispatch(SyncFailureEvent{
         .clanTag = syncResult.clanTag,
         .serviceName = syncResult.serviceName,
         .errorMsg = syncResult.errorMsg,
-        .attempts = consecutiveFailures
+        .attempts = outage.failureCount,
+        .outageId = outage.id
     });
-
-    alertSent = true;
 }
 
 void ClanManager::handleSyncRecovery(const SyncResult& syncResult)
 {
-    const std::string trackingKey = syncResult.serviceName + "_" + syncResult.clanTag;
-    auto& [consecutiveFailures, alertSent] = trackingStatuses[trackingKey];
+    const auto outageId = sync_outage_repo_.getOpenOutageId(
+        syncResult.clanTag,
+        syncResult.serviceName);
 
-    if (alertSent)
+    if (outageId)
     {
         eventDispatcher.dispatch(SyncRecoveryEvent{
             .clanTag = syncResult.clanTag,
-            .serviceName = syncResult.serviceName
+            .serviceName = syncResult.serviceName,
+            .outageId = *outageId
         });
-    }
 
-    consecutiveFailures = 0;
-    alertSent = false;
+        sync_outage_repo_.markRecovered(*outageId);
+    }
 }
 
 void ClanManager::syncAll()
