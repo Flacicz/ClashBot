@@ -35,7 +35,8 @@ Clans API.
 TelegramBotService работает в отдельном потоке и вызывает getUpdates:
 
 - offset начинается с 0;
-- timeout запроса — 2 секунды;
+- timeout long polling — 2 секунды;
+- таймаут HTTP-запроса — не менее 10 секунд;
 - разрешены update-типы message и callback_query;
 - после обработки корректного update_id offset становится update_id + 1;
 - ошибка Telegram API или сети логируется, затем выполняется пауза 1 секунда;
