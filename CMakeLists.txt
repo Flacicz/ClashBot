@@ -68,6 +68,7 @@ add_library(ClashBotCore STATIC
         src/database/Database.cpp
         src/database/MigratorManager.cpp
         src/database/repos/NotificationsRepo.cpp
+        src/database/repos/DomainEventsRepo.cpp
         src/database/repos/SubscriptionRepo.cpp
         src/database/repos/SyncOutageRepo.cpp
         src/api/APIClient.cpp
@@ -83,6 +84,7 @@ add_library(ClashBotCore STATIC
         src/service/TelegramBotService.cpp
         src/common/RetryPolicy.cpp
         src/api/TelegramHttpTransport.cpp
+        src/notifications/EventNotificationPolicy.cpp
 )
 
 target_include_directories(ClashBotCore PUBLIC

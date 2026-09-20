@@ -24,8 +24,8 @@ class ClanManager
     std::atomic<bool> isRunning{true};
 
     SyncResult syncWithRetry(ISyncService* service, std::string_view clanTag) const;
-    void handleSyncFailure(const SyncResult& syncResult);
-    void handleSyncRecovery(const SyncResult& syncResult);
+    void handleSyncFailure(const SyncResult& syncResult) const;
+    void handleSyncRecovery(const SyncResult& syncResult) const;
 
 public:
     ClanManager(

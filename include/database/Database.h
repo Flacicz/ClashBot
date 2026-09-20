@@ -9,6 +9,7 @@
 #include "repos/RaidRepo.h"
 #include "repos/ClanwarsLeagueRepo.h"
 #include "repos/ClanwarRepo.h"
+#include "repos/DomainEventsRepo.h"
 #include "repos/NotificationsRepo.h"
 #include "repos/SubscriptionRepo.h"
 #include "repos/SyncOutageRepo.h"
@@ -29,6 +30,7 @@ class Database
     std::unique_ptr<ClanwarRepo> cwRepo;
     std::unique_ptr<ClanwarsLeagueRepo> cwlRepo;
     std::unique_ptr<SubscriptionRepo> subscriptionRepo;
+    std::unique_ptr<DomainEventsRepo> domainEventsRepo;
     std::unique_ptr<NotificationRepo> notificationRepo;
     std::unique_ptr<SyncOutageRepo> syncOutageRepo;
 
@@ -52,6 +54,7 @@ public:
     [[nodiscard]] ClanwarRepo& war() const { return *cwRepo; }
     [[nodiscard]] ClanwarsLeagueRepo& leagueWar() const { return *cwlRepo; }
     [[nodiscard]] SubscriptionRepo& subscriptions() const { return *subscriptionRepo; }
+    [[nodiscard]] DomainEventsRepo& domainEvents() const { return *domainEventsRepo; }
     [[nodiscard]] NotificationRepo& notifications() const { return *notificationRepo; }
     [[nodiscard]] SyncOutageRepo& syncOutages() const { return *syncOutageRepo; }
 };

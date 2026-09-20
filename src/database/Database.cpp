@@ -50,6 +50,7 @@ Database::Database(std::string path) : pathToDb(path)
         cwRepo = std::make_unique<ClanwarRepo>(db);
         cwlRepo = std::make_unique<ClanwarsLeagueRepo>(db);
         subscriptionRepo = std::make_unique<SubscriptionRepo>(db);
+        domainEventsRepo = std::make_unique<DomainEventsRepo>(db);
         notificationRepo = std::make_unique<NotificationRepo>(db);
         syncOutageRepo = std::make_unique<SyncOutageRepo>(db);
     }
@@ -64,6 +65,7 @@ Database::Database(std::string path) : pathToDb(path)
 Database::~Database()
 {
     notificationRepo.reset();
+    domainEventsRepo.reset();
     syncOutageRepo.reset();
     subscriptionRepo.reset();
     cwlRepo.reset();
@@ -86,6 +88,7 @@ Database::Database(Database&& other) noexcept
       , cwRepo(std::move(other.cwRepo))
       , cwlRepo(std::move(other.cwlRepo))
       , subscriptionRepo(std::move(other.subscriptionRepo))
+      , domainEventsRepo(std::move(other.domainEventsRepo))
       , notificationRepo(std::move(other.notificationRepo))
       , syncOutageRepo(std::move(other.syncOutageRepo))
 {
@@ -107,6 +110,7 @@ Database& Database::operator=(Database&& other) noexcept
         cwRepo = std::move(other.cwRepo);
         cwlRepo = std::move(other.cwlRepo);
         subscriptionRepo = std::move(other.subscriptionRepo);
+        domainEventsRepo = std::move(other.domainEventsRepo);
         notificationRepo = std::move(other.notificationRepo);
         syncOutageRepo = std::move(other.syncOutageRepo);
     }

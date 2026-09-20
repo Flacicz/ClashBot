@@ -48,7 +48,7 @@ SyncResult ClanManager::syncWithRetry(ISyncService* service, const std::string_v
     return result;
 }
 
-void ClanManager::handleSyncFailure(const SyncResult& syncResult)
+void ClanManager::handleSyncFailure(const SyncResult& syncResult) const
 {
     const auto outage = sync_outage_repo_.recordFailure(
         syncResult.clanTag,
@@ -63,7 +63,7 @@ void ClanManager::handleSyncFailure(const SyncResult& syncResult)
     });
 }
 
-void ClanManager::handleSyncRecovery(const SyncResult& syncResult)
+void ClanManager::handleSyncRecovery(const SyncResult& syncResult) const
 {
     const auto outageId = sync_outage_repo_.getOpenOutageId(
         syncResult.clanTag,

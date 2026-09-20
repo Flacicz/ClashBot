@@ -1,6 +1,8 @@
 #pragma once
 
+#include <optional>
 #include <string>
+#include <string_view>
 
 enum class Audience
 {
@@ -21,5 +23,16 @@ struct AudienceUtils
         }
 
         return {};
+    }
+
+    static std::optional<Audience> fromKey(const std::string_view value)
+    {
+        if (value == "players")
+            return Audience::Players;
+
+        if (value == "management")
+            return Audience::Management;
+
+        return std::nullopt;
     }
 };
