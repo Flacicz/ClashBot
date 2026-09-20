@@ -118,7 +118,7 @@ TEST(DatabaseMigrationTest, CreatesExpectedSchemaInFreshDatabase)
         EXPECT_TRUE(tableExists(connection, "telegram_chats"));
         EXPECT_TRUE(tableExists(connection, "clan_subscriptions"));
 
-        EXPECT_EQ(10, migrationCount(connection));
+        EXPECT_EQ(11, migrationCount(connection));
         EXPECT_TRUE(clansHaveTrackingColumn(connection));
     }
 }
@@ -134,11 +134,11 @@ TEST(DatabaseMigrationTest, RunningMigrationsTwiceIsSafe)
         ASSERT_TRUE(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
 
         sqlite3* connection = database.getDBInstance();
-        ASSERT_EQ(10, migrationCount(connection));
+        ASSERT_EQ(11, migrationCount(connection));
 
         ASSERT_TRUE(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
 
-        EXPECT_EQ(10, migrationCount(connection));
+        EXPECT_EQ(11, migrationCount(connection));
         EXPECT_TRUE(tableExists(connection, "clans"));
         EXPECT_TRUE(tableExists(connection, "notifications"));
         EXPECT_TRUE(tableExists(connection, "sync_outages"));
