@@ -12,6 +12,8 @@ config.json
 .ai/
 *.tar
 cmake-build-*/
+AGENTS.md
+todo.md
 
 # User-specific files
 *.rsuser
