@@ -87,6 +87,8 @@ namespace
     protected:
         std::filesystem::path databasePath;
         std::unique_ptr<Database> database;
+        DomainEventPayloadSerializer domainEventPayloadSerializer;
+        std::unique_ptr<DomainEventRecorder> domainEventRecorder;
 
         static void removeDatabaseFiles(const std::filesystem::path& path)
         {
@@ -112,10 +114,16 @@ namespace
             const MigratorManager migratorManager(*database);
 
             ASSERT_TRUE(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
+
+            domainEventRecorder = std::make_unique<DomainEventRecorder>(
+                domainEventPayloadSerializer,
+                database->subscriptions(),
+                database->domainEvents());
         }
 
         void TearDown() override
         {
+            domainEventRecorder.reset();
             database.reset();
             removeDatabaseFiles(databasePath);
         }
@@ -208,7 +216,8 @@ TEST_F(ClanwarSyncIntegrationTest, SavesWarMembersAttacksAndEndedEvent)
     ClanwarService service(
         database->war(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(clanTag);
 
@@ -262,7 +271,8 @@ TEST_F(ClanwarSyncIntegrationTest, ReturnsSuccessWithoutEventsWhenNoActiveWar)
     ClanwarService service(
         database->war(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(clanTag);
 
@@ -290,7 +300,8 @@ TEST_F(ClanwarSyncIntegrationTest, ReturnsErrorWhenClanwarFetchFails)
     ClanwarService service(
         database->war(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(clanTag);
 
@@ -318,7 +329,8 @@ TEST_F(ClanwarSyncIntegrationTest, ReturnsErrorWhenSuccessfulFetchHasNoData)
     ClanwarService service(
         database->war(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(clanTag);
 
@@ -355,7 +367,8 @@ TEST_F(ClanwarSyncIntegrationTest, ReturnsSuccessWithoutEventsWhenWarIsNotStarte
     ClanwarService service(
         database->war(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(clanTag);
 
@@ -393,7 +406,8 @@ TEST_F(ClanwarSyncIntegrationTest, GeneratesStartedReminderForActiveWar)
     ClanwarService service(
         database->war(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(clanTag);
 
@@ -432,7 +446,8 @@ TEST_F(ClanwarSyncIntegrationTest, UpsertsExistingWarOnRepeatedSync)
     ClanwarService service(
         database->war(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult firstResult = service.updateData(clanTag);
     const SyncResult secondResult = service.updateData(clanTag);
@@ -469,7 +484,8 @@ TEST_F(ClanwarSyncIntegrationTest, RollsBackDatabaseChangesWhenSavingWarFails)
     ClanwarService service(
         database->war(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(clanTag);
 
@@ -492,7 +508,8 @@ TEST_F(ClanwarSyncIntegrationTest, ReturnsExpectedServiceName)
     ClanwarService service(
         database->war(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     EXPECT_EQ("ClanwarService", service.getServiceName());
 }

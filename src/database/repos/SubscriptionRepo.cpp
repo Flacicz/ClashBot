@@ -154,6 +154,37 @@ std::vector<telegram::TelegramDestination> SubscriptionRepo::getDestinationsForC
                                                 AudienceUtils::key(audience));
 }
 
+std::vector<telegram::SubscriptionDestination> SubscriptionRepo::getSubscriptionDestinationsForClan(
+    const std::string_view clanTag,
+    const Audience audience) const
+{
+    static constexpr std::string_view sql = R"(
+        SELECT subscription_id, chat_id, message_thread_id
+        FROM clan_subscriptions
+        WHERE clan_tag = ?
+          AND audience = ?;
+    )";
+
+    const auto mapper = [](sqlite3_stmt* stmt) -> telegram::SubscriptionDestination
+    {
+        return telegram::SubscriptionDestination{
+            .subscriptionId = sqlite::getLong(stmt, 0),
+            .chatId = sqlite::getLong(stmt, 1),
+            .messageThreadId = sqlite::getLong(stmt, 2)
+        };
+    };
+
+    return query<telegram::SubscriptionDestination>(
+        sql,
+        "load subscription destinations by clan tag",
+        fmt::format("clan_tag = {}, audience = {}",
+                    clanTag,
+                    AudienceUtils::key(audience)),
+        mapper,
+        clanTag,
+        AudienceUtils::key(audience));
+}
+
 std::vector<std::string> SubscriptionRepo::getClanTagsForChat(
     const long long chatId,
     const long long messageThreadId,

@@ -16,6 +16,13 @@ namespace telegram
         long long messageThreadId;
     };
 
+    struct SubscriptionDestination
+    {
+        long long subscriptionId;
+        long long chatId;
+        long long messageThreadId;
+    };
+
     struct CallbackData
     {
         std::string command;

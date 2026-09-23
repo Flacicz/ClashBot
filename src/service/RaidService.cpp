@@ -9,11 +9,13 @@
 RaidService::RaidService(ClansRepo& clans_repo,
                          RaidRepo& raid_repo,
                          APIClient& api_client,
-                         TransactionManager& transaction_manager)
+                         TransactionManager& transaction_manager,
+                         DomainEventRecorder& domain_event_recorder)
     : clans_repo_(clans_repo)
       , raid_repo_(raid_repo)
       , api_client_(api_client)
       , transaction_manager_(transaction_manager)
+      , domain_event_recorder_(domain_event_recorder)
 {
 }
 
@@ -111,10 +113,14 @@ SyncResult RaidService::updateData(std::string_view tag)
             const RaidReference reference =
                 raid_repo_.saveCompleteRaidData(clanRaid, playerRaidSnapshots);
 
+            auto events = generateEvents(tag, clanRaid, reference);
+
+            domain_event_recorder_.recordAll(events);
+
             return SyncResult::success(
                 svc,
                 std::string(tag),
-                generateEvents(tag, clanRaid, reference));
+                std::move(events));
         });
 
         spdlog::info(

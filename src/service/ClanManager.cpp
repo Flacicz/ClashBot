@@ -11,12 +11,16 @@ ClanManager::ClanManager(
     std::vector<std::unique_ptr<ISyncService>> services,
     ClansRepo& clans_repo,
     SyncOutageRepo& sync_outage_repo,
-    const RetryPolicy syncRetryPolicy
+    TransactionManager& transaction_manager,
+    DomainEventRecorder& domain_event_recorder,
+    const RetryPolicy& syncRetryPolicy
 )
     : eventDispatcher(event_dispatcher),
       services(std::move(services)),
       clans_repo_(clans_repo),
       sync_outage_repo_(sync_outage_repo),
+      transaction_manager_(transaction_manager),
+      domain_event_recorder_(domain_event_recorder),
       syncRetryPolicy_(syncRetryPolicy)
 {
 }
@@ -50,35 +54,49 @@ SyncResult ClanManager::syncWithRetry(ISyncService* service, const std::string_v
 
 void ClanManager::handleSyncFailure(const SyncResult& syncResult) const
 {
-    const auto outage = sync_outage_repo_.recordFailure(
-        syncResult.clanTag,
-        syncResult.serviceName);
+    transaction_manager_.retryInTransaction([&]
+    {
+        const auto outage = sync_outage_repo_.recordFailure(
+            syncResult.clanTag,
+            syncResult.serviceName);
 
-    eventDispatcher.dispatch(SyncFailureEvent{
-        .clanTag = syncResult.clanTag,
-        .serviceName = syncResult.serviceName,
-        .errorMsg = syncResult.errorMsg,
-        .attempts = outage.failureCount,
-        .outageId = outage.id
+        const std::vector<ApplicationEvent> events{
+            SyncFailureEvent{
+                .clanTag = syncResult.clanTag,
+                .serviceName = syncResult.serviceName,
+                .errorMsg = syncResult.errorMsg,
+                .attempts = outage.failureCount,
+                .outageId = outage.id
+            }
+        };
+
+        domain_event_recorder_.recordAll(events);
     });
 }
 
 void ClanManager::handleSyncRecovery(const SyncResult& syncResult) const
 {
-    const auto outageId = sync_outage_repo_.getOpenOutageId(
-        syncResult.clanTag,
-        syncResult.serviceName);
-
-    if (outageId)
+    transaction_manager_.retryInTransaction([&]
     {
-        eventDispatcher.dispatch(SyncRecoveryEvent{
-            .clanTag = syncResult.clanTag,
-            .serviceName = syncResult.serviceName,
-            .outageId = *outageId
-        });
+        const auto outageId = sync_outage_repo_.getOpenOutageId(
+            syncResult.clanTag,
+            syncResult.serviceName);
+
+        if (!outageId)
+            return;
 
         sync_outage_repo_.markRecovered(*outageId);
-    }
+
+        const std::vector<ApplicationEvent> events{
+            SyncRecoveryEvent{
+                .clanTag = syncResult.clanTag,
+                .serviceName = syncResult.serviceName,
+                .outageId = *outageId
+            }
+        };
+
+        domain_event_recorder_.recordAll(events);
+    });
 }
 
 void ClanManager::syncAll()

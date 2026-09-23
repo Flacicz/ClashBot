@@ -35,6 +35,8 @@ namespace
     protected:
         std::filesystem::path databasePath;
         std::unique_ptr<Database> database;
+        DomainEventPayloadSerializer domainEventPayloadSerializer;
+        std::unique_ptr<DomainEventRecorder> domainEventRecorder;
 
         static void removeDatabaseFiles(const std::filesystem::path& path)
         {
@@ -60,10 +62,16 @@ namespace
             const MigratorManager migratorManager(*database);
 
             ASSERT_TRUE(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
+
+            domainEventRecorder = std::make_unique<DomainEventRecorder>(
+                domainEventPayloadSerializer,
+                database->subscriptions(),
+                database->domainEvents());
         }
 
         void TearDown() override
         {
+            domainEventRecorder.reset();
             database.reset();
             removeDatabaseFiles(databasePath);
         }
@@ -111,7 +119,8 @@ TEST_F(RaidSyncIntegrationTest, SavesRaidAndPlayerSnapshots)
         database->clans(),
         database->raids(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(clanTag);
 
@@ -157,7 +166,8 @@ TEST_F(RaidSyncIntegrationTest, ReturnsErrorWhenRaidDataIsUnavailable)
         database->clans(),
         database->raids(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(clanTag);
 
@@ -209,7 +219,8 @@ TEST_F(RaidSyncIntegrationTest, GeneratesStartedReminderForActiveRaid)
         database->clans(),
         database->raids(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(clanTag);
 
@@ -259,7 +270,8 @@ TEST_F(RaidSyncIntegrationTest, UpsertsExistingRaidOnRepeatedSync)
         database->clans(),
         database->raids(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult firstResult = service.updateData(clanTag);
 
@@ -316,7 +328,8 @@ TEST_F(RaidSyncIntegrationTest, RollsBackPlayerAndRaidChangesWhenSavingRaidFails
         database->clans(),
         database->raids(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(requestedClanTag);
 
@@ -338,7 +351,8 @@ TEST_F(RaidSyncIntegrationTest, ReturnsExpectedServiceName)
         database->clans(),
         database->raids(),
         apiClient,
-        transactionManager);
+        transactionManager,
+        *domainEventRecorder);
 
     EXPECT_EQ("RaidService", service.getServiceName());
 }

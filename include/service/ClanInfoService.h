@@ -4,12 +4,14 @@
 #include <database/Database.h>
 
 #include "database/TransactionManager.h"
+#include "domain_events/DomainEventRecorder.h"
 
 class ClanInfoService : public ISyncService
 {
     ClansRepo& clans_repo_;
     APIClient& api_client_;
     TransactionManager& transaction_manager_;
+    DomainEventRecorder& domain_event_recorder_;
 
     [[nodiscard]] MembershipChanges detectMembershipChanges(
         std::string_view clanTag, std::vector<Player> players) const;
@@ -22,7 +24,10 @@ class ClanInfoService : public ISyncService
                                                          const PlayerSnapshotIds& snapshotIds);
 
 public:
-    ClanInfoService(ClansRepo& clans_repo, APIClient& api_client, TransactionManager& transaction_manager);
+    ClanInfoService(ClansRepo& clans_repo,
+                    APIClient& api_client,
+                    TransactionManager& transaction_manager,
+                    DomainEventRecorder& domain_event_recorder);
 
     SyncResult updateData(std::string_view tag) override;
     [[nodiscard]] std::string getServiceName() const override;

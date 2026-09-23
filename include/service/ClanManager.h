@@ -5,8 +5,10 @@
 
 #include "database/repos/ClansRepo.h"
 #include "database/repos/SyncOutageRepo.h"
+#include "database/TransactionManager.h"
 #include "ISyncService.h"
 #include "common/RetryPolicy.h"
+#include "domain_events/DomainEventRecorder.h"
 #include "events/EventDispatcher.h"
 #include "notifications/NotificationService.h"
 
@@ -17,6 +19,8 @@ class ClanManager
     std::vector<std::unique_ptr<ISyncService>> services;
     ClansRepo& clans_repo_;
     SyncOutageRepo& sync_outage_repo_;
+    TransactionManager& transaction_manager_;
+    DomainEventRecorder& domain_event_recorder_;
     RetryPolicy syncRetryPolicy_;
 
     std::mutex mtx;
@@ -33,7 +37,9 @@ public:
         std::vector<std::unique_ptr<ISyncService>> services,
         ClansRepo& clans_repo,
         SyncOutageRepo& sync_outage_repo,
-        RetryPolicy retryPolicy = RetryPolicy{
+        TransactionManager& transaction_manager,
+        DomainEventRecorder& domain_event_recorder,
+        const RetryPolicy& retryPolicy = RetryPolicy{
             RetryPolicy::defaultMaxAttempts,
             std::chrono::seconds(2)}
     );

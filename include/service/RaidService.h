@@ -3,6 +3,7 @@
 #include "api/APIClient.h"
 #include "database/Database.h"
 #include "database/TransactionManager.h"
+#include "domain_events/DomainEventRecorder.h"
 
 
 class RaidService : public ISyncService
@@ -11,6 +12,7 @@ class RaidService : public ISyncService
     RaidRepo& raid_repo_;
     APIClient& api_client_;
     TransactionManager& transaction_manager_;
+    DomainEventRecorder& domain_event_recorder_;
 
     void ensurePlayersExist(const std::vector<PlayerRaidSnapshot>& players) const;
     static std::vector<ApplicationEvent> generateEvents(std::string_view clanTag,
@@ -21,7 +23,8 @@ public:
     RaidService(ClansRepo& clans_repo,
                 RaidRepo& raid_repo,
                 APIClient& api_client,
-                TransactionManager& transaction_manager);
+                TransactionManager& transaction_manager,
+                DomainEventRecorder& domain_event_recorder);
 
     SyncResult updateData(std::string_view tag) override;
     [[nodiscard]] std::string getServiceName() const override;

@@ -3,6 +3,7 @@
 #include "api/APIClient.h"
 #include "database/Database.h"
 #include "database/TransactionManager.h"
+#include "domain_events/DomainEventRecorder.h"
 
 
 class ClanwarService : public ISyncService
@@ -10,6 +11,7 @@ class ClanwarService : public ISyncService
     ClanwarRepo& clanwar_repo_;
     APIClient& api_client_;
     TransactionManager& transaction_manager_;
+    DomainEventRecorder& domain_event_recorder_;
 
     static std::vector<ApplicationEvent> generateEvents(std::string_view clanTag, const std::string& state,
                                                         const Clanwar& clanwar,
@@ -18,7 +20,8 @@ class ClanwarService : public ISyncService
 public:
     ClanwarService(ClanwarRepo& clanwar_repo,
                    APIClient& api_client,
-                   TransactionManager& transaction_manager);
+                   TransactionManager& transaction_manager,
+                   DomainEventRecorder& domain_event_recorder);
 
     SyncResult updateData(std::string_view tag) override;
     [[nodiscard]] std::string getServiceName() const override;

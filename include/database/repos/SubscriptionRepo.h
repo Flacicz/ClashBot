@@ -17,43 +17,43 @@ class SubscriptionRepo : public BaseRepository
 public:
     explicit SubscriptionRepo(sqlite3* db);
 
-    void saveTelegramChat(
-        long long chatId,
-        long long messageThreadId,
-        std::string_view title) const;
+    void saveTelegramChat(long long chatId,
+                          long long messageThreadId,
+                          std::string_view title) const;
 
     void deleteTelegramChat(long long chatId,
                             long long messageThreadId) const;
 
-    [[nodiscard]] bool hasSubscription(
-        long long chatId,
-        long long messageThreadId,
-        std::string_view clanTag,
-        Audience audience) const;
+    [[nodiscard]] bool hasSubscription(long long chatId,
+                                       long long messageThreadId,
+                                       std::string_view clanTag,
+                                       Audience audience) const;
 
-    [[nodiscard]] bool hasSubscriptionsForChat(
-        long long chatId,
-        long long messageThreadId) const;
+    [[nodiscard]] bool hasSubscriptionsForChat(long long chatId,
+                                               long long messageThreadId) const;
 
     [[nodiscard]] bool hasSubscriptionsForClan(std::string_view clanTag) const;
 
-    [[nodiscard]] std::vector<telegram::TelegramDestination> getDestinationsForClan(
+    [[nodiscard]] std::vector<telegram::TelegramDestination> getDestinationsForClan(std::string_view clanTag,
+        Audience audience) const;
+
+    [[nodiscard]] std::vector<telegram::SubscriptionDestination> getSubscriptionDestinationsForClan(
         std::string_view clanTag,
         Audience audience) const;
-    [[nodiscard]] std::vector<std::string> getClanTagsForChat(
-        long long chatId,
-        long long messageThreadId,
-        Audience audience) const;
-    void subscribeToChat(
-        long long chatId,
-        long long messageThreadId,
-        std::string_view clanTag,
-        Audience audience) const;
-    void unsubscribeFromChat(
-        long long chatId,
-        long long messageThreadId,
-        std::string_view clanTag,
-        Audience audience) const;
+
+    [[nodiscard]] std::vector<std::string> getClanTagsForChat(long long chatId,
+                                                              long long messageThreadId,
+                                                              Audience audience) const;
+
+    void subscribeToChat(long long chatId,
+                         long long messageThreadId,
+                         std::string_view clanTag,
+                         Audience audience) const;
+
+    void unsubscribeFromChat(long long chatId,
+                             long long messageThreadId,
+                             std::string_view clanTag,
+                             Audience audience) const;
 };
 
 #endif //CLASHBOT_SUBSCRIPTIONREPO_H

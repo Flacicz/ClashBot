@@ -20,6 +20,8 @@ namespace
     protected:
         std::filesystem::path databasePath;
         std::unique_ptr<Database> database;
+        DomainEventPayloadSerializer domainEventPayloadSerializer;
+        std::unique_ptr<DomainEventRecorder> domainEventRecorder;
 
         static void removeDatabaseFiles(const std::filesystem::path& path)
         {
@@ -45,10 +47,16 @@ namespace
             const MigratorManager migratorManager(*database);
 
             ASSERT_TRUE(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
+
+            domainEventRecorder = std::make_unique<DomainEventRecorder>(
+                domainEventPayloadSerializer,
+                database->subscriptions(),
+                database->domainEvents());
         }
 
         void TearDown() override
         {
+            domainEventRecorder.reset();
             database.reset();
             removeDatabaseFiles(databasePath);
         }
@@ -172,7 +180,11 @@ TEST_F(ClanInfoSyncIntegrationTest, SavesClanStateAndMembershipChanges)
     apiClient.clanData = makeCurrentClanData(clanTag);
 
     TransactionManager transactionManager(database->getDBInstance());
-    ClanInfoService service(database->clans(), apiClient, transactionManager);
+    ClanInfoService service(
+        database->clans(),
+        apiClient,
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(clanTag);
 
@@ -279,7 +291,11 @@ TEST_F(ClanInfoSyncIntegrationTest, RepeatedClanSyncDoesNotGenerateFalseEvents)
     apiClient.clanData = makeCurrentClanData(clanTag);
 
     TransactionManager transactionManager(database->getDBInstance());
-    ClanInfoService service(database->clans(), apiClient, transactionManager);
+    ClanInfoService service(
+        database->clans(),
+        apiClient,
+        transactionManager,
+        *domainEventRecorder);
 
     SyncResult result = service.updateData(clanTag);
 
@@ -306,7 +322,11 @@ TEST_F(ClanInfoSyncIntegrationTest, ReturnsErrorWhenClanDataIsUnavailable)
     apiClient.clanData = {};
 
     TransactionManager transactionManager(database->getDBInstance());
-    ClanInfoService service(database->clans(), apiClient, transactionManager);
+    ClanInfoService service(
+        database->clans(),
+        apiClient,
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(clanTag);
 
@@ -330,7 +350,11 @@ TEST_F(ClanInfoSyncIntegrationTest, RollsBackDatabaseChangesWhenSavingClanDataFa
     apiClient.clanData = std::move(invalidClanData);
 
     TransactionManager transactionManager(database->getDBInstance());
-    ClanInfoService service(database->clans(), apiClient, transactionManager);
+    ClanInfoService service(
+        database->clans(),
+        apiClient,
+        transactionManager,
+        *domainEventRecorder);
 
     const SyncResult result = service.updateData(clanTag);
 
@@ -348,7 +372,11 @@ TEST_F(ClanInfoSyncIntegrationTest, ReturnsExpectedServiceName)
 {
     FakeAPIClient apiClient;
     TransactionManager transactionManager(database->getDBInstance());
-    const ClanInfoService service(database->clans(), apiClient, transactionManager);
+    const ClanInfoService service(
+        database->clans(),
+        apiClient,
+        transactionManager,
+        *domainEventRecorder);
 
     EXPECT_EQ("ClanInfoService", service.getServiceName());
 }

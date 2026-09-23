@@ -192,18 +192,44 @@ int main(const int argc, char* argv[])
 
         EventDispatcher eventDispatcher(notificationService);
 
+        DomainEventPayloadSerializer domainEventPayloadSerializer;
+        DomainEventRecorder domainEventRecorder(
+            domainEventPayloadSerializer,
+            syncDb.subscriptions(),
+            syncDb.domainEvents());
+
         std::vector<std::unique_ptr<ISyncService>> services;
-        services.push_back(std::make_unique<ClanInfoService>(syncDb.clans(), apiClient, syncTransactions));
-        services.push_back(std::make_unique<ClanwarService>(syncDb.war(), apiClient, syncTransactions));
-        services.push_back(std::make_unique<RaidService>(syncDb.clans(), syncDb.raids(), apiClient, syncTransactions));
+        services.push_back(std::make_unique<ClanInfoService>(
+            syncDb.clans(),
+            apiClient,
+            syncTransactions,
+            domainEventRecorder));
+        services.push_back(std::make_unique<ClanwarService>(
+            syncDb.war(),
+            apiClient,
+            syncTransactions,
+            domainEventRecorder));
+        services.push_back(std::make_unique<RaidService>(
+            syncDb.clans(),
+            syncDb.raids(),
+            apiClient,
+            syncTransactions,
+            domainEventRecorder));
         services.push_back(
-            std::make_unique<ClanwarLeagueService>(syncDb.war(), syncDb.leagueWar(), apiClient, syncTransactions));
+            std::make_unique<ClanwarLeagueService>(
+                syncDb.war(),
+                syncDb.leagueWar(),
+                apiClient,
+                syncTransactions,
+                domainEventRecorder));
 
         ClanManager clanManager(
             eventDispatcher,
             std::move(services),
             syncDb.clans(),
             syncDb.syncOutages(),
+            syncTransactions,
+            domainEventRecorder,
             retryPolicies::syncRetryPolicy);
 
         spdlog::info("[Main] Synchronization services initialized successfully.");

@@ -9,10 +9,12 @@
 
 ClanwarService::ClanwarService(ClanwarRepo& clanwar_repo,
                                APIClient& api_client,
-                               TransactionManager& transaction_manager)
+                               TransactionManager& transaction_manager,
+                               DomainEventRecorder& domain_event_recorder)
     : clanwar_repo_(clanwar_repo)
       , api_client_(api_client)
       , transaction_manager_(transaction_manager)
+      , domain_event_recorder_(domain_event_recorder)
 {
 }
 
@@ -108,10 +110,14 @@ SyncResult ClanwarService::updateData(std::string_view tag)
             const auto warReference =
                 clanwar_repo_.saveCompleteClanwarData(clanwar, clans, attacks, members);
 
+            auto events = generateEvents(tag, clanwar.state, clanwar, warReference);
+
+            domain_event_recorder_.recordAll(events);
+
             return SyncResult::success(
                 svc,
                 std::string(tag),
-                generateEvents(tag, clanwar.state, clanwar, warReference));
+                std::move(events));
         });
 
         spdlog::info(

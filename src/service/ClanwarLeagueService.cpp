@@ -5,17 +5,18 @@
 #include <string_view>
 #include <utility>
 
-#include "common/StringUtils.h"
 #include "database/TransactionGuard.h"
 
 ClanwarLeagueService::ClanwarLeagueService(ClanwarRepo& clanwar_repo_,
                                            ClanwarsLeagueRepo& clanwars_league_repo_,
                                            APIClient& api_client,
-                                           TransactionManager& transaction_manager)
+                                           TransactionManager& transaction_manager,
+                                           DomainEventRecorder& domain_event_recorder)
     : clanwar_repo_(clanwar_repo_)
       , clanwars_league_repo_(clanwars_league_repo_)
       , api_client_(api_client)
       , transaction_manager_(transaction_manager)
+      , domain_event_recorder_(domain_event_recorder)
 {
 }
 
@@ -159,6 +160,8 @@ SyncResult ClanwarLeagueService::updateData(std::string_view tag)
                             e.what()));
                 }
             }
+
+            domain_event_recorder_.recordAll(events);
 
             return SyncResult::success(svc, std::string(tag), std::move(events));
         });

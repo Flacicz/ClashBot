@@ -9,10 +9,14 @@
 #include <api/APIClient.h>
 #include <spdlog/spdlog.h>
 
-ClanInfoService::ClanInfoService(ClansRepo& clans_repo, APIClient& api_client, TransactionManager& transaction_manager)
+ClanInfoService::ClanInfoService(ClansRepo& clans_repo,
+                                 APIClient& api_client,
+                                 TransactionManager& transaction_manager,
+                                 DomainEventRecorder& domain_event_recorder)
     : clans_repo_(clans_repo)
       , api_client_(api_client)
       , transaction_manager_(transaction_manager)
+      , domain_event_recorder_(domain_event_recorder)
 {
 }
 
@@ -181,14 +185,18 @@ SyncResult ClanInfoService::updateData(std::string_view tag)
 
             const auto membershipIds = clans_repo_.saveMembershipChanges(changes);
 
+            auto events = generateEvents(
+                changes,
+                roleChanges,
+                membershipIds,
+                savedClanData.snapshotIds);
+
+            domain_event_recorder_.recordAll(events);
+
             return SyncResult::success(
                 svc,
                 std::string(tag),
-                generateEvents(
-                    changes,
-                    roleChanges,
-                    membershipIds,
-                    savedClanData.snapshotIds));
+                std::move(events));
         });
 
         spdlog::info(
