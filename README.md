@@ -179,6 +179,11 @@ Telegram используется для доставки уведомлений
 `getChatMember`. В форумной теме сохраняется пара `(chat_id, message_thread_id)`, поэтому уведомления приходят в ту же
 тему.
 
+Получатели каждого события фиксируются при его записи: новая подписка не получает старые события. `/unlink` отменяет
+pending-назначения и связанные pending-уведомления текущей подписки; повторный `/link` создаёт новый `subscription_id`.
+Пока нет атомарного захвата строк worker-ами, поэтому уже загруженное событие или уведомление всё ещё может пройти
+обработку после `/unlink`. См. [описание Telegram-потока](docs/telegram.md).
+
 `/start` открывает меню с разделами:
 
 - `🎥 Гайды по атакам` — ратуша TH7–TH18 → стратегия → гайд → YouTube-ссылка;
@@ -285,8 +290,8 @@ docker logs -f clashbot
 
 Текущая схема использует таблицы `clans`, `players`, `clan_memberships`, `clan_snapshots`, `player_snapshots`, `wars`,
 `war_clans`, `war_members`, `attacks`, `cwl_seasons`, `cwl_season_members`, `clan_raids`,
-`player_raid_snapshots`, `telegram_chats`, `clan_subscriptions`, `notifications`, `sync_outages` и
-`schema_migrations`.
+`player_raid_snapshots`, `telegram_chats`, `clan_subscriptions`, `domain_events`, `domain_event_destinations`,
+`notifications`, `sync_outages` и `schema_migrations`.
 
 Минимальный пример ручной подписки:
 
@@ -317,6 +322,8 @@ VALUES ('#CLAN_TAG', -1000000000000, 0, 'players');
   по ID эпизода сбоя;
 - таблица `notifications` хранит намерение доставки и состояние отправки, но не является отдельным журналом доменных
   событий;
+- Telegram-доставка допускает повторы (at-least-once): если процесс упал после успешного ответа, но до фиксации `sent`,
+  возможен дубль. После исчерпания попыток запись сохраняется как `failed`, но автоматически не переотправляется;
 - разбиение сообщений, превышающих лимит Telegram, пока не реализовано;
 - отчёты используют не все поля, которые собираются из API;
 - критерии нарушений и расписание напоминаний не настраиваются для отдельного клана;

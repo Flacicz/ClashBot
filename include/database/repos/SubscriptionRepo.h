@@ -1,6 +1,7 @@
 #ifndef CLASHBOT_SUBSCRIPTIONREPO_H
 #define CLASHBOT_SUBSCRIPTIONREPO_H
 #include <sqlite3.h>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -28,6 +29,12 @@ public:
                                        long long messageThreadId,
                                        std::string_view clanTag,
                                        Audience audience) const;
+
+    [[nodiscard]] std::optional<long long> getSubscriptionId(
+        long long chatId,
+        long long messageThreadId,
+        std::string_view clanTag,
+        Audience audience) const;
 
     [[nodiscard]] bool hasSubscriptionsForChat(long long chatId,
                                                long long messageThreadId) const;

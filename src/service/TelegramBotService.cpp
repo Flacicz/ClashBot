@@ -21,11 +21,13 @@ TelegramBotService::TelegramBotService(
     const telegram::AttackGuideCatalog& attackGuideCatalog,
     ClansRepo& clansRepo,
     SubscriptionRepo& subscriptionRepo,
+    DomainEventsRepo& domainEventsRepo,
     TransactionManager& transactionManager)
     : telegram_api_client_(telegramApi),
       attack_guide_catalog_(attackGuideCatalog),
       clans_repo_(clansRepo),
       subscription_repo_(subscriptionRepo),
+      domain_events_repo_(domainEventsRepo),
       transaction_manager_(transactionManager)
 {
 }
@@ -200,7 +202,7 @@ bool TelegramBotService::canManageCurrentChat(
         member.value("status", std::string{});
 
     return memberStatus == "administrator" ||
-           memberStatus == "creator";
+        memberStatus == "creator";
 }
 
 void TelegramBotService::handleLinkCommand(
@@ -331,15 +333,11 @@ bool TelegramBotService::unlinkClanFromChat(
 {
     return transaction_manager_.retryInTransaction([&]
     {
-        if (!subscription_repo_.hasSubscription(
-            chatId,
-            messageThreadId,
-            clanTag,
-            audience))
-        {
+        const auto subscriptionId = subscription_repo_.getSubscriptionId(chatId, messageThreadId, clanTag, audience);
+        if (!subscriptionId)
             return false;
-        }
 
+        domain_events_repo_.cancelForSubscription(*subscriptionId);
         subscription_repo_.unsubscribeFromChat(
             chatId,
             messageThreadId,

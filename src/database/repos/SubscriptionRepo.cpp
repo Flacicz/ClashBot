@@ -78,6 +78,42 @@ bool SubscriptionRepo::hasSubscription(
                           AudienceUtils::key(audience));
 }
 
+std::optional<long long> SubscriptionRepo::getSubscriptionId(
+    const long long chatId,
+    const long long messageThreadId,
+    const std::string_view clanTag,
+    const Audience audience) const
+{
+    static constexpr std::string_view sql = R"(
+        SELECT subscription_id
+        FROM clan_subscriptions
+        WHERE chat_id = ?
+          AND message_thread_id = ?
+          AND clan_tag = ?
+          AND audience = ?;
+    )";
+
+    const auto mapper = [](sqlite3_stmt* stmt)
+    {
+        return sqlite::getLong(stmt, 0);
+    };
+
+    return queryOptional<long long>(
+        sql,
+        "load Telegram subscription ID",
+        fmt::format(
+            "clan_tag = {}, chat_id = {}, message_thread_id = {}, audience = {}",
+            clanTag,
+            chatId,
+            messageThreadId,
+            AudienceUtils::key(audience)),
+        mapper,
+        chatId,
+        messageThreadId,
+        clanTag,
+        AudienceUtils::key(audience));
+}
+
 bool SubscriptionRepo::hasSubscriptionsForChat(
     const long long chatId,
     const long long messageThreadId) const

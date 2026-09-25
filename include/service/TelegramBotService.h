@@ -13,6 +13,7 @@
 #include "api/TelegramApiClient.h"
 #include "database/TransactionManager.h"
 #include "database/repos/ClansRepo.h"
+#include "database/repos/DomainEventsRepo.h"
 #include "database/repos/SubscriptionRepo.h"
 #include "models/telegram/TelegramModels.h"
 #include "telegram/AttackGuideCatalog.h"
@@ -24,6 +25,7 @@ private:
     const telegram::AttackGuideCatalog& attack_guide_catalog_;
     ClansRepo& clans_repo_;
     SubscriptionRepo& subscription_repo_;
+    DomainEventsRepo& domain_events_repo_;
     TransactionManager& transaction_manager_;
 
     void processUpdate(const nlohmann::json& update) const;
@@ -82,6 +84,7 @@ public:
         const telegram::AttackGuideCatalog& attackGuideCatalog,
         ClansRepo& clansRepo,
         SubscriptionRepo& subscriptionRepo,
+        DomainEventsRepo& domainEventsRepo,
         TransactionManager& transactionManager);
 
     void loop() const;

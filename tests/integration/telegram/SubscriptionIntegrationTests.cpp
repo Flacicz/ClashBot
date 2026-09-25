@@ -143,3 +143,47 @@ TEST_F(SubscriptionIntegrationTest, RepeatingLinkDoesNotDuplicateSubscription)
     const auto trackedClans = database->clans().getTrackedClans();
     EXPECT_EQ(1U, trackedClans.size());
 }
+
+TEST_F(SubscriptionIntegrationTest, LooksUpSubscriptionIdForExactSubscription)
+{
+    constexpr std::string_view clanTag = "#2PPLQ";
+    constexpr long long chatId = -1001234567890LL;
+    constexpr long long messageThreadId = 456;
+
+    database->clans().insertMinimalClan(clanTag);
+    database->subscriptions().saveTelegramChat(
+        chatId,
+        messageThreadId,
+        "Integration Test Group");
+    database->subscriptions().subscribeToChat(
+        chatId,
+        messageThreadId,
+        clanTag,
+        Audience::Players);
+
+    const auto subscriptionId = database->subscriptions().getSubscriptionId(
+        chatId,
+        messageThreadId,
+        clanTag,
+        Audience::Players);
+
+    ASSERT_TRUE(subscriptionId.has_value());
+    EXPECT_GT(*subscriptionId, 0);
+    EXPECT_FALSE(database->subscriptions().getSubscriptionId(
+        chatId,
+        messageThreadId,
+        clanTag,
+        Audience::Management).has_value());
+
+    database->subscriptions().unsubscribeFromChat(
+        chatId,
+        messageThreadId,
+        clanTag,
+        Audience::Players);
+
+    EXPECT_FALSE(database->subscriptions().getSubscriptionId(
+        chatId,
+        messageThreadId,
+        clanTag,
+        Audience::Players).has_value());
+}

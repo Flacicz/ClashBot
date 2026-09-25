@@ -163,6 +163,7 @@ int main(const int argc, char* argv[])
             attackGuideCatalog,
             telegramDb.clans(),
             telegramDb.subscriptions(),
+            telegramDb.domainEvents(),
             telegramTransactions);
 
         PlayerJoinedFormatter playerJoinedFormatter(domainEventDb.clans());

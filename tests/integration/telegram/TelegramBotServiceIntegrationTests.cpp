@@ -101,6 +101,7 @@ namespace
                 *attackGuideCatalog,
                 database->clans(),
                 database->subscriptions(),
+                database->domainEvents(),
                 *transactionManager_);
         }
 
