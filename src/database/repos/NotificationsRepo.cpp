@@ -25,7 +25,7 @@ bool NotificationRepo::enqueueIfAbsent(const std::string& message,
             chat_id,
             message_thread_id,
             part_index
-        ) DO NOTHING
+        ) WHERE domain_event_destination_id IS NULL DO NOTHING
         RETURNING id;
     )";
 

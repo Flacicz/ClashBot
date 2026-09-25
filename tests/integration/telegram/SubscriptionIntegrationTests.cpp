@@ -1,17 +1,32 @@
 #include "database/Database.h"
 #include "database/MigratorManager.h"
 #include "database/TransactionManager.h"
+#include "database/SQLiteHelpers.h"
+#include "domain_events/DomainEventPayloadSerializer.h"
+#include "domain_events/DomainEventRecorder.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <stdexcept>
+#include <vector>
 
 #include <gtest/gtest.h>
 
 namespace
 {
+    int countRows(sqlite3* connection, const std::string_view table)
+    {
+        const auto statement = sqlite::prepare(connection,
+            "SELECT COUNT(*) FROM " + std::string(table));
+        if (sqlite3_step(statement.get()) != SQLITE_ROW)
+            throw std::runtime_error(sqlite3_errmsg(connection));
+        return sqlite::getInt(statement.get(), 0);
+    }
+
     class SubscriptionIntegrationTest : public ::testing::Test
     {
     protected:
@@ -186,4 +201,89 @@ TEST_F(SubscriptionIntegrationTest, LooksUpSubscriptionIdForExactSubscription)
         messageThreadId,
         clanTag,
         Audience::Players).has_value());
+}
+
+TEST_F(SubscriptionIntegrationTest, RecorderFreezesAudienceAndSubscriptionIdsAtFirstCommit)
+{
+    constexpr std::string_view clanTag = "#2PPLQ";
+    database->clans().insertMinimalClan(clanTag);
+
+    const auto subscribe = [&](const long long chatId, const long long topic,
+                               const Audience audience)
+    {
+        database->subscriptions().saveTelegramChat(chatId, topic, "test chat");
+        database->subscriptions().subscribeToChat(chatId, topic, clanTag, audience);
+        return *database->subscriptions().getSubscriptionId(chatId, topic, clanTag, audience);
+    };
+
+    const auto playersOne = subscribe(-1001, 0, Audience::Players);
+    const auto playersTopic = subscribe(-1001, 7, Audience::Players);
+    const auto management = subscribe(-1002, 0, Audience::Management);
+
+    DomainEventPayloadSerializer serializer;
+    DomainEventRecorder recorder(serializer, database->subscriptions(), database->domainEvents());
+    const std::vector<ApplicationEvent> events{
+        WarEndedEvent{std::string(clanTag), ClanwarReference{std::string(clanTag), 42, 1, 2}}
+    };
+
+    TransactionManager transactions(database->getDBInstance());
+    transactions.retryInTransaction([&] { recorder.recordAll(events); });
+
+    auto destinations = database->domainEvents().getPendingDestinations(10);
+    ASSERT_EQ(3U, destinations.size());
+    EXPECT_EQ(1, countRows(database->getDBInstance(), "domain_events"));
+    EXPECT_EQ(3, countRows(database->getDBInstance(), "domain_event_destinations"));
+
+    const auto hasDestination = [&](const long long chatId, const long long topic,
+                                    const Audience audience, const long long subscriptionId)
+    {
+        return std::ranges::any_of(destinations, [&](const auto& destination)
+        {
+            return destination.chatId == chatId &&
+                destination.messageThreadId == topic &&
+                destination.audience == audience &&
+                destination.subscriptionId == subscriptionId;
+        });
+    };
+    EXPECT_TRUE(hasDestination(-1001, 0, Audience::Players, playersOne));
+    EXPECT_TRUE(hasDestination(-1001, 7, Audience::Players, playersTopic));
+    EXPECT_TRUE(hasDestination(-1002, 0, Audience::Management, management));
+
+    subscribe(-1003, 0, Audience::Players);
+    transactions.retryInTransaction([&] { recorder.recordAll(events); });
+
+    destinations = database->domainEvents().getPendingDestinations(10);
+    EXPECT_EQ(3U, destinations.size());
+    EXPECT_EQ(1, countRows(database->getDBInstance(), "domain_events"));
+    EXPECT_EQ(3, countRows(database->getDBInstance(), "domain_event_destinations"));
+}
+
+TEST_F(SubscriptionIntegrationTest, RollbackDiscardsStateEventAndDestinationsTogether)
+{
+    DomainEventPayloadSerializer serializer;
+    DomainEventRecorder recorder(serializer, database->subscriptions(), database->domainEvents());
+    TransactionManager transactions(database->getDBInstance());
+    bool reachedRollbackPoint = false;
+
+    try
+    {
+        auto transaction = transactions.beginTransaction();
+        database->clans().insertMinimalClan("#ROLLBACK");
+        database->subscriptions().saveTelegramChat(-1001, 0, "test chat");
+        database->subscriptions().subscribeToChat(-1001, 0, "#ROLLBACK", Audience::Players);
+        recorder.recordAll({PlayerJoinedClanEvent{"#ROLLBACK", "#P1", "Alice", 42}});
+        EXPECT_EQ(1, countRows(database->getDBInstance(), "clans"));
+        EXPECT_EQ(1, countRows(database->getDBInstance(), "domain_events"));
+        EXPECT_EQ(1, countRows(database->getDBInstance(), "domain_event_destinations"));
+        reachedRollbackPoint = true;
+        throw std::runtime_error("simulate failure before commit");
+    }
+    catch (const std::runtime_error&)
+    {
+    }
+
+    ASSERT_TRUE(reachedRollbackPoint);
+    EXPECT_EQ(0, countRows(database->getDBInstance(), "clans"));
+    EXPECT_EQ(0, countRows(database->getDBInstance(), "domain_events"));
+    EXPECT_EQ(0, countRows(database->getDBInstance(), "domain_event_destinations"));
 }

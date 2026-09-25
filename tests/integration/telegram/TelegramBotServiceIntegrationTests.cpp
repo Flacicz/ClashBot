@@ -1,10 +1,14 @@
 #include "database/Database.h"
 #include "database/MigratorManager.h"
+#include "database/SQLiteHelpers.h"
 #include "database/TransactionManager.h"
+#include "domain_events/DomainEventPayloadSerializer.h"
+#include "domain_events/DomainEventRecorder.h"
 #include "service/TelegramBotService.h"
 
 #include "support/FakeTelegramApiClient.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -18,6 +22,16 @@
 
 namespace
 {
+    std::string rowStatus(sqlite3* connection, const std::string_view table, const long long id)
+    {
+        const auto statement = sqlite::prepare(connection,
+            "SELECT status FROM " + std::string(table) + " WHERE id = ?;");
+        sqlite::bind(statement.get(), 1, id);
+        if (sqlite3_step(statement.get()) != SQLITE_ROW)
+            throw std::runtime_error("row not found");
+        return sqlite::getString(statement.get(), 0);
+    }
+
     class TelegramBotServiceIntegrationTest : public ::testing::Test
     {
     protected:
@@ -361,6 +375,118 @@ TEST_F(TelegramBotServiceIntegrationTest, KeepsTrackingWhenAnotherSubscriptionRe
     EXPECT_TRUE(database->subscriptions().hasSubscription(
         secondChatId, 0, clanTag, Audience::Players));
     EXPECT_EQ(1U, database->clans().getTrackedClans().size());
+}
+
+TEST_F(TelegramBotServiceIntegrationTest, UnlinkCancelsOnlyPendingWorkOfCurrentSubscriptionGeneration)
+{
+    constexpr std::string_view clanTag = "#2PPLQ";
+    constexpr long long chatId = -1001;
+    constexpr long long userId = 42;
+    database->clans().insertMinimalClan(clanTag);
+    database->clans().insertMinimalClan("#OTHER");
+    const auto subscribe = [&](const long long chat, const long long topic,
+                               const std::string_view tag, const Audience audience)
+    {
+        database->subscriptions().saveTelegramChat(chat, topic, "test chat");
+        database->subscriptions().subscribeToChat(chat, topic, tag, audience);
+        return *database->subscriptions().getSubscriptionId(chat, topic, tag, audience);
+    };
+    const auto oldSubscription = subscribe(chatId, 7, clanTag, Audience::Players);
+    const auto otherTopic = subscribe(chatId, 8, clanTag, Audience::Players);
+    const auto management = subscribe(chatId, 7, clanTag, Audience::Management);
+    const auto otherClan = subscribe(chatId, 7, "#OTHER", Audience::Players);
+
+    DomainEventPayloadSerializer serializer;
+    DomainEventRecorder recorder(serializer, database->subscriptions(), database->domainEvents());
+    recorder.recordAll({
+        WarEndedEvent{std::string(clanTag), ClanwarReference{std::string(clanTag), 42, 1, 2}},
+        WarEndedEvent{std::string(clanTag), ClanwarReference{std::string(clanTag), 43, 1, 2}},
+        PlayerJoinedClanEvent{"#OTHER", "#P1", "Other", 55}
+    });
+    const auto destinations = database->domainEvents().getPendingDestinations(20);
+    const auto findDestination = [&](const std::string_view eventId,
+                                     const long long subscriptionId)
+    {
+        const auto it = std::ranges::find_if(destinations, [&](const auto& destination)
+        {
+            return destination.eventId == eventId && destination.subscriptionId == subscriptionId;
+        });
+        if (it == destinations.end()) throw std::runtime_error("destination not found");
+        return it->destinationId;
+    };
+    const auto materializedTarget = findDestination("42", oldSubscription);
+    const auto pendingTarget = findDestination("43", oldSubscription);
+    const auto unaffectedTopic = findDestination("43", otherTopic);
+    const auto unaffectedAudience = findDestination("43", management);
+    const auto unaffectedClan = findDestination("55", otherClan);
+
+    const auto enqueue = [&](const std::string_view type)
+    {
+        return database->notifications().enqueueDomainEventIfAbsent(
+            "report", materializedTarget, type, "42", chatId, 7, 1, 1);
+    };
+    ASSERT_TRUE(enqueue("pending_report"));
+    ASSERT_TRUE(enqueue("sent_report"));
+    ASSERT_TRUE(enqueue("failed_report"));
+    database->domainEvents().markMaterialized(materializedTarget);
+    const auto pendingNotifications = database->notifications().getPending(10);
+    const auto findNotification = [&](const std::string_view type)
+    {
+        const auto it = std::ranges::find_if(pendingNotifications, [&](const auto& notification)
+        {
+            return notification.eventType == type;
+        });
+        if (it == pendingNotifications.end()) throw std::runtime_error("notification not found");
+        return it->id;
+    };
+    const auto pendingNotification = findNotification("pending_report");
+    const auto sentNotification = findNotification("sent_report");
+    const auto failedNotification = findNotification("failed_report");
+    database->notifications().markAsSent(sentNotification);
+    database->notifications().markAsFailed(failedNotification, "permanent failure");
+
+    telegramApiClient.chatMembers[{chatId, userId}] = {{"status", "administrator"}};
+    const auto command = [&](const int updateId, const std::string_view text)
+    {
+        return nlohmann::json{
+            {"update_id", updateId},
+            {"message", {
+                {"chat", {{"id", chatId}, {"type", "supergroup"}, {"title", "test chat"}}},
+                {"from", {{"id", userId}}},
+                {"text", text},
+                {"message_thread_id", 7}
+            }}
+        };
+    };
+    {
+        auto service = makeService();
+        ASSERT_TRUE(runUpdate(*service, command(100, "/unlink #2PPLQ"), 1));
+    }
+
+    sqlite3* connection = database->getDBInstance();
+    EXPECT_EQ("materialized", rowStatus(connection, "domain_event_destinations", materializedTarget));
+    EXPECT_EQ("cancelled", rowStatus(connection, "domain_event_destinations", pendingTarget));
+    EXPECT_EQ("cancelled", rowStatus(connection, "notifications", pendingNotification));
+    EXPECT_EQ("sent", rowStatus(connection, "notifications", sentNotification));
+    EXPECT_EQ("failed", rowStatus(connection, "notifications", failedNotification));
+    EXPECT_EQ("pending", rowStatus(connection, "domain_event_destinations", unaffectedTopic));
+    EXPECT_EQ("pending", rowStatus(connection, "domain_event_destinations", unaffectedAudience));
+    EXPECT_EQ("pending", rowStatus(connection, "domain_event_destinations", unaffectedClan));
+
+    {
+        auto service = makeService();
+        ASSERT_TRUE(runUpdate(*service, command(101, "/unlink #2PPLQ"), 2));
+    }
+    {
+        auto service = makeService();
+        ASSERT_TRUE(runUpdate(*service, command(102, "/link #2PPLQ"), 3));
+    }
+    const auto newSubscription = database->subscriptions().getSubscriptionId(
+        chatId, 7, clanTag, Audience::Players);
+    ASSERT_TRUE(newSubscription.has_value());
+    EXPECT_NE(oldSubscription, *newSubscription);
+    EXPECT_EQ("cancelled", rowStatus(connection, "domain_event_destinations", pendingTarget));
+    EXPECT_EQ("cancelled", rowStatus(connection, "notifications", pendingNotification));
 }
 
 TEST_F(TelegramBotServiceIntegrationTest, ReturnsPermissionErrorWhenTelegramLookupFails)

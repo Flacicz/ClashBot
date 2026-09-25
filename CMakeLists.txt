@@ -137,6 +137,7 @@ add_executable(ClashBotTests
         tests/common/TransactionManagerTests.cpp
         tests/common/CommonModelsTests.cpp
         tests/events/ApplicationEventsTests.cpp
+        tests/events/DomainEventPayloadTests.cpp
         tests/analytics/ClanwarComparisonAnalyzerTests.cpp
         tests/analytics/RaidComparisonAnalyzerTests.cpp
         tests/reports/PlayerJoinedFormatterTests.cpp

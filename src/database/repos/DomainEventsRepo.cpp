@@ -14,11 +14,11 @@ void DomainEventsRepo::appendEvent(
         INSERT INTO domain_events (event_type, event_id, event_payload, payload_version, clan_tag)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT (clan_tag, event_type, event_id)
-        DO UPDATE SET event_id = excluded.event_id
+        DO NOTHING
         RETURNING id;
     )";
 
-    const auto domainEventId = queryOne<long long>(
+    const auto domainEventId = queryOptional<long long>(
         insertEventSql,
         "append domain event",
         fmt::format("event_type = {}, event_id = {}, clan_tag = {}",
@@ -34,6 +34,8 @@ void DomainEventsRepo::appendEvent(
         event.payload,
         event.payloadVersion,
         event.clanTag);
+
+    if (!domainEventId) return;
 
     static constexpr std::string_view insertDestinationSql = R"(
         INSERT INTO domain_event_destinations (
@@ -59,11 +61,11 @@ void DomainEventsRepo::appendEvent(
             insertDestinationSql,
             "append domain event destination",
             fmt::format("domain_event_id = {}, chat_id = {}, message_thread_id = {}, subscription_id = {}",
-                        domainEventId,
+                        *domainEventId,
                         destination.chatId,
                         destination.messageThreadId,
                         destination.subscriptionId),
-            domainEventId,
+            *domainEventId,
             destination.chatId,
             destination.messageThreadId,
             AudienceUtils::key(destination.audience),

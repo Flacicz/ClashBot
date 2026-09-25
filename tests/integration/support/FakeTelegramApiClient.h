@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -49,6 +50,7 @@ public:
     mutable std::vector<nlohmann::json> updates;
     std::map<std::pair<long long, long long>, nlohmann::json> chatMembers;
     mutable bool failNextSend = false;
+    mutable std::optional<ApiError> nextSendError;
     mutable bool failNextGetUpdates = false;
     bool failAllSends = false;
     bool failGetChatMember = false;
@@ -70,6 +72,14 @@ public:
             .text = message,
             .replyMarkup = replyMarkup
         });
+
+        if (nextSendError)
+        {
+            const auto error = *nextSendError;
+            nextSendError.reset();
+            condition.notify_all();
+            throw ApiException(error, "fake Telegram send failure");
+        }
 
         if (failAllSends || failNextSend)
         {
@@ -156,6 +166,17 @@ public:
         return condition.wait_for(lock, timeout, [this, count]
         {
             return sentMessages.size() >= count;
+        });
+    }
+
+    [[nodiscard]] bool waitForAttemptedMessages(
+        const std::size_t count,
+        const std::chrono::milliseconds timeout = std::chrono::seconds(2)) const
+    {
+        std::unique_lock lock(mutex);
+        return condition.wait_for(lock, timeout, [this, count]
+        {
+            return attemptedMessages.size() >= count;
         });
     }
 

@@ -207,6 +207,7 @@ MigratorManager:
 | 009_notification_outbox.sql | outbox, статусы доставки, retry-поля и атомарная дедупликация |
 | 010_sync_outages.sql | устойчивые эпизоды сбоев синхронизации и их восстановление |
 | 011_domain_events.sql | durable domain events, destinations подписок и связь с notifications |
+| 012_legacy_notification_idempotency.sql | восстановление уникального ключа исторического пути notifications |
 
 Миграции не переписываются после применения. Изменение схемы добавляется новым SQL-файлом с большим префиксом.
 

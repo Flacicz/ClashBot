@@ -1,5 +1,6 @@
 #include "database/Database.h"
 #include "database/MigratorManager.h"
+#include "database/SQLiteHelpers.h"
 #include "database/TransactionManager.h"
 #include "service/ClanInfoService.h"
 
@@ -366,6 +367,37 @@ TEST_F(ClanInfoSyncIntegrationTest, RollsBackDatabaseChangesWhenSavingClanDataFa
     EXPECT_TRUE(database->clans().getTrackedClans().empty());
     EXPECT_TRUE(database->clans().getActiveMembers(clanTag).empty());
     EXPECT_TRUE(database->clans().getLatestPlayerSnapshots(clanTag).empty());
+}
+
+TEST_F(ClanInfoSyncIntegrationTest, RecorderFailureRollsBackSyncStateAndEventTogether)
+{
+    constexpr std::string_view clanTag = "#2PPLQ";
+    database->clans().insertMinimalClan(clanTag);
+    database->subscriptions().saveTelegramChat(-1001, 0, "players");
+    database->subscriptions().subscribeToChat(-1001, 0, clanTag, Audience::Players);
+
+    FakeAPIClient apiClient;
+    apiClient.clanData = makeCurrentClanData(clanTag);
+    TransactionManager transactions(database->getDBInstance());
+    ClanInfoService service(database->clans(), apiClient, transactions, *domainEventRecorder);
+
+    sqlite::execute(database->getDBInstance(),
+        "CREATE TEMP TRIGGER reject_domain_event BEFORE INSERT ON domain_events "
+        "BEGIN SELECT RAISE(ABORT, 'simulated event storage failure'); END;");
+    const auto failed = service.updateData(clanTag);
+    EXPECT_FALSE(failed.successFlag);
+    EXPECT_TRUE(database->clans().getActiveMembers(clanTag).empty());
+    EXPECT_TRUE(database->clans().getLatestPlayerSnapshots(clanTag).empty());
+    EXPECT_TRUE(database->domainEvents().getPendingDestinations(10).empty());
+    const auto count = sqlite::prepare(database->getDBInstance(), "SELECT COUNT(*) FROM domain_events;");
+    ASSERT_EQ(SQLITE_ROW, sqlite3_step(count.get()));
+    EXPECT_EQ(0, sqlite::getInt(count.get(), 0));
+
+    sqlite::execute(database->getDBInstance(), "DROP TRIGGER reject_domain_event;");
+    const auto recovered = service.updateData(clanTag);
+    ASSERT_TRUE(recovered.successFlag);
+    EXPECT_EQ(2U, database->clans().getActiveMembers(clanTag).size());
+    EXPECT_EQ(2U, database->domainEvents().getPendingDestinations(10).size());
 }
 
 TEST_F(ClanInfoSyncIntegrationTest, ReturnsExpectedServiceName)
