@@ -49,6 +49,9 @@ class NotificationService
                                const std::string& message,
                                Audience audience) const;
 
+    void enqueueDomainEvent(const std::string& message, const PendingDomainEventDestination& destination,
+                            std::string_view eventType, int partIndex, int partCount) const;
+
 public:
     NotificationService(NotificationRepo& notification_repo,
                         SubscriptionRepo& subscription_repo,
@@ -79,6 +82,30 @@ public:
     void handleEvent(const SyncRecoveryEvent& event) const;
     void handleEvent(const WarReminderEvent& event) const;
     void handleEvent(const RaidReminderEvent& event) const;
+
+    void materialize(const ApplicationEvent& event,
+                     const PendingDomainEventDestination& destination) const;
+
+    void materializeConcrete(const PlayerJoinedClanEvent& event,
+                             const PendingDomainEventDestination& destination) const;
+    void materializeConcrete(const PlayerLeftClanEvent& event,
+                             const PendingDomainEventDestination& destination) const;
+    void materializeConcrete(const PlayerRoleChangedEvent& event,
+                             const PendingDomainEventDestination& destination) const;
+    void materializeConcrete(const WarEndedEvent& event,
+                             const PendingDomainEventDestination& destination) const;
+    void materializeConcrete(const RaidsEndedEvent& event,
+                             const PendingDomainEventDestination& destination) const;
+    void materializeConcrete(const ClanwarsLeagueRoundEndedEvent& event,
+                             const PendingDomainEventDestination& destination) const;
+    void materializeConcrete(const SyncFailureEvent& event,
+                             const PendingDomainEventDestination& destination) const;
+    void materializeConcrete(const SyncRecoveryEvent& event,
+                             const PendingDomainEventDestination& destination) const;
+    void materializeConcrete(const WarReminderEvent& event,
+                             const PendingDomainEventDestination& destination) const;
+    void materializeConcrete(const RaidReminderEvent& event,
+                             const PendingDomainEventDestination& destination) const;
 };
 
 

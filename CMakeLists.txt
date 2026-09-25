@@ -72,7 +72,9 @@ add_library(ClashBotCore STATIC
         src/database/repos/SubscriptionRepo.cpp
         src/database/repos/SyncOutageRepo.cpp
         src/domain_events/DomainEventPayloadSerializer.cpp
+        src/domain_events/DomainEventPayloadDeserializer.cpp
         src/domain_events/DomainEventRecorder.cpp
+        src/domain_events/DomainEventWorker.cpp
         src/api/APIClient.cpp
         src/api/TelegramApiClient.cpp
         src/service/ClanInfoService.cpp

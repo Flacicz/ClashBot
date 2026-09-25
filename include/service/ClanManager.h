@@ -9,13 +9,10 @@
 #include "ISyncService.h"
 #include "common/RetryPolicy.h"
 #include "domain_events/DomainEventRecorder.h"
-#include "events/EventDispatcher.h"
-#include "notifications/NotificationService.h"
 
 
 class ClanManager
 {
-    EventDispatcher eventDispatcher;
     std::vector<std::unique_ptr<ISyncService>> services;
     ClansRepo& clans_repo_;
     SyncOutageRepo& sync_outage_repo_;
@@ -33,7 +30,6 @@ class ClanManager
 
 public:
     ClanManager(
-        EventDispatcher event_dispatcher,
         std::vector<std::unique_ptr<ISyncService>> services,
         ClansRepo& clans_repo,
         SyncOutageRepo& sync_outage_repo,

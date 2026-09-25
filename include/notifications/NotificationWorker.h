@@ -28,9 +28,9 @@ public:
 private:
     void processPending() const;
     void handleFailure(const telegram::PendingNotification& notification,
-                      std::string_view error,
-                      bool retryable,
-                      std::optional<std::chrono::seconds> retryAfter = std::nullopt) const;
+                       std::string_view error,
+                       bool retryable,
+                       std::optional<std::chrono::seconds> retryAfter = std::nullopt) const;
 
     [[nodiscard]] long long nextAttemptAt(
         int attempt,

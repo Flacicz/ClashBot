@@ -37,6 +37,7 @@ strftime('%s', 'now').
     telegram_chats
      └── clan_subscriptions ── clans
 
+    domain_events ── domain_event_destinations ── notifications
     notifications  (устойчивая outbox-очередь Telegram)
     sync_outages    (эпизоды сбоев синхронизации)
     schema_migrations
@@ -269,6 +270,39 @@ Telegram статус меняется на `sent`; временная ошиб�
 События вступления и выхода используют ID строки `clan_memberships`, изменение роли — ID текущего `player_snapshots`.
 Системные события используют ID строки `sync_outages`, поэтому ошибка и восстановление ссылаются на один эпизод.
 
+### domain_events и domain_event_destinations
+
+`domain_events` — долговременное хранилище application events, сохранённых вместе с изменением предметных данных:
+
+| Поле | Содержание |
+| --- | --- |
+| id | идентификатор события |
+| event_type, event_id | тип и стабильный идентификатор события |
+| event_payload, payload_version | сериализованные данные события и версия формата |
+| clan_tag | клан, связанный с событием |
+| created_at | время сохранения |
+
+Уникальность `(clan_tag, event_type, event_id)` предотвращает повторную запись того же события. Если синхронизация
+откатывается, событие тоже не появляется.
+
+`domain_event_destinations` фиксирует снимок получателей в момент события:
+
+| Поле | Содержание |
+| --- | --- |
+| domain_event_id | ссылка на событие |
+| chat_id, message_thread_id, audience | Telegram-назначение и аудитория |
+| subscription_id | конкретная подписка, по которой назначение было выбрано |
+| status | `pending`, `materialized` или `cancelled` |
+| attempts, next_attempt_at, last_error | состояние retry материализации |
+| materialized_at, cancelled_at | время успешной обработки или отмены |
+
+DomainEventWorker создаёт связанные `notifications` и меняет status destination на `materialized` в одной транзакции.
+При повторном запуске outbox-дедупликация не создаёт новые строки. `/unlink` может отменить ещё не обработанные
+destinations и связанные с ними pending notifications по `subscription_id`.
+
+У `notifications.domain_event_destination_id` разрешён `NULL` для исторических записей, созданных до миграции 011;
+для новых строк, материализуемых из domain events, он указывает на destination-источник.
+
 ### sync_outages
 
 Таблица хранит один открытый эпизод сбоя для каждой пары `(clan_tag, service_name)`:
@@ -309,6 +343,7 @@ Telegram статус меняется на `sent`; временная ошиб�
 | 008_clan_tracking.sql | отдельный флаг включённого отслеживания |
 | 009_notification_outbox.sql | переход notifications к outbox-очереди и статусам доставки |
 | 010_sync_outages.sql | эпизоды сбоев синхронизации и стабильные IDs системных событий |
+| 011_domain_events.sql | event log, снимки получателей и связь destinations с notifications |
 
 Не редактируйте уже применённую миграцию для изменения рабочей базы. Добавляйте следующую миграцию с новым числовым
 префиксом.

@@ -7,7 +7,6 @@
 #include <spdlog/spdlog.h>
 
 ClanManager::ClanManager(
-    const EventDispatcher event_dispatcher,
     std::vector<std::unique_ptr<ISyncService>> services,
     ClansRepo& clans_repo,
     SyncOutageRepo& sync_outage_repo,
@@ -15,8 +14,7 @@ ClanManager::ClanManager(
     DomainEventRecorder& domain_event_recorder,
     const RetryPolicy& syncRetryPolicy
 )
-    : eventDispatcher(event_dispatcher),
-      services(std::move(services)),
+    : services(std::move(services)),
       clans_repo_(clans_repo),
       sync_outage_repo_(sync_outage_repo),
       transaction_manager_(transaction_manager),
@@ -147,8 +145,6 @@ void ClanManager::syncAll()
                     }
 
                     handleSyncRecovery(result);
-
-                    eventDispatcher.dispatch(result.events);
                 }
                 catch (const std::exception& e)
                 {

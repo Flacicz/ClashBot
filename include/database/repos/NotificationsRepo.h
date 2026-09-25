@@ -26,6 +26,15 @@ public:
                                        long long chatId,
                                        long long messageThreadId) const;
 
+    [[nodiscard]] bool enqueueDomainEventIfAbsent(const std::string& message,
+                                                  long long domainEventDestinationId,
+                                                  std::string_view eventType,
+                                                  std::string_view eventId,
+                                                  long long chatId,
+                                                  long long messageThreadId,
+                                                  int partIndex,
+                                                  int partCount) const;
+
     [[nodiscard]] std::vector<telegram::PendingNotification> getPending(int limit) const;
 
     void markAsSent(long long notificationId) const;

@@ -2,9 +2,10 @@
 
 ## Общая схема
 
-Сервисы синхронизации не вызывают Telegram напрямую. Они сохраняют данные и возвращают ApplicationEvent в составе
-SyncResult. ClanManager передаёт события EventDispatcher, NotificationService строит сообщения и сохраняет их в outbox,
-а NotificationWorker доставляет записи в Telegram.
+Сервисы синхронизации не вызывают Telegram напрямую. Они сохраняют данные, ApplicationEvent payload и снимок получателей
+в одной транзакции. DomainEventWorker материализует сохранённые события в строки outbox `notifications`, а
+NotificationWorker доставляет готовые записи в Telegram. `SyncResult` пока сохраняет события для совместимости, но
+отдельной отправки через него нет.
 
 Один доменный event может порождать несколько независимых сообщений для разных аудиторий. Форматтеры отвечают за текст и
 чтение дополнительных данных из репозиториев, но не знают о Telegram API и не решают, кому отправлять сообщение.
@@ -202,14 +203,18 @@ TelegramApiClient отправляет сообщения с parse_mode HTML. Ф
 
 Порядок обработки сообщения:
 
-1. получить назначения SubscriptionRepo по клану и аудитории;
-2. в транзакции выполнить `enqueueIfAbsent` для каждого назначения;
-3. после commit разбудить NotificationWorker;
-4. worker получает записи со статусом `pending`, у которых наступил `next_attempt_at`;
-5. отправить сообщение через TelegramNotifier;
-6. после успешного ответа Telegram вызвать `markAsSent`;
-7. при timeout, сетевой ошибке, 429 или другой временной ошибке вызвать `reschedule`;
-8. при постоянной ошибке или исчерпании попыток вызвать `markAsFailed`.
+1. при обработке события `DomainEventRecorder` выбирает подписки и сохраняет destinations рядом с payload события в
+   транзакции синхронизации;
+2. `DomainEventWorker` десериализует событие, формирует текст и в одной транзакции вызывает `enqueueIfAbsent` и помечает
+   destination материализованным;
+3. после commit DomainEventWorker будит NotificationWorker;
+4. NotificationWorker получает записи со статусом `pending`, у которых наступил `next_attempt_at`;
+5. отправляет сообщение через TelegramNotifier;
+6. после успешного ответа Telegram вызывает `markAsSent`;
+7. при временной ошибке вызывает `reschedule`, при постоянной — `markAsFailed`.
+
+При `/unlink` pending destinations отменяются по сохранённому `subscription_id`, поэтому уже зафиксированный снимок
+получателей не означает, что отменённая подписка обязательно получит ещё не материализованное сообщение.
 
 Дедупликация выполняется атомарным уникальным ключом
 `(event_type, event_id, chat_id, message_thread_id, part_index)`. Повторная постановка уже существующей записи не

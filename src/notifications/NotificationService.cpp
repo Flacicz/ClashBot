@@ -318,3 +318,254 @@ void NotificationService::handleEvent(const RaidReminderEvent& event) const
                           message,
                           Audience::Players);
 }
+
+void NotificationService::enqueueDomainEvent(const std::string& message,
+                                             const PendingDomainEventDestination& destination,
+                                             std::string_view eventType,
+                                             const int partIndex,
+                                             const int partCount) const
+{
+    const bool inserted = notification_repo_.enqueueDomainEventIfAbsent(
+        message,
+        destination.destinationId,
+        eventType,
+        destination.eventId,
+        destination.chatId,
+        destination.messageThreadId,
+        partIndex,
+        partCount);
+
+    if (!inserted)
+    {
+        spdlog::debug(
+            "[NotificationService] Notification {} is already queued. "
+            "ClanTag - {}, Chat ID - {}",
+            eventType,
+            destination.clanTag,
+            destination.chatId);
+    }
+}
+
+void NotificationService::materialize(const ApplicationEvent& event,
+                                      const PendingDomainEventDestination& destination) const
+{
+    std::visit(
+        [&](auto&& eventConcrete)
+        {
+            materializeConcrete(eventConcrete, destination);
+        },
+        event
+    );
+}
+
+void NotificationService::materializeConcrete(const PlayerJoinedClanEvent& event,
+                                              const PendingDomainEventDestination& destination) const
+{
+    const auto message = playerJoinedFormatter.format(event);
+
+    enqueueDomainEvent(message, destination, PlayerJoinedClanEvent::Type, 1, 1);
+}
+
+void NotificationService::materializeConcrete(const PlayerLeftClanEvent& event,
+                                              const PendingDomainEventDestination& destination) const
+{
+    const auto message = playerLeftFormatter.format(event);
+
+    enqueueDomainEvent(message, destination, PlayerLeftClanEvent::Type, 1, 1);
+}
+
+void NotificationService::materializeConcrete(const PlayerRoleChangedEvent& event,
+                                              const PendingDomainEventDestination& destination) const
+{
+    const auto message = playerRoleChangedFormatter.format(event);
+
+    enqueueDomainEvent(message, destination, PlayerRoleChangedEvent::Type, 1, 1);
+}
+
+void NotificationService::materializeConcrete(const WarEndedEvent& event,
+                                              const PendingDomainEventDestination& destination) const
+{
+    if (destination.audience == Audience::Players)
+    {
+        const auto message = clanwarEndedFormatter.format(event);
+        enqueueDomainEvent(message, destination, WarEndedEvent::Type, 1, 1);
+
+        const auto comparisonMessage = clanwarComparisonFormatter.format(event);
+        if (!comparisonMessage.empty())
+        {
+            enqueueDomainEvent(
+                comparisonMessage,
+                destination,
+                ClanwarComparisonFormatter::EventType,
+                1,
+                1);
+        }
+
+        return;
+    }
+
+    if (destination.audience == Audience::Management)
+    {
+        const auto violationsMessage = clanwarViolationsFormatter.format(event);
+        enqueueDomainEvent(
+            violationsMessage,
+            destination,
+            ClanwarViolationsFormatter::EventType,
+            1,
+            1);
+
+        const auto rosterMessage = clanwarRosterFormatter.format(event);
+        if (!rosterMessage.empty())
+        {
+            enqueueDomainEvent(
+                rosterMessage,
+                destination,
+                ClanwarRosterFormatter::EventType,
+                1,
+                1);
+        }
+    }
+}
+
+void NotificationService::materializeConcrete(const RaidsEndedEvent& event,
+                                              const PendingDomainEventDestination& destination) const
+{
+    if (destination.audience == Audience::Players)
+    {
+        const auto message = raidsEndedFormatter.format(event);
+        enqueueDomainEvent(message, destination, RaidsEndedEvent::Type, 1, 1);
+
+        const auto comparisonMessage = raidsComparisonFormatter.format(event);
+        if (!comparisonMessage.empty())
+        {
+            enqueueDomainEvent(
+                comparisonMessage,
+                destination,
+                RaidsComparisonFormatter::EventType,
+                1,
+                1);
+        }
+
+        return;
+    }
+
+    if (destination.audience == Audience::Management)
+    {
+        const auto violationsMessage = raidsViolationsFormatter.format(event);
+        enqueueDomainEvent(
+            violationsMessage,
+            destination,
+            RaidsViolationsFormatter::EventType,
+            1,
+            1);
+    }
+}
+
+void NotificationService::materializeConcrete(const ClanwarsLeagueRoundEndedEvent& event,
+                                              const PendingDomainEventDestination& destination) const
+{
+    if (destination.audience == Audience::Players)
+    {
+        const auto message = clanwarLeagueRoundEndedFormatter.format(event);
+        enqueueDomainEvent(message, destination, ClanwarsLeagueRoundEndedEvent::Type, 1, 1);
+
+        return;
+    }
+
+    if (destination.audience == Audience::Management)
+    {
+        const auto violationsMessage = clanwarLeagueRoundViolationsFormatter.format(event);
+        enqueueDomainEvent(
+            violationsMessage,
+            destination,
+            ClanwarsLeagueRoundViolationsFormatter::EventType,
+            1,
+            1);
+    }
+}
+
+void NotificationService::materializeConcrete(const SyncFailureEvent& event,
+                                              const PendingDomainEventDestination& destination) const
+{
+    if (destination.audience != Audience::Management)
+    {
+        return;
+    }
+
+    const auto message = SystemAlertReportFormatter::formatFailureAlert(event);
+    enqueueDomainEvent(message, destination, SyncFailureEvent::Type, 1, 1);
+}
+
+void NotificationService::materializeConcrete(const SyncRecoveryEvent& event,
+                                              const PendingDomainEventDestination& destination) const
+{
+    if (destination.audience != Audience::Management)
+    {
+        return;
+    }
+
+    const auto message = SystemAlertReportFormatter::formatRecoveryAlert(event);
+    enqueueDomainEvent(message, destination, SyncRecoveryEvent::Type, 1, 1);
+}
+
+void NotificationService::materializeConcrete(const WarReminderEvent& event,
+                                              const PendingDomainEventDestination& destination) const
+{
+    if (destination.audience != Audience::Players)
+    {
+        return;
+    }
+
+    std::string message;
+    switch (event.kind)
+    {
+    case WarReminderEvent::WarReminderKind::Started:
+        message = event.warKind == WarReminderEvent::WarKind::Regular
+                      ? WarReminderFormatter::formatStartOfWarReminder(event)
+                      : WarReminderFormatter::formatStartOfCwlReminder(event);
+        break;
+    case WarReminderEvent::WarReminderKind::SixHoursLeft:
+        message = event.warKind == WarReminderEvent::WarKind::Regular
+                      ? WarReminderFormatter::formatSixHoursLeftReminder(event)
+                      : WarReminderFormatter::formatSixHoursLeftCwlReminder(event);
+        break;
+    case WarReminderEvent::WarReminderKind::OneHourLeft:
+        message = event.warKind == WarReminderEvent::WarKind::Regular
+                      ? WarReminderFormatter::formatOneHourLeftReminder(event)
+                      : WarReminderFormatter::formatOneHourLeftCwlReminder(event);
+        break;
+    }
+
+    enqueueDomainEvent(message, destination, WarReminderEvent::Type, 1, 1);
+}
+
+void NotificationService::materializeConcrete(const RaidReminderEvent& event,
+                                              const PendingDomainEventDestination& destination) const
+{
+    if (destination.audience != Audience::Players)
+    {
+        return;
+    }
+
+    std::string message;
+    switch (event.kind)
+    {
+    case RaidReminderEvent::RaidReminderKind::Started:
+        message = RaidReminderFormatter::formatStartOfRaidReminder(event);
+        break;
+    case RaidReminderEvent::RaidReminderKind::FortyEightHoursLeft:
+        message = RaidReminderFormatter::formatFortyEightHoursLeftReminder(event);
+        break;
+    case RaidReminderEvent::RaidReminderKind::TwentyFourHoursLeft:
+        message = RaidReminderFormatter::formatTwentyFourHoursLeftReminder(event);
+        break;
+    case RaidReminderEvent::RaidReminderKind::SixHoursLeft:
+        message = RaidReminderFormatter::formatSixHoursLeftReminder(event);
+        break;
+    case RaidReminderEvent::RaidReminderKind::OneHourLeft:
+        message = RaidReminderFormatter::formatOneHourLeftReminder(event);
+        break;
+    }
+
+    enqueueDomainEvent(message, destination, RaidReminderEvent::Type, 1, 1);
+}

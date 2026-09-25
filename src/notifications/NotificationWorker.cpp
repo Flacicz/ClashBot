@@ -97,7 +97,7 @@ void NotificationWorker::processPending() const
         catch (const ApiException& error)
         {
             const bool retryable = error.error() != ApiError::NotFound &&
-                                   error.error() != ApiError::Forbidden;
+                error.error() != ApiError::Forbidden;
 
             handleFailure(
                 notification,
@@ -169,9 +169,8 @@ void NotificationWorker::handleFailure(
     }
 }
 
-long long NotificationWorker::nextAttemptAt(
-    const int attempt,
-    const std::optional<std::chrono::seconds> retryAfter) const
+long long NotificationWorker::nextAttemptAt(const int attempt,
+                                            const std::optional<std::chrono::seconds> retryAfter) const
 {
     auto delay = retryPolicy_.delayForAttempt(attempt);
 

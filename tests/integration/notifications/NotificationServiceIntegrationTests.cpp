@@ -1,6 +1,10 @@
 #include "database/Database.h"
 #include "database/MigratorManager.h"
 #include "database/TransactionManager.h"
+#include "domain_events/DomainEventPayloadDeserializer.h"
+#include "domain_events/DomainEventPayloadSerializer.h"
+#include "domain_events/DomainEventRecorder.h"
+#include "domain_events/DomainEventWorker.h"
 #include "notifications/NotificationService.h"
 #include "notifications/NotificationWorker.h"
 
@@ -10,6 +14,8 @@
 #include <filesystem>
 #include <memory>
 #include <string_view>
+#include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -184,6 +190,89 @@ TEST_F(NotificationServiceIntegrationTest, DeduplicatesPersistentEventForEveryDe
 
     ASSERT_EQ(2U, pending.size());
     EXPECT_TRUE(telegramApiClient.sentMessages.empty());
+}
+
+TEST_F(NotificationServiceIntegrationTest,
+       MaterializesSavedDomainEventAndDoesNotDuplicateAfterRestart)
+{
+    constexpr std::string_view clanTag = "#2PPLQ";
+    constexpr long long chatId = -1001;
+    constexpr long long threadId = 7;
+
+    database->clans().insertMinimalClan(clanTag);
+    database->subscriptions().saveTelegramChat(chatId, threadId, "Players");
+    database->subscriptions().subscribeToChat(
+        chatId,
+        threadId,
+        clanTag,
+        Audience::Players);
+
+    DomainEventPayloadSerializer serializer;
+    DomainEventRecorder recorder(
+        serializer,
+        database->subscriptions(),
+        database->domainEvents());
+
+    const std::vector<ApplicationEvent> events{
+        PlayerJoinedClanEvent{
+            .clanTag = std::string(clanTag),
+            .playerTag = "#P1",
+            .playerName = "Alice",
+            .membershipId = 42
+        }
+    };
+    transactionManager->retryInTransaction([&]
+    {
+        recorder.recordAll(events);
+    });
+
+    DomainEventPayloadDeserializer deserializer;
+    Database observerDatabase(databasePath.string());
+
+    const auto runWorkerUntilMaterialized = [&]
+    {
+        DomainEventWorker worker(
+            database->domainEvents(),
+            deserializer,
+            *notificationService,
+            *notificationWorker,
+            *transactionManager,
+            std::chrono::milliseconds{10});
+
+        std::thread workerThread([&worker]
+        {
+            worker.run();
+        });
+
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+        bool materialized = false;
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            if (!observerDatabase.notifications().getPending(10).empty())
+            {
+                materialized = true;
+                break;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        }
+
+        worker.requestStop();
+        workerThread.join();
+        return materialized;
+    };
+
+    ASSERT_TRUE(runWorkerUntilMaterialized());
+    ASSERT_TRUE(runWorkerUntilMaterialized());
+
+    EXPECT_TRUE(observerDatabase.domainEvents().getPendingDestinations(10).empty());
+
+    const auto pending = observerDatabase.notifications().getPending(10);
+    ASSERT_EQ(1U, pending.size());
+    EXPECT_EQ(chatId, pending.front().chatId);
+    EXPECT_EQ(threadId, pending.front().messageThreadId);
+    EXPECT_EQ("42", pending.front().eventId);
+    EXPECT_NE(std::string::npos, pending.front().messageText.find("Alice"));
 }
 
 TEST_F(NotificationServiceIntegrationTest, EnqueuesSynchronizationFailureForManagementDestination)

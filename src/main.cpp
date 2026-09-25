@@ -25,6 +25,10 @@
 #include "config/ConfigLoader.h"
 #include "config/Config.h"
 #include "database/TransactionManager.h"
+#include "domain_events/DomainEventPayloadDeserializer.h"
+#include "domain_events/DomainEventPayloadSerializer.h"
+#include "domain_events/DomainEventRecorder.h"
+#include "domain_events/DomainEventWorker.h"
 
 #include "service/ISyncService.h"
 #include "service/ClanInfoService.h"
@@ -134,6 +138,9 @@ int main(const int argc, char* argv[])
         TransactionManager telegramTransactions(
             telegramDb.getDBInstance(), retryPolicies::databaseRetryPolicy);
         Database notificationDb(config.databasePath);
+        Database domainEventDb(config.databasePath);
+        TransactionManager domainEventTransactions(
+            domainEventDb.getDBInstance(), retryPolicies::databaseRetryPolicy);
         spdlog::info("[DB] Worker database connections initialized successfully.");
 
         APIClient apiClient(
@@ -158,23 +165,23 @@ int main(const int argc, char* argv[])
             telegramDb.subscriptions(),
             telegramTransactions);
 
-        PlayerJoinedFormatter playerJoinedFormatter(syncDb.clans());
-        PlayerLeftFormatter playerLeftFormatter(syncDb.clans());
-        PlayerRoleChangedFormatter playerRoleChangedFormatter(syncDb.clans());
-        RaidsEndedFormatter raidsEndedFormatter(syncDb.clans(), syncDb.raids());
-        RaidsComparisonFormatter raidsComparisonFormatter(syncDb.clans(), syncDb.raids());
-        RaidsViolationsFormatter raidsViolationsFormatter(syncDb.raids());
-        ClanwarEndedFormatter clanwarEndedFormatter(syncDb.war());
-        ClanwarViolationsFormatter clanwarViolationsFormatter(syncDb.war());
-        ClanwarComparisonFormatter clanwarComparisonFormatter(syncDb.war());
-        ClanwarRosterFormatter clanwarRosterFormatter(syncDb.clans(), syncDb.war());
-        ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(syncDb.leagueWar(), syncDb.war());
-        ClanwarsLeagueRoundViolationsFormatter clanwarsLeagueRoundViolationsFormatter(syncDb.leagueWar(), syncDb.war());
+        PlayerJoinedFormatter playerJoinedFormatter(domainEventDb.clans());
+        PlayerLeftFormatter playerLeftFormatter(domainEventDb.clans());
+        PlayerRoleChangedFormatter playerRoleChangedFormatter(domainEventDb.clans());
+        RaidsEndedFormatter raidsEndedFormatter(domainEventDb.clans(), domainEventDb.raids());
+        RaidsComparisonFormatter raidsComparisonFormatter(domainEventDb.clans(), domainEventDb.raids());
+        RaidsViolationsFormatter raidsViolationsFormatter(domainEventDb.raids());
+        ClanwarEndedFormatter clanwarEndedFormatter(domainEventDb.war());
+        ClanwarViolationsFormatter clanwarViolationsFormatter(domainEventDb.war());
+        ClanwarComparisonFormatter clanwarComparisonFormatter(domainEventDb.war());
+        ClanwarRosterFormatter clanwarRosterFormatter(domainEventDb.clans(), domainEventDb.war());
+        ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(domainEventDb.leagueWar(), domainEventDb.war());
+        ClanwarsLeagueRoundViolationsFormatter clanwarsLeagueRoundViolationsFormatter(domainEventDb.leagueWar(), domainEventDb.war());
 
         NotificationService notificationService(
-            syncDb.notifications(),
-            syncDb.subscriptions(),
-            syncTransactions,
+            domainEventDb.notifications(),
+            domainEventDb.subscriptions(),
+            domainEventTransactions,
             notificationWorker,
             playerJoinedFormatter,
             playerLeftFormatter,
@@ -190,13 +197,20 @@ int main(const int argc, char* argv[])
             clanwarsLeagueRoundViolationsFormatter
         );
 
-        EventDispatcher eventDispatcher(notificationService);
-
         DomainEventPayloadSerializer domainEventPayloadSerializer;
         DomainEventRecorder domainEventRecorder(
             domainEventPayloadSerializer,
             syncDb.subscriptions(),
             syncDb.domainEvents());
+        DomainEventPayloadDeserializer domainEventPayloadDeserializer;
+        DomainEventWorker domainEventWorker(
+            domainEventDb.domainEvents(),
+            domainEventPayloadDeserializer,
+            notificationService,
+            notificationWorker,
+            domainEventTransactions,
+            std::chrono::seconds{1},
+            retryPolicies::domainEventRetryPolicy);
 
         std::vector<std::unique_ptr<ISyncService>> services;
         services.push_back(std::make_unique<ClanInfoService>(
@@ -224,7 +238,6 @@ int main(const int argc, char* argv[])
                 domainEventRecorder));
 
         ClanManager clanManager(
-            eventDispatcher,
             std::move(services),
             syncDb.clans(),
             syncDb.syncOutages(),
@@ -257,6 +270,7 @@ int main(const int argc, char* argv[])
 
         std::thread notificationThread;
         std::thread telegramThread;
+        std::thread domainEventThread;
 
         try
         {
@@ -304,19 +318,53 @@ int main(const int argc, char* argv[])
                     }
                 }
             );
+
+            domainEventThread = std::thread(
+                [&domainEventWorker]
+                {
+                    try
+                    {
+                        domainEventWorker.run();
+                    }
+                    catch (const std::exception& error)
+                    {
+                        spdlog::critical(
+                            "[FATAL] Domain event worker crashed: {}",
+                            error.what());
+                        g_shutdown_requested.store(true);
+                    }
+                    catch (...)
+                    {
+                        spdlog::critical(
+                            "[FATAL] Domain event worker crashed with unknown exception!");
+                        g_shutdown_requested.store(true);
+                    }
+                });
         }
         catch (...)
         {
-            notificationWorker.requestStop();
-            if (notificationThread.joinable())
-            {
-                notificationThread.join();
-            }
-
             clanManager.stop();
             if (syncThread.joinable())
             {
                 syncThread.join();
+            }
+
+            domainEventWorker.requestStop();
+            if (domainEventThread.joinable())
+            {
+                domainEventThread.join();
+            }
+
+            telegramBotService.stopLoop();
+            if (telegramThread.joinable())
+            {
+                telegramThread.join();
+            }
+
+            notificationWorker.requestStop();
+            if (notificationThread.joinable())
+            {
+                notificationThread.join();
             }
             throw;
         }
@@ -335,6 +383,12 @@ int main(const int argc, char* argv[])
         if (syncThread.joinable())
         {
             syncThread.join();
+        }
+
+        domainEventWorker.requestStop();
+        if (domainEventThread.joinable())
+        {
+            domainEventThread.join();
         }
 
         telegramBotService.stopLoop();

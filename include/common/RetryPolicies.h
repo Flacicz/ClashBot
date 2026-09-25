@@ -30,6 +30,13 @@ namespace retryPolicies
         std::chrono::seconds(8),
         BackoffStrategy::Exponential
     };
+
+    inline const RetryPolicy domainEventRetryPolicy{
+        5,
+        std::chrono::seconds(1),
+        std::chrono::hours(1),
+        BackoffStrategy::Exponential
+    };
 }
 
 #endif //CLASHBOT_RETRYPOLICIES_H

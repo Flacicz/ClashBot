@@ -35,20 +35,78 @@ bool NotificationRepo::enqueueIfAbsent(const std::string& message,
     };
 
     return queryOptional<long long>(
-               sql,
-               "enqueue notification",
-               fmt::format(
-                   "event_type = {}, event_id = {}, chat_id = {}, message_thread_id = {}",
-                   eventType,
-                   eventId,
-                   chatId,
-                   messageThreadId),
-               mapper,
-               eventType,
-               eventId,
-               chatId,
-               messageThreadId,
-               message)
+            sql,
+            "enqueue notification",
+            fmt::format(
+                "event_type = {}, event_id = {}, chat_id = {}, message_thread_id = {}",
+                eventType,
+                eventId,
+                chatId,
+                messageThreadId),
+            mapper,
+            eventType,
+            eventId,
+            chatId,
+            messageThreadId,
+            message)
+        .has_value();
+}
+
+bool NotificationRepo::enqueueDomainEventIfAbsent(const std::string& message,
+                                                   const long long domainEventDestinationId,
+                                                   const std::string_view eventType,
+                                                   const std::string_view eventId,
+                                                   const long long chatId,
+                                                   const long long messageThreadId,
+                                                   const int partIndex,
+                                                   const int partCount) const
+{
+    static constexpr std::string_view sql = R"(
+        INSERT INTO notifications (
+            domain_event_destination_id,
+            event_type,
+            event_id,
+            chat_id,
+            message_thread_id,
+            message_text,
+            part_index,
+            part_count
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (
+            domain_event_destination_id,
+            event_type,
+            event_id,
+            part_index
+        ) DO NOTHING
+        RETURNING id;
+    )";
+
+    auto mapper = [](sqlite3_stmt* stmt) -> long long
+    {
+        return sqlite::getLong(stmt, 0);
+    };
+
+    return queryOptional<long long>(
+            sql,
+            "enqueue notification for domain event destination",
+            fmt::format(
+                "domain_event_destination_id = {}, event_type = {}, event_id = {}, "
+                "chat_id = {}, message_thread_id = {}",
+                domainEventDestinationId,
+                eventType,
+                eventId,
+                chatId,
+                messageThreadId),
+            mapper,
+            domainEventDestinationId,
+            eventType,
+            eventId,
+            chatId,
+            messageThreadId,
+            message,
+            partIndex,
+            partCount)
         .has_value();
 }
 
