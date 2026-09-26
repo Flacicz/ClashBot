@@ -1,6 +1,3 @@
-PRAGMA foreign_keys = OFF;
-
--- 1. Пересоздание таблицы кланов
 CREATE TABLE IF NOT EXISTS clans_new
 (
     tag                TEXT PRIMARY KEY,
@@ -30,9 +27,6 @@ CREATE TABLE IF NOT EXISTS players
     FOREIGN KEY (clan_tag) REFERENCES clans (tag) ON DELETE SET NULL
 );
 
-PRAGMA foreign_keys = ON;
-
--- Индекс для быстрого поиска игроков конкретного клана (логика диффа составов)
 CREATE INDEX IF NOT EXISTS idx_players_clan_tag ON players (clan_tag);
 
 CREATE TABLE IF NOT EXISTS clan_memberships
@@ -40,8 +34,8 @@ CREATE TABLE IF NOT EXISTS clan_memberships
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     clan_tag   TEXT    NOT NULL,
     player_tag TEXT    NOT NULL,
-    joined_at  INTEGER NOT NULL,     -- UNIX timestamp входа
-    left_at    INTEGER DEFAULT NULL, -- UNIX timestamp выхода (NULL = находится в клане сейчас)
+    joined_at  INTEGER NOT NULL,
+    left_at    INTEGER DEFAULT NULL,
     FOREIGN KEY (clan_tag) REFERENCES clans (tag) ON DELETE CASCADE,
     FOREIGN KEY (player_tag) REFERENCES players (tag) ON DELETE NO ACTION
 );

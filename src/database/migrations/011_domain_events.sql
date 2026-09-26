@@ -1,7 +1,3 @@
-PRAGMA foreign_keys = OFF;
-
-BEGIN TRANSACTION;
-
 CREATE TABLE domain_events
 (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -122,7 +118,3 @@ CREATE INDEX idx_domain_event_destinations_pending
 
 CREATE INDEX idx_domain_event_destinations_subscription
     ON domain_event_destinations (subscription_id);
-
-COMMIT;
-
-PRAGMA foreign_keys = ON;

@@ -1,7 +1,3 @@
-PRAGMA foreign_keys = OFF;
-
-BEGIN TRANSACTION;
-
 CREATE TABLE clan_subscriptions_new
 (
     clan_tag          TEXT    NOT NULL,
@@ -26,7 +22,3 @@ DROP TABLE clan_subscriptions;
 
 ALTER TABLE clan_subscriptions_new
     RENAME TO clan_subscriptions;
-
-COMMIT;
-
-PRAGMA foreign_keys = ON;

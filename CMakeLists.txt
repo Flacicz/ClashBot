@@ -89,6 +89,7 @@ add_library(ClashBotCore STATIC
         src/common/RetryPolicy.cpp
         src/api/TelegramHttpTransport.cpp
         src/notifications/EventNotificationPolicy.cpp
+        src/database/ForeignKeysGuard.cpp
 )
 
 target_include_directories(ClashBotCore PUBLIC

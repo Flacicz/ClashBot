@@ -125,11 +125,7 @@ int main(const int argc, char* argv[])
         Database syncDb(config.databasePath);
 
         MigratorManager migratorManager(syncDb);
-        if (!migratorManager.migrate(config.migrationPath))
-        {
-            spdlog::critical("[DB] Failed to apply migrations. Startup aborted.");
-            return EXIT_FAILURE;
-        }
+        migratorManager.migrate(config.migrationPath);
         spdlog::info("[DB] Database migrations completed successfully.");
 
         TransactionManager syncTransactions(
@@ -176,8 +172,10 @@ int main(const int argc, char* argv[])
         ClanwarViolationsFormatter clanwarViolationsFormatter(domainEventDb.war());
         ClanwarComparisonFormatter clanwarComparisonFormatter(domainEventDb.war());
         ClanwarRosterFormatter clanwarRosterFormatter(domainEventDb.clans(), domainEventDb.war());
-        ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(domainEventDb.leagueWar(), domainEventDb.war());
-        ClanwarsLeagueRoundViolationsFormatter clanwarsLeagueRoundViolationsFormatter(domainEventDb.leagueWar(), domainEventDb.war());
+        ClanwarsLeagueRoundEndedFormatter clanwarsLeagueRoundEndedFormatter(
+            domainEventDb.leagueWar(), domainEventDb.war());
+        ClanwarsLeagueRoundViolationsFormatter clanwarsLeagueRoundViolationsFormatter(
+            domainEventDb.leagueWar(), domainEventDb.war());
 
         NotificationService notificationService(
             domainEventDb.notifications(),

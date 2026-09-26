@@ -1,7 +1,3 @@
-PRAGMA foreign_keys = OFF;
-
-BEGIN TRANSACTION;
-
 CREATE TABLE notifications_new
 (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,7 +48,3 @@ ALTER TABLE notifications_new
 
 CREATE INDEX idx_notifications_pending
     ON notifications (status, next_attempt_at, created_at, id);
-
-COMMIT;
-
-PRAGMA foreign_keys = ON;

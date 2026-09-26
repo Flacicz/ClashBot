@@ -3,6 +3,7 @@
 #include "database/SQLiteHelpers.h"
 
 #include <chrono>
+#include <fstream>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
@@ -71,6 +72,31 @@ namespace
                 std::filesystem::copy_file(entry.path(), destination);
                 files_.push_back(destination);
             }
+        }
+
+        std::filesystem::path writeMigration(
+            const std::string_view filename,
+            const std::string_view sql)
+        {
+            const auto destination = path_ / std::string(filename);
+            if (!std::filesystem::exists(destination))
+            {
+                files_.push_back(destination);
+            }
+
+            std::ofstream out(destination, std::ios::binary | std::ios::trunc);
+            if (!out.is_open())
+            {
+                throw std::runtime_error("Failed to create temporary migration file");
+            }
+
+            out << sql;
+            if (!out)
+            {
+                throw std::runtime_error("Failed to write temporary migration file");
+            }
+
+            return destination;
         }
 
         ~TemporaryMigrationsDirectory()
@@ -228,4 +254,106 @@ TEST(DatabaseMigrationTest, UpgradesPopulatedVersion010WithoutLosingHistoricalRo
 
     const auto foreignKeys = sqlite::prepare(connection, "PRAGMA foreign_key_check;");
     EXPECT_EQ(SQLITE_DONE, sqlite3_step(foreignKeys.get()));
+}
+
+TEST(DatabaseMigrationTest, RollsBackMigrationWhenFailureOccursBeforeVersionInsert)
+{
+    TemporaryDatabaseFile temporaryDatabase;
+    TemporaryMigrationsDirectory migrations(10);
+    constexpr std::string_view migrationName = "011_failure_before_version.sql";
+
+    {
+        Database database(temporaryDatabase.path().string());
+        const MigratorManager migrator(database);
+        ASSERT_TRUE(migrator.migrate(migrations.path().string()));
+        ASSERT_EQ(10, migrationCount(database.getDBInstance()));
+    }
+
+    migrations.writeMigration(migrationName, R"(
+        CREATE TABLE migration_test_before_version (
+            id INTEGER PRIMARY KEY
+        );
+
+        CREATE TRIGGER fail_migration_version_insert
+        BEFORE INSERT ON schema_migrations
+        WHEN NEW.version = '011_failure_before_version.sql'
+        BEGIN
+            SELECT RAISE(ABORT, 'injected failure before version insert');
+        END;
+    )");
+
+    {
+        Database database(temporaryDatabase.path().string());
+        const MigratorManager migrator(database);
+        EXPECT_FALSE(migrator.migrate(migrations.path().string()));
+    }
+
+    {
+        Database database(temporaryDatabase.path().string());
+        sqlite3* connection = database.getDBInstance();
+
+        EXPECT_FALSE(tableExists(connection, "migration_test_before_version"));
+        EXPECT_EQ(10, migrationCount(connection));
+    }
+
+    migrations.writeMigration(migrationName, R"(
+        CREATE TABLE migration_test_before_version (
+            id INTEGER PRIMARY KEY
+        );
+    )");
+
+    {
+        Database database(temporaryDatabase.path().string());
+        const MigratorManager migrator(database);
+
+        ASSERT_TRUE(migrator.migrate(migrations.path().string()));
+        EXPECT_TRUE(tableExists(database.getDBInstance(), "migration_test_before_version"));
+        EXPECT_EQ(11, migrationCount(database.getDBInstance()));
+    }
+}
+
+TEST(DatabaseMigrationTest, RollsBackPartialMigrationWhenFailureOccursMidScript)
+{
+    TemporaryDatabaseFile temporaryDatabase;
+    TemporaryMigrationsDirectory migrations(0);
+    constexpr std::string_view migrationName = "001_failure_mid_script.sql";
+
+    migrations.writeMigration(migrationName, R"(
+        CREATE TABLE migration_test_mid_script (
+            id INTEGER PRIMARY KEY
+        );
+
+        INSERT INTO missing_migration_test_table (id) VALUES (1);
+    )");
+
+    {
+        Database database(temporaryDatabase.path().string());
+        const MigratorManager migrator(database);
+
+        EXPECT_FALSE(migrator.migrate(migrations.path().string()));
+    }
+
+    {
+        Database database(temporaryDatabase.path().string());
+        sqlite3* connection = database.getDBInstance();
+
+        EXPECT_FALSE(tableExists(connection, "migration_test_mid_script"));
+        EXPECT_EQ(0, migrationCount(connection));
+    }
+
+    migrations.writeMigration(migrationName, R"(
+        CREATE TABLE migration_test_mid_script (
+            id INTEGER PRIMARY KEY
+        );
+    )");
+
+    {
+        Database database(temporaryDatabase.path().string());
+        const MigratorManager migrator(database);
+
+        ASSERT_TRUE(migrator.migrate(migrations.path().string()));
+        EXPECT_TRUE(tableExists(database.getDBInstance(), "migration_test_mid_script"));
+        EXPECT_EQ(1, migrationCount(database.getDBInstance()));
+    }
+
 }
