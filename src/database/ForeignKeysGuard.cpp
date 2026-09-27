@@ -4,6 +4,8 @@
 
 #include "database/ForeignKeysGuard.h"
 
+#include <string_view>
+
 #include <spdlog/spdlog.h>
 
 #include "core/Exceptions.h"
@@ -44,11 +46,19 @@ namespace
         }
     }
 
-    void logRestoreFailure(const std::string& message) noexcept
+    void logRestoreFailure(const std::string_view message,
+                           const char* details = nullptr) noexcept
     {
         try
         {
-            spdlog::error("{}", message);
+            if (details == nullptr)
+            {
+                spdlog::error("{}", message);
+            }
+            else
+            {
+                spdlog::error("{}: {}", message, details);
+            }
         }
         catch (...)
         {
@@ -82,6 +92,7 @@ ForeignKeysGuard::ForeignKeysGuard(Database& db)
     try
     {
         setForeignKeys(connection, false);
+        restorePending_ = true;
     }
     catch (...)
     {
@@ -91,9 +102,9 @@ ForeignKeysGuard::ForeignKeysGuard(Database& db)
         }
         catch (const std::exception& error)
         {
-            logRestoreFailure(fmt::format(
-                "Failed to restore foreign key enforcement after guard construction failed: {}",
-                error.what()));
+            logRestoreFailure(
+                "Failed to restore foreign key enforcement after guard construction failed",
+                error.what());
         }
         catch (...)
         {
@@ -105,9 +116,9 @@ ForeignKeysGuard::ForeignKeysGuard(Database& db)
     }
 }
 
-ForeignKeysGuard::~ForeignKeysGuard() noexcept
+void ForeignKeysGuard::restore()
 {
-    if (!wasEnabled_)
+    if (!restorePending_)
     {
         return;
     }
@@ -115,26 +126,36 @@ ForeignKeysGuard::~ForeignKeysGuard() noexcept
     sqlite3* const connection = db.getDBInstance();
     if (connection == nullptr)
     {
-        logRestoreFailure("Failed to restore foreign key enforcement: database connection is null");
-        return;
+        throw DatabaseException(
+            SQLITE_MISUSE,
+            "Failed to restore foreign key enforcement: database connection is null");
     }
 
     if (sqlite3_get_autocommit(connection) == 0)
     {
-        logRestoreFailure(
-            "ForeignKeysGuard was destroyed while a transaction is active; foreign key enforcement remains disabled");
+        throw DatabaseException(
+            SQLITE_MISUSE,
+            "ForeignKeysGuard cannot restore foreign key enforcement while a transaction is active");
+    }
+
+    setForeignKeys(connection, wasEnabled_);
+    restorePending_ = false;
+}
+
+ForeignKeysGuard::~ForeignKeysGuard() noexcept
+{
+    if (!restorePending_)
+    {
         return;
     }
 
     try
     {
-        setForeignKeys(connection, true);
+        restore();
     }
     catch (const std::exception& error)
     {
-        logRestoreFailure(fmt::format(
-            "Failed to restore foreign key enforcement: {}",
-            error.what()));
+        logRestoreFailure("Failed to restore foreign key enforcement", error.what());
     }
     catch (...)
     {

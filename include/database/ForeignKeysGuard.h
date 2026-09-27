@@ -11,10 +11,13 @@ class ForeignKeysGuard
 {
     Database& db;
     bool wasEnabled_ = false;
+    bool restorePending_ = false;
 
 public:
     explicit ForeignKeysGuard(Database& db);
     ~ForeignKeysGuard() noexcept;
+
+    void restore();
 
     ForeignKeysGuard(const ForeignKeysGuard&) = delete;
     ForeignKeysGuard& operator=(const ForeignKeysGuard&) = delete;

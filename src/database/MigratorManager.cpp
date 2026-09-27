@@ -4,16 +4,55 @@
 
 #include <algorithm>
 #include <fstream>
+#include <optional>
 #include <sstream>
 
 #include <spdlog/spdlog.h>
 
 #include "core/Exceptions.h"
 
-MigratorManager::MigratorManager(Database& db)
-    : db(db),
-      transactionManager(db.getDBInstance())
+namespace
 {
+    enum class ForeignKeyMode
+    {
+        Enforced,
+        DisabledForLegacyRebuild
+    };
+
+    ForeignKeyMode foreignKeyModeFor(const std::string_view version)
+    {
+        // 003 replaces clans while retaining rows in tables that reference it.
+        if (version == "003_clan_info_schema_v1_to_v2.sql")
+            return ForeignKeyMode::DisabledForLegacyRebuild;
+
+        return ForeignKeyMode::Enforced;
+    }
+
+    void requireForeignKeysEnabled(sqlite3* connection)
+    {
+        const auto statement = sqlite::prepare(connection, "PRAGMA foreign_keys;");
+        const int rc = sqlite3_step(statement.get());
+        if (rc != SQLITE_ROW)
+        {
+            throw DatabaseException(
+                rc, fmt::format("Failed to read PRAGMA foreign_keys: {}",
+                                sqlite3_errmsg(connection)));
+        }
+
+        if (sqlite::getInt(statement.get(), 0) != 1)
+            throw DatabaseException(SQLITE_MISUSE,
+                                    "Migration requires foreign key enforcement");
+    }
+}
+
+MigratorManager::MigratorManager(Database& db, TransactionManager& transactionManager)
+    : db(db),
+      transactionManager(transactionManager)
+{
+    if (!transactionManager.managesConnection(db.getDBInstance()))
+        throw DatabaseException(
+            SQLITE_MISUSE,
+            "MigratorManager and TransactionManager must use the same SQLite connection");
 }
 
 void MigratorManager::createMigrationTable() const
@@ -81,7 +120,11 @@ void MigratorManager::executeMigrationBody(const std::filesystem::path& file) co
 void MigratorManager::applyMigrationIfNeeded(const std::string& version,
                                              const std::filesystem::path& file) const
 {
-    const ForeignKeysGuard foreignKeysGuard(db);
+    std::optional<ForeignKeysGuard> foreignKeysGuard;
+    if (foreignKeyModeFor(version) == ForeignKeyMode::DisabledForLegacyRebuild)
+        foreignKeysGuard.emplace(db);
+    else
+        requireForeignKeysEnabled(db.getDBInstance());
 
     transactionManager.retryInTransaction([&]
     {
@@ -93,6 +136,9 @@ void MigratorManager::applyMigrationIfNeeded(const std::string& version,
 
         insertMigrationVersion(version);
     });
+
+    if (foreignKeysGuard)
+        foreignKeysGuard->restore();
 }
 
 void MigratorManager::checkForeignKeys() const

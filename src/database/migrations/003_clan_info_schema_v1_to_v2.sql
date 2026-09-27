@@ -11,11 +11,27 @@ CREATE TABLE IF NOT EXISTS clans_new
     created_at         INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
+INSERT INTO clans_new (
+    tag,
+    name,
+    description,
+    location_name,
+    chat_language,
+    created_at
+)
+SELECT
+    tag,
+    name,
+    description,
+    location_name,
+    chat_language,
+    created_at
+FROM clans;
+
 DROP TABLE IF EXISTS clans;
 ALTER TABLE clans_new
     RENAME TO clans;
 
--- 2. Пересоздание таблицы игроков
 DROP TABLE IF EXISTS players_info;
 
 CREATE TABLE IF NOT EXISTS players
@@ -46,7 +62,6 @@ INSERT INTO clan_memberships(clan_tag, player_tag, joined_at)
 SELECT clan_tag, tag, strftime('%s', 'now')
 FROM players;
 
--- 3. Создание таблицы снапшотов кланов (CASCADE сохранен)
 CREATE TABLE IF NOT EXISTS clan_snapshots
 (
     id                             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,12 +88,9 @@ CREATE TABLE IF NOT EXISTS clan_snapshots
     FOREIGN KEY (clan_tag) REFERENCES clans (tag) ON DELETE CASCADE
 );
 
--- Составной индекс для моментального получения истории конкретного клана
 CREATE INDEX IF NOT EXISTS idx_clan_snapshots_lookup
     ON clan_snapshots (clan_tag, created_at DESC);
 
-
--- 4. Создание таблицы снапшотов игроков (NO ACTION для сохранения истории аналитики)
 CREATE TABLE IF NOT EXISTS player_snapshots
 (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,10 +111,8 @@ CREATE TABLE IF NOT EXISTS player_snapshots
     FOREIGN KEY (clan_tag) REFERENCES clans (tag) ON DELETE SET NULL
 );
 
--- Главный составной индекс для поиска последней статистики игрока
 CREATE INDEX IF NOT EXISTS idx_player_snapshots_lookup
     ON player_snapshots (player_tag, created_at DESC);
 
--- Индекс для аналитики доната/активности внутри конкретного клана за период
 CREATE INDEX IF NOT EXISTS idx_player_snapshots_clan_history
     ON player_snapshots (clan_tag, created_at DESC);

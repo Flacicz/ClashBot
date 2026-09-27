@@ -55,10 +55,9 @@ TEST(WorkerConnectionsIntegrationTest, AllowsConcurrentWritesThroughSeparateConn
     const TemporaryDatabaseFile temporary_database_file;
 
     Database syncDb(temporary_database_file.path().string());
-    const MigratorManager migratorManager(syncDb);
-    ASSERT_TRUE(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
-
     TransactionManager syncTransactionManager(syncDb.getDBInstance());
+    const MigratorManager migratorManager(syncDb, syncTransactionManager);
+    ASSERT_NO_THROW(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
 
     const Database telegramDb(temporary_database_file.path().string());
     TransactionManager telegramTransactionManager(telegramDb.getDBInstance());

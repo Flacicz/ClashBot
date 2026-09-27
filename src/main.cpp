@@ -123,13 +123,14 @@ int main(const int argc, char* argv[])
         spdlog::info("[Main] Configuration loaded successfully.");
 
         Database syncDb(config.databasePath);
+        TransactionManager syncTransactions(syncDb.getDBInstance(),
+                                            retryPolicies::databaseRetryPolicy);
 
-        MigratorManager migratorManager(syncDb);
+        MigratorManager migratorManager(syncDb, syncTransactions);
         migratorManager.migrate(config.migrationPath);
+
         spdlog::info("[DB] Database migrations completed successfully.");
 
-        TransactionManager syncTransactions(
-            syncDb.getDBInstance(), retryPolicies::databaseRetryPolicy);
         Database telegramDb(config.databasePath);
         TransactionManager telegramTransactions(
             telegramDb.getDBInstance(), retryPolicies::databaseRetryPolicy);

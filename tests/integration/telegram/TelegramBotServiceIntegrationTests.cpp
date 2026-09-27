@@ -65,8 +65,9 @@ namespace
             removeDatabaseFiles(databasePath);
 
             database = std::make_unique<Database>(databasePath.string());
-            const MigratorManager migratorManager(*database);
-            ASSERT_TRUE(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
+            TransactionManager migrationTransactions(database->getDBInstance());
+            const MigratorManager migratorManager(*database, migrationTransactions);
+            ASSERT_NO_THROW(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
 
             std::ofstream catalogFile(catalogPath);
             ASSERT_TRUE(catalogFile.is_open());

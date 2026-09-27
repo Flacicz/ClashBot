@@ -31,6 +31,11 @@ public:
     {
     }
 
+    [[nodiscard]] bool managesConnection(sqlite3* other) const noexcept
+    {
+        return connection == other;
+    }
+
     [[nodiscard]] TransactionGuard beginTransaction() const
     {
         return TransactionGuard(connection);

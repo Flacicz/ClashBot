@@ -1,6 +1,8 @@
+#include "core/Exceptions.h"
 #include "database/Database.h"
 #include "database/MigratorManager.h"
 #include "database/SQLiteHelpers.h"
+#include "database/TransactionManager.h"
 
 #include <chrono>
 #include <fstream>
@@ -141,6 +143,29 @@ namespace
         return sqlite::getInt(statement.get(), 0);
     }
 
+    int rowCount(sqlite3* database, const std::string_view table)
+    {
+        const auto statement = sqlite::prepare(
+            database, "SELECT COUNT(*) FROM " + std::string(table) + ";");
+        if (sqlite3_step(statement.get()) != SQLITE_ROW)
+            throw std::runtime_error(sqlite3_errmsg(database));
+        return sqlite::getInt(statement.get(), 0);
+    }
+
+    bool foreignKeysEnabled(sqlite3* database)
+    {
+        const auto statement = sqlite::prepare(database, "PRAGMA foreign_keys;");
+        if (sqlite3_step(statement.get()) != SQLITE_ROW)
+            throw std::runtime_error(sqlite3_errmsg(database));
+        return sqlite::getInt(statement.get(), 0) == 1;
+    }
+
+    bool foreignKeysValid(sqlite3* database)
+    {
+        const auto statement = sqlite::prepare(database, "PRAGMA foreign_key_check;");
+        return sqlite3_step(statement.get()) == SQLITE_DONE;
+    }
+
     bool clansHaveTrackingColumn(sqlite3* database)
     {
         static constexpr std::string_view sql = "PRAGMA table_info(clans);";
@@ -164,9 +189,10 @@ TEST(DatabaseMigrationTest, CreatesExpectedSchemaInFreshDatabase)
 
     {
         Database database(temporaryDatabase.path().string());
-        const MigratorManager migratorManager(database);
+        TransactionManager transactions(database.getDBInstance());
+        const MigratorManager migratorManager(database, transactions);
 
-        ASSERT_TRUE(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
+        ASSERT_NO_THROW(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
 
         sqlite3* connection = database.getDBInstance();
 
@@ -181,6 +207,8 @@ TEST(DatabaseMigrationTest, CreatesExpectedSchemaInFreshDatabase)
 
         EXPECT_EQ(12, migrationCount(connection));
         EXPECT_TRUE(clansHaveTrackingColumn(connection));
+        EXPECT_TRUE(foreignKeysEnabled(connection));
+        EXPECT_TRUE(foreignKeysValid(connection));
     }
 }
 
@@ -190,20 +218,22 @@ TEST(DatabaseMigrationTest, RunningMigrationsTwiceIsSafe)
 
     {
         Database database(temporaryDatabase.path().string());
-        const MigratorManager migratorManager(database);
+        TransactionManager transactions(database.getDBInstance());
+        const MigratorManager migratorManager(database, transactions);
 
-        ASSERT_TRUE(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
+        ASSERT_NO_THROW(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
 
         sqlite3* connection = database.getDBInstance();
         ASSERT_EQ(12, migrationCount(connection));
 
-        ASSERT_TRUE(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
+        ASSERT_NO_THROW(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
 
         EXPECT_EQ(12, migrationCount(connection));
         EXPECT_TRUE(tableExists(connection, "clans"));
         EXPECT_TRUE(tableExists(connection, "notifications"));
         EXPECT_TRUE(tableExists(connection, "sync_outages"));
         EXPECT_TRUE(clansHaveTrackingColumn(connection));
+        EXPECT_TRUE(foreignKeysEnabled(connection));
     }
 }
 
@@ -212,8 +242,9 @@ TEST(DatabaseMigrationTest, UpgradesPopulatedVersion010WithoutLosingHistoricalRo
     TemporaryDatabaseFile temporaryDatabase;
     TemporaryMigrationsDirectory oldMigrations(10);
     Database database(temporaryDatabase.path().string());
-    const MigratorManager migrator(database);
-    ASSERT_TRUE(migrator.migrate(oldMigrations.path().string()));
+    TransactionManager transactions(database.getDBInstance());
+    const MigratorManager migrator(database, transactions);
+    ASSERT_NO_THROW(migrator.migrate(oldMigrations.path().string()));
     sqlite3* connection = database.getDBInstance();
     ASSERT_EQ(10, migrationCount(connection));
 
@@ -228,7 +259,7 @@ TEST(DatabaseMigrationTest, UpgradesPopulatedVersion010WithoutLosingHistoricalRo
         "VALUES ('old_report', 'historic-1', -1001, 7, 'already delivered', 'sent', 1);");
 
     TemporaryMigrationsDirectory through011(11);
-    ASSERT_TRUE(migrator.migrate(through011.path().string()));
+    ASSERT_NO_THROW(migrator.migrate(through011.path().string()));
     EXPECT_EQ(11, migrationCount(connection));
     EXPECT_TRUE(tableExists(connection, "domain_events"));
     EXPECT_TRUE(tableExists(connection, "domain_event_destinations"));
@@ -247,7 +278,7 @@ TEST(DatabaseMigrationTest, UpgradesPopulatedVersion010WithoutLosingHistoricalRo
     EXPECT_EQ(SQLITE_NULL, sqlite3_column_type(oldRow.get(), 2));
     EXPECT_EQ(SQLITE_DONE, sqlite3_step(oldRow.get()));
 
-    ASSERT_TRUE(migrator.migrate(CLASHBOT_MIGRATIONS_PATH));
+    ASSERT_NO_THROW(migrator.migrate(CLASHBOT_MIGRATIONS_PATH));
     EXPECT_EQ(12, migrationCount(connection));
     EXPECT_FALSE(database.notifications().enqueueIfAbsent(
         "duplicate", "old_report", "historic-1", -1001, 7));
@@ -264,8 +295,9 @@ TEST(DatabaseMigrationTest, RollsBackMigrationWhenFailureOccursBeforeVersionInse
 
     {
         Database database(temporaryDatabase.path().string());
-        const MigratorManager migrator(database);
-        ASSERT_TRUE(migrator.migrate(migrations.path().string()));
+        TransactionManager transactions(database.getDBInstance());
+        const MigratorManager migrator(database, transactions);
+        ASSERT_NO_THROW(migrator.migrate(migrations.path().string()));
         ASSERT_EQ(10, migrationCount(database.getDBInstance()));
     }
 
@@ -284,8 +316,9 @@ TEST(DatabaseMigrationTest, RollsBackMigrationWhenFailureOccursBeforeVersionInse
 
     {
         Database database(temporaryDatabase.path().string());
-        const MigratorManager migrator(database);
-        EXPECT_FALSE(migrator.migrate(migrations.path().string()));
+        TransactionManager transactions(database.getDBInstance());
+        const MigratorManager migrator(database, transactions);
+        EXPECT_THROW(migrator.migrate(migrations.path().string()), DatabaseException);
     }
 
     {
@@ -304,12 +337,158 @@ TEST(DatabaseMigrationTest, RollsBackMigrationWhenFailureOccursBeforeVersionInse
 
     {
         Database database(temporaryDatabase.path().string());
-        const MigratorManager migrator(database);
+        TransactionManager transactions(database.getDBInstance());
+        const MigratorManager migrator(database, transactions);
 
-        ASSERT_TRUE(migrator.migrate(migrations.path().string()));
+        ASSERT_NO_THROW(migrator.migrate(migrations.path().string()));
         EXPECT_TRUE(tableExists(database.getDBInstance(), "migration_test_before_version"));
         EXPECT_EQ(11, migrationCount(database.getDBInstance()));
     }
+}
+
+TEST(DatabaseMigrationTest, PreservesRelatedRowsWhenUpgradingPopulatedVersion002)
+{
+    TemporaryDatabaseFile temporaryDatabase;
+    TemporaryMigrationsDirectory through002(2);
+    TemporaryMigrationsDirectory through003(3);
+    Database database(temporaryDatabase.path().string());
+    TransactionManager transactions(database.getDBInstance());
+    const MigratorManager migrator(database, transactions);
+    sqlite3* connection = database.getDBInstance();
+
+    ASSERT_NO_THROW(migrator.migrate(through002.path().string()));
+    sqlite::execute(connection,
+        "INSERT INTO clans(tag, name, type) VALUES ('#OLD', 'Old clan', 'open');"
+        "INSERT INTO cwl_seasons(clan_tag, season_id) VALUES ('#OLD', '2026-08');"
+        "INSERT INTO raid_summary(clan_tag, date, state) VALUES ('#OLD', 1000, 'ended');");
+
+    ASSERT_NO_THROW(migrator.migrate(through003.path().string()));
+    EXPECT_EQ(3, migrationCount(connection));
+    EXPECT_EQ(1, rowCount(connection, "clans"));
+    EXPECT_EQ(1, rowCount(connection, "cwl_seasons"));
+    EXPECT_EQ(1, rowCount(connection, "raid_summary"));
+    EXPECT_TRUE(foreignKeysValid(connection));
+    EXPECT_TRUE(foreignKeysEnabled(connection));
+}
+
+TEST(DatabaseMigrationTest, RestoresForeignKeysAfterLegacyRebuildFails)
+{
+    TemporaryDatabaseFile temporaryDatabase;
+    TemporaryMigrationsDirectory through002(2);
+    TemporaryMigrationsDirectory through003(3);
+    Database database(temporaryDatabase.path().string());
+    TransactionManager transactions(database.getDBInstance());
+    const MigratorManager migrator(database, transactions);
+    sqlite3* connection = database.getDBInstance();
+
+    ASSERT_NO_THROW(migrator.migrate(through002.path().string()));
+    sqlite::execute(connection,
+        "INSERT INTO clans(tag, name, type) VALUES ('#OLD', 'Old clan', 'open');"
+        "INSERT INTO cwl_seasons(clan_tag, season_id) VALUES ('#OLD', '2026-08');"
+        "CREATE TRIGGER fail_legacy_version BEFORE INSERT ON schema_migrations "
+        "WHEN NEW.version = '003_clan_info_schema_v1_to_v2.sql' "
+        "BEGIN SELECT RAISE(ABORT, 'injected failure'); END;");
+
+    EXPECT_THROW(migrator.migrate(through003.path().string()), DatabaseException);
+    EXPECT_EQ(2, migrationCount(connection));
+    EXPECT_EQ(1, rowCount(connection, "clans"));
+    EXPECT_EQ(1, rowCount(connection, "cwl_seasons"));
+    EXPECT_FALSE(tableExists(connection, "clans_new"));
+    EXPECT_TRUE(foreignKeysEnabled(connection));
+    EXPECT_TRUE(foreignKeysValid(connection));
+}
+
+TEST(DatabaseMigrationTest, PreservesRelatedRowsWhenUpgradingPopulatedVersion005)
+{
+    TemporaryDatabaseFile temporaryDatabase;
+    TemporaryMigrationsDirectory through005(5);
+    TemporaryMigrationsDirectory through006(6);
+    TemporaryMigrationsDirectory through007(7);
+    Database database(temporaryDatabase.path().string());
+    TransactionManager transactions(database.getDBInstance());
+    const MigratorManager migrator(database, transactions);
+    sqlite3* connection = database.getDBInstance();
+
+    ASSERT_NO_THROW(migrator.migrate(through005.path().string()));
+    sqlite::execute(connection,
+        "INSERT INTO clans(tag, name) VALUES ('#OLD', 'Old clan');"
+        "INSERT INTO telegram_chats(chat_id, title) VALUES (-1001, 'Old chat');"
+        "INSERT INTO clan_subscriptions(clan_tag, chat_id) VALUES ('#OLD', -1001);"
+        "INSERT INTO notifications(event_type, event_id, chat_id) "
+        "VALUES ('old_report', 'historic-1', -1001);");
+
+    ASSERT_NO_THROW(migrator.migrate(through006.path().string()));
+    ASSERT_NO_THROW(migrator.migrate(through007.path().string()));
+    EXPECT_EQ(7, migrationCount(connection));
+    EXPECT_EQ(1, rowCount(connection, "telegram_chats"));
+    EXPECT_EQ(1, rowCount(connection, "clan_subscriptions"));
+    EXPECT_EQ(1, rowCount(connection, "notifications"));
+    const auto row = sqlite::prepare(connection,
+        "SELECT message_thread_id, audience FROM clan_subscriptions WHERE clan_tag = '#OLD';");
+    ASSERT_EQ(SQLITE_ROW, sqlite3_step(row.get()));
+    EXPECT_EQ(0, sqlite::getInt(row.get(), 0));
+    EXPECT_EQ("players", sqlite::getString(row.get(), 1));
+    EXPECT_TRUE(foreignKeysValid(connection));
+    EXPECT_TRUE(foreignKeysEnabled(connection));
+}
+
+TEST(DatabaseMigrationTest, EnforcesCascadeInOrdinaryMigration)
+{
+    TemporaryDatabaseFile temporaryDatabase;
+    TemporaryMigrationsDirectory migrations(0);
+    migrations.writeMigration("001_parent_and_child.sql", R"(
+        CREATE TABLE parent(id INTEGER PRIMARY KEY);
+        CREATE TABLE child(id INTEGER PRIMARY KEY, parent_id INTEGER NOT NULL
+            REFERENCES parent(id) ON DELETE CASCADE);
+        INSERT INTO parent(id) VALUES (1);
+        INSERT INTO child(id, parent_id) VALUES (1, 1);
+    )");
+    migrations.writeMigration("002_delete_parent.sql", "DELETE FROM parent WHERE id = 1;");
+
+    Database database(temporaryDatabase.path().string());
+    TransactionManager transactions(database.getDBInstance());
+    const MigratorManager migrator(database, transactions);
+    sqlite3* connection = database.getDBInstance();
+
+    ASSERT_NO_THROW(migrator.migrate(migrations.path().string()));
+    EXPECT_EQ(2, migrationCount(connection));
+    EXPECT_EQ(0, rowCount(connection, "parent"));
+    EXPECT_EQ(0, rowCount(connection, "child"));
+    EXPECT_TRUE(foreignKeysEnabled(connection));
+}
+
+TEST(DatabaseMigrationTest, RejectsForeignKeyViolationWithoutRecordingMigration)
+{
+    TemporaryDatabaseFile temporaryDatabase;
+    TemporaryMigrationsDirectory migrations(0);
+    migrations.writeMigration("001_marker.sql", "CREATE TABLE migration_marker(id INTEGER);");
+
+    Database database(temporaryDatabase.path().string());
+    sqlite3* connection = database.getDBInstance();
+    sqlite::execute(connection,
+        "CREATE TABLE parent(id INTEGER PRIMARY KEY);"
+        "CREATE TABLE child(parent_id INTEGER REFERENCES parent(id));"
+        "PRAGMA foreign_keys = OFF;"
+        "INSERT INTO child(parent_id) VALUES (123);"
+        "PRAGMA foreign_keys = ON;");
+    TransactionManager transactions(connection);
+    const MigratorManager migrator(database, transactions);
+
+    EXPECT_THROW(migrator.migrate(migrations.path().string()), DatabaseException);
+    EXPECT_FALSE(tableExists(connection, "migration_marker"));
+    EXPECT_EQ(0, migrationCount(connection));
+    EXPECT_TRUE(foreignKeysEnabled(connection));
+}
+
+TEST(DatabaseMigrationTest, RejectsTransactionManagerForAnotherConnection)
+{
+    TemporaryDatabaseFile firstPath;
+    TemporaryDatabaseFile secondPath;
+    Database database(firstPath.path().string());
+    Database otherDatabase(secondPath.path().string());
+    TransactionManager otherTransactions(otherDatabase.getDBInstance());
+
+    EXPECT_THROW((MigratorManager{database, otherTransactions}), DatabaseException);
 }
 
 TEST(DatabaseMigrationTest, RollsBackPartialMigrationWhenFailureOccursMidScript)
@@ -328,9 +507,10 @@ TEST(DatabaseMigrationTest, RollsBackPartialMigrationWhenFailureOccursMidScript)
 
     {
         Database database(temporaryDatabase.path().string());
-        const MigratorManager migrator(database);
+        TransactionManager transactions(database.getDBInstance());
+        const MigratorManager migrator(database, transactions);
 
-        EXPECT_FALSE(migrator.migrate(migrations.path().string()));
+        EXPECT_THROW(migrator.migrate(migrations.path().string()), DatabaseException);
     }
 
     {
@@ -349,9 +529,10 @@ TEST(DatabaseMigrationTest, RollsBackPartialMigrationWhenFailureOccursMidScript)
 
     {
         Database database(temporaryDatabase.path().string());
-        const MigratorManager migrator(database);
+        TransactionManager transactions(database.getDBInstance());
+        const MigratorManager migrator(database, transactions);
 
-        ASSERT_TRUE(migrator.migrate(migrations.path().string()));
+        ASSERT_NO_THROW(migrator.migrate(migrations.path().string()));
         EXPECT_TRUE(tableExists(database.getDBInstance(), "migration_test_mid_script"));
         EXPECT_EQ(1, migrationCount(database.getDBInstance()));
     }

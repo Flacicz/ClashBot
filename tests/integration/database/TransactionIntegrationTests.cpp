@@ -40,9 +40,10 @@ namespace
             removeDatabaseFiles(databasePath);
 
             database = std::make_unique<Database>(databasePath.string());
-            const MigratorManager migratorManager(*database);
+            TransactionManager migrationTransactions(database->getDBInstance());
+            const MigratorManager migratorManager(*database, migrationTransactions);
 
-            ASSERT_TRUE(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
+            ASSERT_NO_THROW(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
         }
 
         void TearDown() override

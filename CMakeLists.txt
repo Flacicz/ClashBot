@@ -136,6 +136,7 @@ add_executable(ClashBotTests
         tests/common/RetryPolicyTests.cpp
         tests/common/DatabaseExceptionTests.cpp
         tests/common/TransactionManagerTests.cpp
+        tests/database/ForeignKeysGuardTests.cpp
         tests/common/CommonModelsTests.cpp
         tests/events/ApplicationEventsTests.cpp
         tests/events/DomainEventPayloadTests.cpp

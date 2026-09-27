@@ -103,11 +103,10 @@ namespace
             removeDatabaseFiles(databasePath);
 
             database = std::make_unique<Database>(databasePath.string());
-            const MigratorManager migratorManager(*database);
-            ASSERT_TRUE(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
-
             transactionManager = std::make_unique<TransactionManager>(
                 database->getDBInstance());
+            const MigratorManager migratorManager(*database, *transactionManager);
+            ASSERT_NO_THROW(migratorManager.migrate(CLASHBOT_MIGRATIONS_PATH));
 
             telegramNotifier = std::make_unique<TelegramNotifier>(telegramApiClient);
             notificationWorker = std::make_unique<NotificationWorker>(

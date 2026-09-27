@@ -11,7 +11,7 @@ class MigratorManager
     static constexpr std::string_view name = "MigratorManager";
 
     Database& db;
-    TransactionManager transactionManager;
+    TransactionManager& transactionManager;
 
     void createMigrationTable() const;
 
@@ -27,7 +27,7 @@ class MigratorManager
                                 const std::filesystem::path& file) const;
 
 public:
-    explicit MigratorManager(Database& db);
+    explicit MigratorManager(Database& db, TransactionManager& transactionManager);
 
     void migrate(const std::string& migrationsPath) const;
 };
