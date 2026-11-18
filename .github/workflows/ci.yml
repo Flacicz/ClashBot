@@ -1,0 +1,164 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  VCPKG_COMMIT: cc73782a88db48af17f8bfb8328d4cab3d4c246f
+  VCPKG_DISABLE_METRICS: "1"
+
+jobs:
+  diff-hygiene:
+    name: Diff Hygiene
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check diff whitespace and conflict markers
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git diff --check "origin/${{ github.base_ref }}...HEAD"
+          elif [ "${{ github.event_name }}" = "push" ] && \
+               [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ] && \
+               git cat-file -e "${{ github.event.before }}^{commit}" 2>/dev/null; then
+            git diff --check "${{ github.event.before }}..${{ github.sha }}"
+          elif git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            git diff --check HEAD~1..HEAD
+          fi
+
+  linux:
+    name: Linux (ubuntu-24.04, ${{ matrix.build_type }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build_type: Debug
+            preset: linux-debug
+          - build_type: Release
+            preset: linux-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential \
+            ca-certificates \
+            cmake \
+            curl \
+            git \
+            ninja-build \
+            pkg-config \
+            tar \
+            unzip \
+            zip
+
+      - name: Configure vcpkg paths
+        shell: bash
+        run: |
+          echo "VCPKG_ROOT=${{ runner.temp }}/vcpkg" >> "$GITHUB_ENV"
+          echo "VCPKG_DEFAULT_BINARY_CACHE=${{ runner.temp }}/vcpkg-archives" >> "$GITHUB_ENV"
+          mkdir -p "${{ runner.temp }}/vcpkg-archives"
+
+      - name: Cache vcpkg toolchain
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg
+          key: vcpkg-tool-${{ runner.os }}-${{ env.VCPKG_COMMIT }}
+
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-archives
+          key: vcpkg-bin-${{ runner.os }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-bin-${{ runner.os }}-${{ env.VCPKG_COMMIT }}-
+
+      - name: Bootstrap vcpkg at pinned commit
+        shell: bash
+        run: |
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+            rm -rf "$VCPKG_ROOT"
+            git init "$VCPKG_ROOT"
+            git -C "$VCPKG_ROOT" remote add origin https://github.com/microsoft/vcpkg.git
+            git -C "$VCPKG_ROOT" fetch --depth 1 origin "$VCPKG_COMMIT"
+            git -C "$VCPKG_ROOT" checkout FETCH_HEAD
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+  windows:
+    name: Windows (windows-latest, Debug)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure vcpkg paths
+        shell: pwsh
+        run: |
+          $vcpkgRoot = Join-Path $env:RUNNER_TEMP "vcpkg"
+          $vcpkgCache = Join-Path $env:RUNNER_TEMP "vcpkg-archives"
+          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VCPKG_DEFAULT_BINARY_CACHE=$vcpkgCache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          New-Item -ItemType Directory -Force -Path $vcpkgCache | Out-Null
+
+      - name: Cache vcpkg toolchain
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg
+          key: vcpkg-tool-${{ runner.os }}-${{ env.VCPKG_COMMIT }}
+
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-archives
+          key: vcpkg-bin-${{ runner.os }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-bin-${{ runner.os }}-${{ env.VCPKG_COMMIT }}-
+
+      - name: Bootstrap vcpkg at pinned commit
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:VCPKG_ROOT\vcpkg.exe")) {
+            if (Test-Path $env:VCPKG_ROOT) { Remove-Item -Recurse -Force $env:VCPKG_ROOT }
+            git init $env:VCPKG_ROOT
+            git -C $env:VCPKG_ROOT remote add origin https://github.com/microsoft/vcpkg.git
+            git -C $env:VCPKG_ROOT fetch --depth 1 origin $env:VCPKG_COMMIT
+            git -C $env:VCPKG_ROOT checkout FETCH_HEAD
+            & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+          }
+
+      - name: Configure
+        run: cmake --preset windows-debug
+
+      - name: Build
+        run: cmake --build --preset windows-debug --parallel
+
+      - name: Test
+        run: ctest --preset windows-debug

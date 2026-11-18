@@ -201,34 +201,41 @@ pending-назначения и связанные pending-уведомлени�
 
 ## Локальная сборка и запуск
 
-Из корня проекта подготовьте vcpkg:
+Из корня проекта подготовьте vcpkg и рабочие каталоги:
 
 ``` powershell
 $env:VCPKG_ROOT = "C:\path\to\vcpkg"
 New-Item -ItemType Directory -Force data, logs
 ```
 
-Сконфигурируйте и соберите Debug-вариант:
+Проект поставляет [`CMakePresets.json`](CMakePresets.json) с пресетами для Windows (`windows-debug`, `windows-release` с генератором `Ninja` и `windows-vs` для Visual Studio) и Linux (`linux-debug`, `linux-release`).
+
+Из обычного PowerShell (Visual Studio) сконфигурируйте, соберите Debug-вариант и запустите тесты:
 
 ``` powershell
-cmake -S . -B cmake-build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-cmake --build cmake-build-debug
+cmake --preset windows-vs
+cmake --build --preset windows-vs-debug --parallel
+ctest --preset windows-vs-debug
 ```
 
-Запустите все тесты, зарегистрированные CTest:
+Из Developer PowerShell или CLion (с генератором `Ninja`; в Developer PowerShell при необходимости повторно задайте `$env:VCPKG_ROOT`, так как `vcvars` может переключить его на встроенный vcpkg Visual Studio):
 
 ``` powershell
-ctest --test-dir cmake-build-debug --output-on-failure
+cmake --preset windows-debug
+cmake --build --preset windows-debug --parallel
+ctest --preset windows-debug
 ```
 
 В состав тестов входят unit-тесты моделей, аналитики, форматтеров и Telegram-компонентов, а также интеграционные тесты
 SQLite, миграций, сервисов синхронизации, уведомлений и Telegram-бота. Тесты используют фиктивные API-клиенты и не
 требуют настоящих токенов.
 
-Запуск приложения из корня проекта:
+Запуск приложения из корня проекта (в зависимости от выбранного пресета):
 
 ``` powershell
-.\cmake-build-debug\ClashBot.exe .\config.json
+.\build\windows-vs\Debug\ClashBot.exe .\config.json
+# или для Ninja-пресета:
+.\build\windows-debug\ClashBot.exe .\config.json
 ```
 
 По умолчанию лог пишется в `logs/bot.log` и дублируется в консоль. Используется ротация файла при размере 5 МБ с

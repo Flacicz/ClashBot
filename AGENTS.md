@@ -13,16 +13,21 @@ ClashBot — автономный C++20-сервис мониторинга кл
 ## Команды
 
 ```powershell
-# Конфигурация и сборка Debug из обычного PowerShell (не трогает кэш CLion cmake-build-debug)
-cmake -S . -B cmake-build-vs -G "Visual Studio 18 2026" -A x64 -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-cmake --build cmake-build-vs --config Debug --parallel
+# При необходимости подхватить VCPKG_ROOT из пользовательских переменных среды Windows
+if (-not $env:VCPKG_ROOT) { $env:VCPKG_ROOT = [Environment]::GetEnvironmentVariable("VCPKG_ROOT", "User") }
+
+# Конфигурация и сборка Debug из обычного PowerShell через CMakePresets (не трогает кэш CLion cmake-build-debug)
+cmake --preset windows-vs
+cmake --build --preset windows-vs-debug --parallel
 
 # Все unit- и integration-тесты (не требуют сети и токенов)
-ctest --test-dir cmake-build-vs -C Debug --output-on-failure
+ctest --preset windows-vs-debug
 
 # Проверка пробелов и концов строк в diff
 git diff --check
 ```
+
+Из Developer PowerShell, CLion или на CI (где окружение MSVC уже загружено) также доступны `Ninja`-пресеты `windows-debug` и `windows-release`, на Linux — `linux-debug` и `linux-release`.
 
 Основные цели `CMakeLists.txt`: `ClashBotCore`, `ClashBot`, `ClashBotTests` (unit), `ClashBotIntegrationTests` (integration).
 
@@ -69,7 +74,7 @@ git diff --check
 
 - изменения локализованы задачей, без несвязанного рефакторинга и без правок применённых миграций;
 - unit-тесты (`ClashBotTests` — модели, парсеры, аналитика, форматтеры) и integration-тесты (`ClashBotIntegrationTests` — миграции, SQL, транзакции, синхронизация, outbox, Telegram) покрывают обычный, граничный/ошибочный и повторный (идемпотентность) сценарии;
-- успешно выполнены `cmake --build cmake-build-vs --config Debug --parallel`, `ctest --test-dir cmake-build-vs -C Debug --output-on-failure` и `git diff --check`;
+- успешно выполнены `cmake --build --preset windows-vs-debug --parallel`, `ctest --preset windows-vs-debug` и `git diff --check`;
 - для изменений схемы проверены как чистая, так и уже мигрированная БД;
 - обновлены затронутые документы в `docs/`, `GLOSSARY.md` и `README.md`, если изменились поведение, схема, события или доставка;
 - в описании PR и финальном отчёте указаны: что изменено, какие команды прогнаны (и что не запускалось), ключевые решения и инварианты, какие сценарии доказаны тестами и какие риски остались.
