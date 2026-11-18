@@ -97,4 +97,14 @@ git diff --check
 
 ## Agent skills
 
-Список проектных скиллов и ссылки на `docs/agents/*.md` добавляются при настройке скиллов (`setup-matt-pocock-skills`).
+### Issue tracker
+
+Issues and specs live in GitHub Issues (`Flacicz/ClashBot`, via `gh`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Standard five-label triage vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout (`GLOSSARY.md` at repo root, `docs/adr/` for ADRs). See `docs/agents/domain.md`.
