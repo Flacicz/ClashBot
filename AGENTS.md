@@ -13,12 +13,12 @@ ClashBot — автономный C++20-сервис мониторинга кл
 ## Команды
 
 ```powershell
-# Конфигурация и сборка Debug (из корня репозитория)
-cmake -S . -B cmake-build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-cmake --build cmake-build-debug
+# Конфигурация и сборка Debug из обычного PowerShell (не трогает кэш CLion cmake-build-debug)
+cmake -S . -B cmake-build-vs -G "Visual Studio 18 2026" -A x64 -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+cmake --build cmake-build-vs --config Debug --parallel
 
 # Все unit- и integration-тесты (не требуют сети и токенов)
-ctest --test-dir cmake-build-debug --output-on-failure
+ctest --test-dir cmake-build-vs -C Debug --output-on-failure
 
 # Проверка пробелов и концов строк в diff
 git diff --check
@@ -69,7 +69,7 @@ git diff --check
 
 - изменения локализованы задачей, без несвязанного рефакторинга и без правок применённых миграций;
 - unit-тесты (`ClashBotTests` — модели, парсеры, аналитика, форматтеры) и integration-тесты (`ClashBotIntegrationTests` — миграции, SQL, транзакции, синхронизация, outbox, Telegram) покрывают обычный, граничный/ошибочный и повторный (идемпотентность) сценарии;
-- успешно выполнены `cmake --build cmake-build-debug`, `ctest --test-dir cmake-build-debug --output-on-failure` и `git diff --check`;
+- успешно выполнены `cmake --build cmake-build-vs --config Debug --parallel`, `ctest --test-dir cmake-build-vs -C Debug --output-on-failure` и `git diff --check`;
 - для изменений схемы проверены как чистая, так и уже мигрированная БД;
 - обновлены затронутые документы в `docs/`, `GLOSSARY.md` и `README.md`, если изменились поведение, схема, события или доставка;
 - в описании PR и финальном отчёте указаны: что изменено, какие команды прогнаны (и что не запускалось), ключевые решения и инварианты, какие сценарии доказаны тестами и какие риски остались.
