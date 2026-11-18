@@ -322,7 +322,7 @@ NotificationWorker — для доставки и переходов стату�
 - всех временных напоминаний.
 
 Для durable events уникальный ключ outbox состоит из `domain_event_destination_id`, `event_type`, `event_id` и
-`part_index`. Destination уже определяет chat, topic, audience и incarnation подписки; разные отчёты используют разные
+`part_index`. Destination уже определяет chat, topic, audience и поколение подписки; разные отчёты используют разные
 `event_type`. Повторная материализация не создаёт повторную строку outbox.
 
 Для отчётов, reminders, событий членства и ролей повторная постановка атомарно отбрасывается по ID конкретного события.
