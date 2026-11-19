@@ -215,5 +215,5 @@ target_link_libraries(ClashBotIntegrationTests PRIVATE
 )
 
 include(GoogleTest)
-gtest_discover_tests(ClashBotTests)
-gtest_discover_tests(ClashBotIntegrationTests)
+gtest_discover_tests(ClashBotTests DISCOVERY_TIMEOUT 30)
+gtest_discover_tests(ClashBotIntegrationTests DISCOVERY_TIMEOUT 30)
