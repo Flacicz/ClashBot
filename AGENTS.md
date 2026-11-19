@@ -40,6 +40,7 @@ git diff --check
 - Схема SQLite, новые миграции, индексы, внешние ключи, запросы репозиториев → [`docs/database.md`](docs/database.md)
 - `ApplicationEvent`, payload, форматтеры, матрица доставки, дедупликация → [`docs/reports.md`](docs/reports.md)
 - Команды `/start`, `/link`, `/unlink`, права, форумные темы, гайды, long polling → [`docs/telegram.md`](docs/telegram.md)
+- Деплой на сервер, GHCR, Docker Compose, бэкап и восстановление SQLite → [`docs/deployment.md`](docs/deployment.md)
 - Реализованные возможности и известные ограничения → [`docs/roadmap.md`](docs/roadmap.md)
 - Сборка, конфигурация, переменные окружения и запуск → [`README.md`](README.md)
 

@@ -4,6 +4,7 @@
 .vs
 .vscode
 .env
+*.env
 
 build
 cmake-build-*
@@ -11,6 +12,14 @@ out
 
 data
 logs
+backups
 
 config.json
+config.example.json
+.env.example
+docker-compose.yml
+docs
+scripts
+todo.md
+*.sqlite*
 *.tar

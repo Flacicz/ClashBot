@@ -1,0 +1,17 @@
+services:
+  clashbot:
+    image: ghcr.io/flacicz/clashbot:${CLASHBOT_IMAGE_TAG:-latest}
+    container_name: clashbot
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file:
+      - .env
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,14 @@
+{
+  "api": {
+    "use_tunnel": false,
+    "tunnel_base_url": "https://localhost:8080/v1",
+    "base_url": "https://api.clashofclans.com/v1"
+  },
+  "database": {
+    "path": "/app/data/database.sqlite",
+    "migrations_path": "/app/migrations"
+  },
+  "telegram": {
+    "attack_guides_path": "/app/resources/telegram/attack_guides.json"
+  }
+}
