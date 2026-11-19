@@ -4,6 +4,9 @@
 #include <string>
 #include <csignal>
 #include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 
 #include <spdlog/spdlog.h>
@@ -21,6 +24,7 @@
 
 #include "api/APIClient.h"
 #include "common/RetryPolicies.h"
+#include "common/ShutdownCoordinator.h"
 
 #include "config/ConfigLoader.h"
 #include "config/Config.h"
@@ -54,9 +58,43 @@
 
 std::atomic g_shutdown_requested{false};
 
+constexpr auto kShutdownBudget = std::chrono::seconds{15};
+
 void signalHandler(int)
 {
     g_shutdown_requested.store(true);
+}
+
+static void stopApplicationThreads(ShutdownCoordinator& coordinator)
+{
+    const auto result = coordinator.shutdown(kShutdownBudget);
+    if (result.completedWithinBudget)
+    {
+        return;
+    }
+
+    std::string stuckThreads;
+    for (std::size_t index = 0; index < result.timedOutThreads.size(); ++index)
+    {
+        if (index > 0)
+        {
+            stuckThreads += ", ";
+        }
+        stuckThreads += result.timedOutThreads[index];
+    }
+
+    spdlog::critical(
+        "[Main] Shutdown budget ({}s) exceeded; blocked threads: [{}]. "
+        "Flushing logs and forcing controlled exit.",
+        kShutdownBudget.count(),
+        stuckThreads);
+
+    if (const auto logger = spdlog::default_logger())
+    {
+        logger->flush();
+    }
+    std::fflush(nullptr);
+    std::_Exit(EXIT_FAILURE);
 }
 
 static void setupLogger()
@@ -250,122 +288,57 @@ int main(const int argc, char* argv[])
 
         spdlog::info("[Main] All application services initialized successfully.");
 
-        std::thread syncThread([&clanManager]
+        ShutdownCoordinator shutdownCoordinator;
+        shutdownCoordinator.addStopAction([&apiClient] { apiClient.requestStop(); });
+        shutdownCoordinator.addStopAction([&telegramHttpTransport] { telegramHttpTransport.requestStop(); });
+        shutdownCoordinator.addStopAction([&clanManager] { clanManager.stop(); });
+        shutdownCoordinator.addStopAction([&domainEventWorker] { domainEventWorker.requestStop(); });
+        shutdownCoordinator.addStopAction([&telegramBotService] { telegramBotService.stopLoop(); });
+        shutdownCoordinator.addStopAction([&notificationWorker] { notificationWorker.requestStop(); });
+
+        const auto runThreadSafely = [](const std::string_view threadLabel, auto&& task)
         {
             try
             {
-                clanManager.syncAll();
+                task();
             }
-            catch (const std::exception& e)
+            catch (const std::exception& error)
             {
-                spdlog::critical("[FATAL] Synchronization thread crashed: {}", e.what());
+                spdlog::critical("[FATAL] {} crashed: {}", threadLabel, error.what());
                 g_shutdown_requested.store(true);
             }
             catch (...)
             {
-                spdlog::critical("[FATAL] Synchronization thread crashed with unknown exception!");
+                spdlog::critical("[FATAL] {} crashed with unknown exception!", threadLabel);
                 g_shutdown_requested.store(true);
             }
-        });
-
-        std::thread notificationThread;
-        std::thread telegramThread;
-        std::thread domainEventThread;
+        };
 
         try
         {
-            notificationThread = std::thread(
-                [&notificationWorker]
-                {
-                    try
-                    {
-                        notificationWorker.run();
-                    }
-                    catch (const std::exception& error)
-                    {
-                        spdlog::critical(
-                            "[FATAL] Notification worker crashed: {}",
-                            error.what());
-                        g_shutdown_requested.store(true);
-                    }
-                    catch (...)
-                    {
-                        spdlog::critical(
-                            "[FATAL] Notification worker crashed with unknown exception!");
-                        g_shutdown_requested.store(true);
-                    }
-                });
+            shutdownCoordinator.startThread("syncThread", [&clanManager, &runThreadSafely]
+            {
+                runThreadSafely("Synchronization thread", [&clanManager] { clanManager.syncAll(); });
+            });
 
-            telegramThread = std::thread(
-                [&telegramBotService]
-                {
-                    try
-                    {
-                        telegramBotService.loop();
-                    }
-                    catch (const std::exception& error)
-                    {
-                        spdlog::critical(
-                            "[FATAL] Telegram thread crashed: {}",
-                            error.what());
-                        g_shutdown_requested.store(true);
-                    }
-                    catch (...)
-                    {
-                        spdlog::critical(
-                            "[FATAL] Telegram thread crashed with unknown exception!");
-                        g_shutdown_requested.store(true);
-                    }
-                }
-            );
+            shutdownCoordinator.startThread("notificationThread", [&notificationWorker, &runThreadSafely]
+            {
+                runThreadSafely("Notification worker", [&notificationWorker] { notificationWorker.run(); });
+            });
 
-            domainEventThread = std::thread(
-                [&domainEventWorker]
-                {
-                    try
-                    {
-                        domainEventWorker.run();
-                    }
-                    catch (const std::exception& error)
-                    {
-                        spdlog::critical(
-                            "[FATAL] Domain event worker crashed: {}",
-                            error.what());
-                        g_shutdown_requested.store(true);
-                    }
-                    catch (...)
-                    {
-                        spdlog::critical(
-                            "[FATAL] Domain event worker crashed with unknown exception!");
-                        g_shutdown_requested.store(true);
-                    }
-                });
+            shutdownCoordinator.startThread("telegramThread", [&telegramBotService, &runThreadSafely]
+            {
+                runThreadSafely("Telegram thread", [&telegramBotService] { telegramBotService.loop(); });
+            });
+
+            shutdownCoordinator.startThread("domainEventThread", [&domainEventWorker, &runThreadSafely]
+            {
+                runThreadSafely("Domain event worker", [&domainEventWorker] { domainEventWorker.run(); });
+            });
         }
         catch (...)
         {
-            clanManager.stop();
-            if (syncThread.joinable())
-            {
-                syncThread.join();
-            }
-
-            domainEventWorker.requestStop();
-            if (domainEventThread.joinable())
-            {
-                domainEventThread.join();
-            }
-
-            telegramBotService.stopLoop();
-            if (telegramThread.joinable())
-            {
-                telegramThread.join();
-            }
-
-            notificationWorker.requestStop();
-            if (notificationThread.joinable())
-            {
-                notificationThread.join();
-            }
+            stopApplicationThreads(shutdownCoordinator);
             throw;
         }
 
@@ -374,34 +347,12 @@ int main(const int argc, char* argv[])
 
         while (!g_shutdown_requested.load())
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
 
         spdlog::info("[Main] Shutdown signal detected. Stopping the service...");
 
-        clanManager.stop();
-        if (syncThread.joinable())
-        {
-            syncThread.join();
-        }
-
-        domainEventWorker.requestStop();
-        if (domainEventThread.joinable())
-        {
-            domainEventThread.join();
-        }
-
-        telegramBotService.stopLoop();
-        if (telegramThread.joinable())
-        {
-            telegramThread.join();
-        }
-
-        notificationWorker.requestStop();
-        if (notificationThread.joinable())
-        {
-            notificationThread.join();
-        }
+        stopApplicationThreads(shutdownCoordinator);
 
         spdlog::info("[Main] Shutdown completed successfully.");
         return 0;

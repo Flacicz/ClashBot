@@ -1,6 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -13,14 +17,18 @@ struct TelegramHttpTransportPolicy
 {
     std::chrono::milliseconds requestTimeout{std::chrono::seconds(10)};
     RetryPolicy retry = retryPolicies::telegramRetryPolicy;
+    std::string baseUrl{"https://api.telegram.org"};
 };
 
 class TelegramHttpTransport
 {
 public:
     explicit TelegramHttpTransport(
-        std::string  botToken,
+        std::string botToken,
         const TelegramHttpTransportPolicy& policy = {});
+
+    void requestStop() noexcept;
+    [[nodiscard]] bool isStopRequested() const noexcept;
 
     nlohmann::json post(
         std::string_view method,
@@ -32,4 +40,7 @@ public:
 private:
     std::string botToken_;
     TelegramHttpTransportPolicy policy_;
+    std::shared_ptr<std::atomic<bool>> stopRequested_ = std::make_shared<std::atomic<bool>>(false);
+    mutable std::mutex stopMutex_;
+    mutable std::condition_variable stopCv_;
 };

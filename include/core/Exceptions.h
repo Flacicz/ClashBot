@@ -17,6 +17,12 @@ public:
     using std::runtime_error::runtime_error;
 };
 
+class OperationCancelledException : public ClashBotException
+{
+public:
+    using ClashBotException::ClashBotException;
+};
+
 class DatabaseException : public ClashBotException
 {
     std::optional<int> sqliteCode_;

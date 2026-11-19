@@ -1,7 +1,9 @@
 #pragma once
+
+#include <atomic>
 #include <chrono>
-#include <mutex>
 #include <condition_variable>
+#include <mutex>
 
 #include "database/repos/ClansRepo.h"
 #include "database/repos/SyncOutageRepo.h"
@@ -20,8 +22,8 @@ class ClanManager
     DomainEventRecorder& domain_event_recorder_;
     RetryPolicy syncRetryPolicy_;
 
-    std::mutex mtx;
-    std::condition_variable cv;
+    mutable std::mutex mtx;
+    mutable std::condition_variable cv;
     std::atomic<bool> isRunning{true};
 
     SyncResult syncWithRetry(ISyncService* service, std::string_view clanTag) const;

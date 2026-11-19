@@ -41,7 +41,8 @@ TelegramBotService работает в отдельном потоке и выз
 - разрешены update-типы message и callback_query;
 - после обработки корректного update_id offset становится update_id + 1;
 - ошибка Telegram API или сети логируется, затем выполняется пауза 1 секунда;
-- stopLoop() прерывает ожидание через condition_variable.
+- `stopLoop()` будит ожидание через `condition_variable`, а совместный вызов `TelegramHttpTransport::requestStop()`
+  прерывает активные запросы `getUpdates`/обработки обновлений и завершает цикл без паузы `1` секунды.
 
 Webhook в приложении не настраивается: для работы этого режима бот должен получать обновления через getUpdates.
 

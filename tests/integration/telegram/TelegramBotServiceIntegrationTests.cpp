@@ -7,6 +7,7 @@
 #include "service/TelegramBotService.h"
 
 #include "support/FakeTelegramApiClient.h"
+#include "support/LocalHttpTestServer.h"
 
 #include <algorithm>
 #include <chrono>
@@ -991,4 +992,139 @@ TEST_F(TelegramBotServiceIntegrationTest, GuideCallbackSendsVideoAndNavigation)
     EXPECT_EQ("guides:strategy:14:zap_dragons",
               telegramApiClient.sentMessages[1]
                   .replyMarkup["inline_keyboard"][0][0]["callback_data"]);
+}
+
+TEST_F(TelegramBotServiceIntegrationTest, AbortsActiveLongPollAndStopsLoopPromptly)
+{
+    LocalHttpTestServer server([](const std::string&, const std::function<bool()>& shouldStop)
+    {
+        while (!shouldStop())
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        }
+        return std::optional<LocalHttpTestServer::ResponseSpec>{};
+    });
+
+    TelegramHttpTransport transport(
+        "test-token",
+        TelegramHttpTransportPolicy{
+            .requestTimeout = std::chrono::seconds{10},
+            .retry = RetryPolicy{1},
+            .baseUrl = server.baseUrl()
+        });
+    TelegramApiClient realApiClient(transport);
+    TransactionManager txManager(database->getDBInstance());
+    TelegramBotService service(
+        realApiClient,
+        *attackGuideCatalog,
+        database->clans(),
+        database->subscriptions(),
+        database->domainEvents(),
+        txManager);
+
+    std::thread worker([&] { service.loop(); });
+    ASSERT_TRUE(server.waitForAcceptedConnections(1));
+    std::this_thread::sleep_for(std::chrono::milliseconds{100});
+
+    const auto stopStart = std::chrono::steady_clock::now();
+    transport.requestStop();
+    service.stopLoop();
+    worker.join();
+    const auto elapsed = std::chrono::steady_clock::now() - stopStart;
+
+    EXPECT_LT(elapsed, std::chrono::seconds{3});
+    EXPECT_EQ(1U, server.acceptedConnections());
+}
+
+TEST_F(TelegramBotServiceIntegrationTest, CancellingUpdateProcessingStopsImmediatelyWithoutErrorReplyOrNextUpdate)
+{
+    std::atomic<int> requestCount{0};
+    LocalHttpTestServer server([&](const std::string& rawRequest, const std::function<bool()>& shouldStop)
+    {
+        const int call = requestCount.fetch_add(1) + 1;
+        if (call == 1 && rawRequest.find("getUpdates") != std::string::npos)
+        {
+            const nlohmann::json body = {
+                {"ok", true},
+                {"result", {
+                    {
+                        {"update_id", 1},
+                        {"message", {
+                            {"chat", {{"id", -1001}, {"type", "supergroup"}, {"title", "Clan"}}},
+                            {"from", {{"id", 42}}},
+                            {"text", "/link #2PPLQ"}
+                        }}
+                    },
+                    {
+                        {"update_id", 2},
+                        {"message", {
+                            {"chat", {{"id", -1001}, {"type", "supergroup"}, {"title", "Clan"}}},
+                            {"from", {{"id", 42}}},
+                            {"text", "/start"}
+                        }}
+                    }
+                }}
+            };
+            return std::optional<LocalHttpTestServer::ResponseSpec>{
+                LocalHttpTestServer::ResponseSpec{
+                    .statusCode = 200,
+                    .body = body.dump()
+                }
+            };
+        }
+
+        while (!shouldStop())
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        }
+        return std::optional<LocalHttpTestServer::ResponseSpec>{};
+    });
+
+    TelegramHttpTransport transport(
+        "test-token",
+        TelegramHttpTransportPolicy{
+            .requestTimeout = std::chrono::seconds{10},
+            .retry = RetryPolicy{1},
+            .baseUrl = server.baseUrl()
+        });
+    TelegramApiClient realApiClient(transport);
+    TransactionManager txManager(database->getDBInstance());
+    TelegramBotService service(
+        realApiClient,
+        *attackGuideCatalog,
+        database->clans(),
+        database->subscriptions(),
+        database->domainEvents(),
+        txManager);
+
+    std::thread worker([&] { service.loop(); });
+    ASSERT_TRUE(server.waitForAcceptedConnections(2));
+    std::this_thread::sleep_for(std::chrono::milliseconds{80});
+
+    std::atomic<bool> safetyStopTriggered{false};
+    std::jthread safetyStop([&](std::stop_token st)
+    {
+        for (int i = 0; i < 25 && !st.stop_requested(); ++i)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds{100});
+        }
+        if (!st.stop_requested())
+        {
+            safetyStopTriggered.store(true);
+            service.stopLoop();
+        }
+    });
+
+    const auto stopStart = std::chrono::steady_clock::now();
+    transport.requestStop();
+    worker.join();
+    safetyStop.request_stop();
+    service.stopLoop();
+    const auto elapsed = std::chrono::steady_clock::now() - stopStart;
+
+    EXPECT_FALSE(safetyStopTriggered.load());
+    EXPECT_LT(elapsed, std::chrono::seconds{3});
+    EXPECT_EQ(2U, server.acceptedConnections());
+    EXPECT_FALSE(database->subscriptions().hasSubscription(
+        -1001, 0, "#2PPLQ", Audience::Players));
 }

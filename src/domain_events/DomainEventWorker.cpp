@@ -1,5 +1,6 @@
 #include "domain_events/DomainEventWorker.h"
 
+#include "core/Exceptions.h"
 #include "notifications/NotificationWorker.h"
 
 #include <algorithm>
@@ -35,10 +36,10 @@ void DomainEventWorker::run()
                                pollInterval,
                                [this]
                                {
-                                   return stopRequested_ || wakeRequested_;
+                                   return stopRequested_.load() || wakeRequested_;
                                });
 
-            if (stopRequested_) return;
+            if (stopRequested_.load()) return;
 
             wakeRequested_ = false;
         }
@@ -46,6 +47,10 @@ void DomainEventWorker::run()
         try
         {
             processPending();
+        }
+        catch (const OperationCancelledException&)
+        {
+            return;
         }
         catch (const std::exception& error)
         {
@@ -59,6 +64,11 @@ void DomainEventWorker::run()
                 "[DomainEventWorker] Failed to process pending destinations: "
                 "unknown error");
         }
+
+        if (isStopRequested())
+        {
+            return;
+        }
     }
 }
 
@@ -66,10 +76,15 @@ void DomainEventWorker::requestStop()
 {
     {
         std::lock_guard lock(mtx);
-        stopRequested_ = true;
+        stopRequested_.store(true);
     }
 
-    condition.notify_one();
+    condition.notify_all();
+}
+
+bool DomainEventWorker::isStopRequested() const noexcept
+{
+    return stopRequested_.load();
 }
 
 void DomainEventWorker::notify()
@@ -89,6 +104,11 @@ void DomainEventWorker::processPending() const
 
     for (const auto& domainEvent : domainEvents)
     {
+        if (isStopRequested())
+        {
+            return;
+        }
+
         try
         {
             auto deserialized = domain_event_deserializer.deserialize(domainEvent.clanTag,
@@ -104,13 +124,30 @@ void DomainEventWorker::processPending() const
 
             notification_worker.notify();
         }
+        catch (const OperationCancelledException&)
+        {
+            return;
+        }
         catch (const std::exception& error)
         {
             handleFailure(domainEvent, error.what());
+            if (isStopRequested())
+            {
+                return;
+            }
         }
         catch (...)
         {
             handleFailure(domainEvent, "unknown error");
+            if (isStopRequested())
+            {
+                return;
+            }
+        }
+
+        if (isStopRequested())
+        {
+            return;
         }
     }
 }
@@ -120,9 +157,8 @@ long long DomainEventWorker::nextAttemptAt(const int attempt) const
     const auto delay = retry_policy.delayForAttempt(attempt);
 
     const auto delayMilliseconds = delay.count();
-    const auto delaySeconds = std::max<long long>(
-        1,
-        (delayMilliseconds + 999) / 1000);
+    const long long computedDelaySeconds = (delayMilliseconds + 999) / 1000;
+    const auto delaySeconds = (std::max)(1LL, computedDelaySeconds);
 
     const auto now = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch());

@@ -2,6 +2,7 @@
 
 #include <cpr/api.h>
 #include <cpr/response.h>
+#include <cpr/session.h>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
@@ -18,19 +19,45 @@ APIClient::APIClient(std::string token, bool tunnel, std::string baseUrl, std::s
 {
 }
 
+void APIClient::requestStop() noexcept
+{
+    stopRequested_->store(true);
+}
+
+bool APIClient::isStopRequested() const noexcept
+{
+    return stopRequested_->load();
+}
+
 nlohmann::json APIClient::fetchJson(std::string_view endpoint) const
 {
+    if (isStopRequested())
+    {
+        throw OperationCancelledException(
+            fmt::format("[{}] Request cancelled during shutdown (endpoint = {})",
+                        clientName, endpoint));
+    }
+
     const std::string url = (isTunnel ? tunnelUrl : baseUrl) + std::string(endpoint);
 
-    cpr::Response response = cpr::Get(
-        cpr::Url{url},
-        cpr::Header{
-            {"Authorization", "Bearer " + getApiToken()},
-            {"Accept", "Application/json"},
-        },
-        cpr::VerifySsl(!getIsTunnel()),
-        cpr::Timeout(std::chrono::milliseconds(20000))
-    );
+    cpr::Session session;
+    session.SetUrl(cpr::Url{url});
+    session.SetHeader(cpr::Header{
+        {"Authorization", "Bearer " + getApiToken()},
+        {"Accept", "Application/json"},
+    });
+    session.SetVerifySsl(cpr::VerifySsl(!getIsTunnel()));
+    session.SetTimeout(cpr::Timeout(std::chrono::milliseconds(20000)));
+    session.SetCancellationParam(stopRequested_);
+
+    cpr::Response response = session.Get();
+
+    if (isStopRequested())
+    {
+        throw OperationCancelledException(
+            fmt::format("[{}] Request cancelled during shutdown (endpoint = {})",
+                        clientName, endpoint));
+    }
 
     if (response.error)
     {
@@ -273,6 +300,13 @@ std::vector<CompleteClanwarData> APIClient::getLeagueClanwarRoundsInfo(
 
     for (const auto& round : parsed["rounds"])
     {
+        if (isStopRequested())
+        {
+            throw OperationCancelledException(
+                fmt::format("[{}] CWL rounds fetch cancelled during shutdown (clan_tag = {})",
+                            clientName, clanTag));
+        }
+
         if (!round.contains("warTags") || !round["warTags"].is_array()) continue;
 
         for (const auto& warTagJson : round["warTags"])

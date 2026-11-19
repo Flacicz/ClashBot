@@ -1,5 +1,7 @@
 #ifndef CLASHBOT_DOMAINEVENTWORKER_H
 #define CLASHBOT_DOMAINEVENTWORKER_H
+
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -43,12 +45,14 @@ public:
 
     void requestStop();
 
+    [[nodiscard]] bool isStopRequested() const noexcept;
+
     void notify();
 
 private:
     std::mutex mtx;
     std::condition_variable condition;
-    bool stopRequested_ = false;
+    std::atomic<bool> stopRequested_{false};
     bool wakeRequested_ = true;
 
     std::chrono::milliseconds pollInterval;

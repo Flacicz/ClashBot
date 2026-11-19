@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -23,6 +24,8 @@ public:
 
     void requestStop();
 
+    [[nodiscard]] bool isStopRequested() const noexcept;
+
     void notify();
 
 private:
@@ -41,8 +44,8 @@ private:
     std::chrono::milliseconds pollInterval_;
     RetryPolicy retryPolicy_;
 
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     std::condition_variable condition_;
-    bool stopRequested_ = false;
+    std::atomic<bool> stopRequested_{false};
     bool wakeRequested_ = true;
 };

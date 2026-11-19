@@ -47,12 +47,12 @@ void TelegramBotService::loop() const
                 pollingTimeoutSeconds);
 
             if (!running_.load())
-                break;
+                return;
 
             for (const auto& update : updates)
             {
                 if (!running_.load())
-                    break;
+                    return;
 
                 long long updateId = 0;
                 bool hasValidUpdateId = false;
@@ -71,6 +71,11 @@ void TelegramBotService::loop() const
                     updateId = update.at("update_id").get<long long>();
                     hasValidUpdateId = true;
                     processUpdate(update);
+                }
+                catch (const OperationCancelledException&)
+                {
+                    spdlog::info("[TelegramBotService] Update processing cancelled during shutdown.");
+                    return;
                 }
                 catch (const ApiException& error)
                 {
@@ -91,12 +96,23 @@ void TelegramBotService::loop() const
                         error.what());
                 }
 
+                if (!running_.load())
+                    return;
+
                 if (hasValidUpdateId)
                     offset = updateId + 1;
             }
         }
+        catch (const OperationCancelledException&)
+        {
+            spdlog::info("[TelegramBotService] Polling loop cancelled during shutdown.");
+            return;
+        }
         catch (const ApiException& error)
         {
+            if (!running_.load())
+                return;
+
             spdlog::error(
                 "[TelegramBotService] Failed to receive updates: {}",
                 error.what());
@@ -109,6 +125,9 @@ void TelegramBotService::loop() const
         }
         catch (const std::exception& error)
         {
+            if (!running_.load())
+                return;
+
             spdlog::error(
                 "[TelegramBotService] Unexpected polling error: {}",
                 error.what());

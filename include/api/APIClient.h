@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <memory>
 #include <string>
 
 #include "models/clan/ClanModels.h"
@@ -14,12 +16,16 @@ class APIClient
     std::string baseUrl;
     std::string tunnelUrl;
     bool isTunnel;
+    std::shared_ptr<std::atomic<bool>> stopRequested_ = std::make_shared<std::atomic<bool>>(false);
 
     static constexpr std::string_view clientName = "ApiClient";
 
 public:
     APIClient(std::string token, bool tunnel, std::string baseUrl, std::string tunnelUrl);
     virtual ~APIClient() = default;
+
+    void requestStop() noexcept;
+    [[nodiscard]] bool isStopRequested() const noexcept;
 
     [[nodiscard]] bool getIsTunnel() const { return isTunnel; }
     [[nodiscard]] const std::string& getApiToken() const { return apiToken; }

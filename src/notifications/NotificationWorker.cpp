@@ -22,10 +22,15 @@ void NotificationWorker::requestStop()
 {
     {
         std::lock_guard lock(mutex_);
-        stopRequested_ = true;
+        stopRequested_.store(true);
     }
 
     condition_.notify_all();
+}
+
+bool NotificationWorker::isStopRequested() const noexcept
+{
+    return stopRequested_.load();
 }
 
 void NotificationWorker::notify()
@@ -50,10 +55,10 @@ void NotificationWorker::run()
                 pollInterval_,
                 [this]
                 {
-                    return stopRequested_ || wakeRequested_;
+                    return stopRequested_.load() || wakeRequested_;
                 });
 
-            if (stopRequested_)
+            if (stopRequested_.load())
             {
                 return;
             }
@@ -64,6 +69,10 @@ void NotificationWorker::run()
         try
         {
             processPending();
+        }
+        catch (const OperationCancelledException&)
+        {
+            return;
         }
         catch (const std::exception& error)
         {
@@ -77,6 +86,11 @@ void NotificationWorker::run()
                 "[NotificationWorker] Failed to process pending notifications: "
                 "unknown error");
         }
+
+        if (isStopRequested())
+        {
+            return;
+        }
     }
 }
 
@@ -87,12 +101,21 @@ void NotificationWorker::processPending() const
 
     for (const auto& notification : notifications)
     {
+        if (isStopRequested())
+        {
+            return;
+        }
+
         try
         {
             telegramNotifier_.sendMessage(
                 notification.chatId,
                 notification.messageText,
                 notification.messageThreadId);
+        }
+        catch (const OperationCancelledException&)
+        {
+            return;
         }
         catch (const ApiException& error)
         {
@@ -104,11 +127,19 @@ void NotificationWorker::processPending() const
                 error.what(),
                 retryable,
                 error.retryAfter());
+            if (isStopRequested())
+            {
+                return;
+            }
             continue;
         }
         catch (const std::exception& error)
         {
             handleFailure(notification, error.what(), true);
+            if (isStopRequested())
+            {
+                return;
+            }
             continue;
         }
 
@@ -122,6 +153,11 @@ void NotificationWorker::processPending() const
                 "[NotificationWorker] Failed to mark notification {} as sent: {}",
                 notification.id,
                 error.what());
+        }
+
+        if (isStopRequested())
+        {
+            return;
         }
     }
 }
@@ -179,13 +215,12 @@ long long NotificationWorker::nextAttemptAt(const int attempt,
         const auto retryAfterDelay = std::chrono::duration_cast<
             std::chrono::milliseconds>(*retryAfter);
 
-        delay = std::max(delay, retryAfterDelay);
+        delay = (std::max)(delay, retryAfterDelay);
     }
 
     const auto delayMilliseconds = delay.count();
-    const auto delaySeconds = std::max<long long>(
-        1,
-        (delayMilliseconds + 999) / 1000);
+    const long long computedDelaySeconds = (delayMilliseconds + 999) / 1000;
+    const auto delaySeconds = (std::max)(1LL, computedDelaySeconds);
 
     const auto now = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch());
