@@ -6,26 +6,65 @@
 
 #include <cpr/api.h>
 #include <cpr/response.h>
+#include <cpr/session.h>
 
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
-#include <thread>
 #include <utility>
 
 #include <fmt/format.h>
 
 #include "core/Exceptions.h"
 
+namespace
+{
+    std::string normalizeBaseUrl(std::string baseUrl)
+    {
+        if (baseUrl.empty())
+        {
+            return "https://api.telegram.org";
+        }
+
+        while (!baseUrl.empty() && baseUrl.back() == '/')
+        {
+            baseUrl.pop_back();
+        }
+
+        return baseUrl.empty() ? std::string("https://api.telegram.org") : baseUrl;
+    }
+}
+
 TelegramHttpTransport::TelegramHttpTransport(std::string botToken, const TelegramHttpTransportPolicy& policy)
     : botToken_(std::move(botToken)), policy_(policy)
 {
+    policy_.baseUrl = normalizeBaseUrl(std::move(policy_.baseUrl));
+}
+
+void TelegramHttpTransport::requestStop() noexcept
+{
+    {
+        std::lock_guard lock(stopMutex_);
+        stopRequested_->store(true);
+    }
+    stopCv_.notify_all();
+}
+
+bool TelegramHttpTransport::isStopRequested() const noexcept
+{
+    return stopRequested_->load();
 }
 
 nlohmann::json TelegramHttpTransport::post(std::string_view method,
                                            const nlohmann::json& body,
                                            const std::optional<std::chrono::milliseconds> requestTimeout) const
 {
+    if (isStopRequested())
+    {
+        throw OperationCancelledException(
+            fmt::format("Telegram {} cancelled during shutdown", method));
+    }
+
     if (botToken_.empty())
     {
         throw ApiException(
@@ -33,18 +72,34 @@ nlohmann::json TelegramHttpTransport::post(std::string_view method,
             "Telegram bot token is not configured");
     }
 
-    const std::string url = fmt::format("https://api.telegram.org/bot{}/{}", botToken_, method);
+    const std::string url = fmt::format("{}/bot{}/{}", policy_.baseUrl, botToken_, method);
     const std::string requestBody = body.dump();
     const int maxAttempts = policy_.retry.maxAttempts();
 
     for (int attempt = 1; attempt <= maxAttempts; ++attempt)
     {
-        cpr::Response response = cpr::Post(
-            cpr::Url{url},
-            cpr::Header{{"Content-Type", "application/json"}},
-            cpr::Body{requestBody},
-            cpr::Timeout{requestTimeout.value_or(policy_.requestTimeout)}
-        );
+        if (isStopRequested())
+        {
+            throw OperationCancelledException(
+                fmt::format("Telegram {} cancelled during shutdown", method));
+        }
+
+        cpr::Session session;
+        session.SetUrl(cpr::Url{url});
+        session.SetHeader(cpr::Header{{"Content-Type", "application/json"}});
+        session.SetBody(cpr::Body{requestBody});
+        session.SetTimeout(cpr::Timeout{requestTimeout.value_or(policy_.requestTimeout)});
+        session.SetCancellationParam(stopRequested_);
+
+        cpr::Response response = session.Post();
+
+        if (isStopRequested() &&
+            (response.error.code == cpr::ErrorCode::ABORTED_BY_CALLBACK ||
+             response.status_code != 200))
+        {
+            throw OperationCancelledException(
+                fmt::format("Telegram {} cancelled during shutdown", method));
+        }
 
         const bool networkError = response.status_code == 0;
         const bool rateLimited = response.status_code == 429;
@@ -104,7 +159,12 @@ nlohmann::json TelegramHttpTransport::post(std::string_view method,
                 delay = (std::max)(delay, telegramDelay);
             }
 
-            std::this_thread::sleep_for(delay);
+            std::unique_lock lock(stopMutex_);
+            if (stopCv_.wait_for(lock, delay, [this] { return stopRequested_->load(); }))
+            {
+                throw OperationCancelledException(
+                    fmt::format("Telegram {} retry wait cancelled during shutdown", method));
+            }
             continue;
         }
 

@@ -12,9 +12,11 @@
 #include "support/FakeTelegramApiClient.h"
 
 #include <chrono>
+#include <condition_variable>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -519,4 +521,135 @@ TEST_F(NotificationServiceIntegrationTest, CommittedEventEventuallyReachesFakeTe
         "SELECT status FROM notifications WHERE event_id = '44';");
     ASSERT_EQ(SQLITE_ROW, sqlite3_step(statement.get()));
     EXPECT_EQ("sent", sqlite::getString(statement.get(), 0));
+}
+
+TEST_F(NotificationServiceIntegrationTest, StopsMidBatchAndMaterializesRemainingDestinationsAfterRestart)
+{
+    constexpr std::string_view clanTag = "#2PPLQ";
+    database->clans().insertMinimalClan(clanTag);
+    database->subscriptions().saveTelegramChat(-1001, 0, "players");
+    database->subscriptions().subscribeToChat(-1001, 0, clanTag, Audience::Players);
+
+    DomainEventPayloadSerializer serializer;
+    DomainEventRecorder recorder(serializer, database->subscriptions(), database->domainEvents());
+    std::vector<ApplicationEvent> events;
+    for (int i = 101; i <= 105; ++i)
+    {
+        events.emplace_back(PlayerJoinedClanEvent{
+            std::string(clanTag),
+            "#P" + std::to_string(i),
+            "Player " + std::to_string(i),
+            i
+        });
+    }
+    transactionManager->retryInTransaction([&]
+    {
+        recorder.recordAll(events);
+    });
+
+    struct PauseState
+    {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool firstMaterialized = false;
+        bool allowContinue = false;
+        int calls = 0;
+    } pauseState;
+
+    const auto onMaterialized = [](sqlite3_context* context, int, sqlite3_value**)
+    {
+        auto* state = static_cast<PauseState*>(sqlite3_user_data(context));
+        std::unique_lock lock(state->mutex);
+        if (state->calls++ == 0)
+        {
+            state->firstMaterialized = true;
+            state->cv.notify_all();
+            state->cv.wait_for(lock, std::chrono::seconds{2}, [state] { return state->allowContinue; });
+        }
+        sqlite3_result_int(context, 1);
+    };
+
+    ASSERT_EQ(
+        SQLITE_OK,
+        sqlite3_create_function_v2(
+            database->getDBInstance(),
+            "test_pause_after_first",
+            0,
+            SQLITE_UTF8,
+            &pauseState,
+            onMaterialized,
+            nullptr,
+            nullptr,
+            nullptr));
+
+    sqlite::execute(
+        database->getDBInstance(),
+        "CREATE TEMP TRIGGER pause_after_first_materialization "
+        "AFTER UPDATE OF status ON domain_event_destinations "
+        "WHEN NEW.status = 'materialized' "
+        "BEGIN SELECT test_pause_after_first(); END;");
+
+    DomainEventPayloadDeserializer deserializer;
+    Database observer(databasePath.string());
+
+    {
+        DomainEventWorker worker(
+            database->domainEvents(),
+            deserializer,
+            *notificationService,
+            *notificationWorker,
+            *transactionManager,
+            std::chrono::hours{1});
+
+        std::thread workerThread([&worker] { worker.run(); });
+
+        {
+            std::unique_lock lock(pauseState.mutex);
+            ASSERT_TRUE(pauseState.cv.wait_for(
+                lock,
+                std::chrono::seconds{2},
+                [&pauseState] { return pauseState.firstMaterialized; }));
+        }
+
+        worker.requestStop();
+
+        {
+            std::lock_guard lock(pauseState.mutex);
+            pauseState.allowContinue = true;
+        }
+        pauseState.cv.notify_all();
+        workerThread.join();
+    }
+
+    EXPECT_EQ("materialized", destinationState(observer.getDBInstance(), "101").status);
+    for (int i = 102; i <= 105; ++i)
+    {
+        const auto state = destinationState(observer.getDBInstance(), std::to_string(i));
+        EXPECT_EQ("pending", state.status);
+        EXPECT_EQ(0, state.attempts);
+    }
+    EXPECT_EQ(1U, observer.notifications().getPending(10).size());
+
+    sqlite::execute(database->getDBInstance(), "DROP TRIGGER pause_after_first_materialization;");
+
+    {
+        DomainEventWorker worker(
+            database->domainEvents(),
+            deserializer,
+            *notificationService,
+            *notificationWorker,
+            *transactionManager,
+            std::chrono::hours{1});
+
+        std::thread workerThread([&worker] { worker.run(); });
+        const bool allMaterialized = waitUntil([&]
+        {
+            return observer.domainEvents().getPendingDestinations(10).empty();
+        });
+        worker.requestStop();
+        workerThread.join();
+        ASSERT_TRUE(allMaterialized);
+    }
+
+    EXPECT_EQ(5U, observer.notifications().getPending(10).size());
 }

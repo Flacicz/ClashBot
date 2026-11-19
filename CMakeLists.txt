@@ -78,6 +78,7 @@ add_library(ClashBotCore STATIC
         src/api/APIClient.cpp
         src/api/TelegramApiClient.cpp
         src/service/ClanInfoService.cpp
+        src/service/ClanManager.cpp
         src/service/RaidService.cpp
         src/service/ClanwarService.cpp
         src/service/ClanwarLeagueService.cpp
@@ -87,6 +88,7 @@ add_library(ClashBotCore STATIC
         src/reports/ClanwarRosterFormatter.cpp
         src/service/TelegramBotService.cpp
         src/common/RetryPolicy.cpp
+        src/common/ShutdownCoordinator.cpp
         src/api/TelegramHttpTransport.cpp
         src/notifications/EventNotificationPolicy.cpp
         src/database/ForeignKeysGuard.cpp
@@ -108,7 +110,6 @@ target_link_libraries(ClashBotCore PUBLIC
 add_executable(${PROJECT_NAME}
         src/main.cpp
         src/config/ConfigLoader.cpp
-        src/service/ClanManager.cpp
         src/events/EventDispatcher.cpp
 )
 
@@ -134,6 +135,9 @@ add_executable(ClashBotTests
         tests/common/TimeParserTests.cpp
         tests/common/SyncResultTests.cpp
         tests/common/RetryPolicyTests.cpp
+        tests/common/ShutdownCoordinatorTests.cpp
+        tests/api/APIClientTests.cpp
+        tests/api/TelegramHttpTransportTests.cpp
         tests/common/DatabaseExceptionTests.cpp
         tests/common/TransactionManagerTests.cpp
         tests/database/ForeignKeysGuardTests.cpp
@@ -186,12 +190,14 @@ add_executable(ClashBotIntegrationTests
         tests/integration/notifications/NotificationIntegrationTests.cpp
         tests/integration/notifications/NotificationServiceIntegrationTests.cpp
         tests/integration/sync/ClanInfoSyncIntegrationTests.cpp
+        tests/integration/sync/ClanManagerIntegrationTests.cpp
         tests/integration/sync/RaidSyncIntegrationTests.cpp
         tests/integration/sync/ClanwarSyncIntegrationTests.cpp
         tests/integration/sync/ClanwarLeagueSyncIntegrationTests.cpp
         tests/integration/telegram/SubscriptionIntegrationTests.cpp
         tests/integration/telegram/TelegramBotServiceIntegrationTests.cpp
         tests/integration/database/WorkerConnectionsIntegrationTests.cpp
+        tests/integration/api/HttpCancellationIntegrationTests.cpp
 )
 
 target_include_directories(ClashBotIntegrationTests PRIVATE
@@ -213,6 +219,10 @@ target_link_libraries(ClashBotIntegrationTests PRIVATE
         ClashBotCore
         GTest::gtest_main
 )
+
+if (WIN32)
+    target_link_libraries(ClashBotIntegrationTests PRIVATE ws2_32)
+endif ()
 
 include(GoogleTest)
 gtest_discover_tests(ClashBotTests DISCOVERY_TIMEOUT 30)

@@ -29,10 +29,20 @@ SyncResult ClanManager::syncWithRetry(ISyncService* service, const std::string_v
 
     for (int attempt = 1; attempt <= syncRetryPolicy_.maxAttempts(); ++attempt)
     {
+        if (!isRunning.load())
+        {
+            throw OperationCancelledException("Clan synchronization cancelled during shutdown");
+        }
+
         result = service->updateData(clanTag);
 
         if (result.successFlag)
             return result;
+
+        if (!isRunning.load())
+        {
+            throw OperationCancelledException("Clan synchronization cancelled during shutdown");
+        }
 
         if (attempt < syncRetryPolicy_.maxAttempts())
         {
@@ -43,7 +53,14 @@ SyncResult ClanManager::syncWithRetry(ISyncService* service, const std::string_v
                 attempt,
                 syncRetryPolicy_.maxAttempts());
 
-            std::this_thread::sleep_for(syncRetryPolicy_.delayForAttempt(attempt));
+            std::unique_lock lock(mtx);
+            if (cv.wait_for(
+                    lock,
+                    syncRetryPolicy_.delayForAttempt(attempt),
+                    [this] { return !isRunning.load(); }))
+            {
+                throw OperationCancelledException("Clan synchronization retry wait cancelled during shutdown");
+            }
         }
     }
 
@@ -116,21 +133,29 @@ void ClanManager::syncAll()
             continue;
         }
 
+        if (!isRunning.load())
+            break;
+
         spdlog::info(
             "[Manager] Starting synchronization cycle for {} tracked clans.",
             targetClans.size());
 
         SyncResult result;
+        bool cycleCancelled = false;
         for (const std::string& tag : targetClans)
         {
+            if (cycleCancelled || !isRunning.load())
+                break;
+
             for (const auto& service : services)
             {
+                if (cycleCancelled || !isRunning.load())
+                    break;
+
                 spdlog::debug(
                     "[Manager] Synchronizing service '{}' for clan '{}'.",
                     service->getServiceName(),
                     tag);
-
-                if (!isRunning.load()) return;
 
                 try
                 {
@@ -138,6 +163,16 @@ void ClanManager::syncAll()
 
                     if (!result.successFlag)
                     {
+                        if (!isRunning.load())
+                        {
+                            spdlog::info(
+                                "[Manager] Synchronization of service '{}' for clan '{}' interrupted during shutdown.",
+                                service->getServiceName(),
+                                tag);
+                            cycleCancelled = true;
+                            break;
+                        }
+
                         spdlog::error("[ClanManager] Service '{}' completely failed after {} attempts.",
                                       service->getServiceName(), syncRetryPolicy_.maxAttempts());
                         handleSyncFailure(result);
@@ -146,8 +181,28 @@ void ClanManager::syncAll()
 
                     handleSyncRecovery(result);
                 }
+                catch (const OperationCancelledException&)
+                {
+                    spdlog::info(
+                        "[Manager] Synchronization of service '{}' for clan '{}' cancelled during shutdown.",
+                        service->getServiceName(),
+                        tag);
+                    cycleCancelled = true;
+                    break;
+                }
                 catch (const std::exception& e)
                 {
+                    if (!isRunning.load())
+                    {
+                        spdlog::info(
+                            "[Manager] Synchronization of service '{}' for clan '{}' stopped during shutdown: {}",
+                            service->getServiceName(),
+                            tag,
+                            e.what());
+                        cycleCancelled = true;
+                        break;
+                    }
+
                     spdlog::error(
                         "[Manager] Unhandled exception while synchronizing service '{}' for clan '{}': {}",
                         service->getServiceName(),
@@ -157,6 +212,8 @@ void ClanManager::syncAll()
             }
         }
 
+        if (cycleCancelled || !isRunning.load())
+            break;
 
         spdlog::info("[Manager] Cycle finished. Sleeping for 15 minutes...");
 

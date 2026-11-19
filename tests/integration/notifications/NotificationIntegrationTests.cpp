@@ -2,7 +2,13 @@
 #include "database/MigratorManager.h"
 #include "database/TransactionManager.h"
 #include "database/SQLiteHelpers.h"
+#include "api/TelegramApiClient.h"
+#include "api/TelegramHttpTransport.h"
 #include "notifications/NotificationWorker.h"
+#include "support/FakeTelegramApiClient.h"
+#include "support/LocalHttpTestServer.h"
+
+#include <atomic>
 #include "support/FakeTelegramApiClient.h"
 
 #include <chrono>
@@ -268,4 +274,201 @@ TEST_F(NotificationIntegrationTest, SendSuccessBeforeMarkAsSentMayBeRetriedAfter
     EXPECT_EQ("sent", stateOf(database->getDBInstance(), id).status);
     EXPECT_EQ(2U, api.sentMessages.size());
     EXPECT_TRUE(notifications.getPending(10).empty());
+}
+
+TEST_F(NotificationIntegrationTest, StopsMidBatchAndDeliversRemainingPendingNotificationsAfterRestart)
+{
+    auto& notifications = database->notifications();
+    std::vector<long long> ids;
+    for (int i = 1; i <= 5; ++i)
+    {
+        const auto eventId = "batch-" + std::to_string(i);
+        ASSERT_TRUE(notifications.enqueueIfAbsent("msg-" + std::to_string(i), "test", eventId, -1001, 0));
+    }
+
+    const auto initialPending = notifications.getPending(10);
+    ASSERT_EQ(5U, initialPending.size());
+    for (const auto& item : initialPending)
+    {
+        ids.push_back(item.id);
+    }
+
+    std::atomic<int> requestCount{0};
+    LocalHttpTestServer firstServer([&](const std::string&, const std::function<bool()>& shouldStop)
+    {
+        const int current = requestCount.fetch_add(1) + 1;
+        if (current == 1)
+        {
+            return std::optional<LocalHttpTestServer::ResponseSpec>{
+                LocalHttpTestServer::ResponseSpec{
+                    .statusCode = 200,
+                    .body = R"({"ok":true,"result":{"message_id":1}})"
+                }
+            };
+        }
+
+        while (!shouldStop())
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        }
+        return std::optional<LocalHttpTestServer::ResponseSpec>{};
+    });
+
+    {
+        TelegramHttpTransport transport(
+            "test-token",
+            TelegramHttpTransportPolicy{
+                .requestTimeout = std::chrono::seconds{10},
+                .retry = RetryPolicy{1},
+                .baseUrl = firstServer.baseUrl()
+            });
+        TelegramApiClient apiClient(transport);
+        TelegramNotifier notifier(apiClient);
+        NotificationWorker worker(notifications, notifier, std::chrono::hours{1});
+
+        std::thread thread([&] { worker.run(); });
+        ASSERT_TRUE(firstServer.waitForAcceptedConnections(2));
+        std::this_thread::sleep_for(std::chrono::milliseconds{80});
+
+        const auto stopStart = std::chrono::steady_clock::now();
+        transport.requestStop();
+        worker.requestStop();
+        thread.join();
+        EXPECT_LT(std::chrono::steady_clock::now() - stopStart, std::chrono::seconds{5});
+    }
+
+    EXPECT_EQ(2U, firstServer.acceptedConnections());
+    EXPECT_EQ("sent", stateOf(database->getDBInstance(), ids[0]).status);
+
+    EXPECT_EQ(4U, notifications.getPending(10).size());
+    for (std::size_t i = 1; i < ids.size(); ++i)
+    {
+        const auto state = stateOf(database->getDBInstance(), ids[i]);
+        EXPECT_EQ("pending", state.status);
+        EXPECT_EQ(0, state.attempts);
+        EXPECT_TRUE(state.lastError.empty());
+    }
+
+    std::atomic<int> restartedDeliveries{0};
+    LocalHttpTestServer secondServer([&](const std::string&, const std::function<bool()>&)
+    {
+        restartedDeliveries.fetch_add(1);
+        return LocalHttpTestServer::ResponseSpec{
+            .statusCode = 200,
+            .body = R"({"ok":true,"result":{"message_id":2}})"
+        };
+    });
+
+    {
+        TelegramHttpTransport transport(
+            "test-token",
+            TelegramHttpTransportPolicy{
+                .requestTimeout = std::chrono::seconds{5},
+                .retry = RetryPolicy{1},
+                .baseUrl = secondServer.baseUrl()
+            });
+        TelegramApiClient apiClient(transport);
+        TelegramNotifier notifier(apiClient);
+        NotificationWorker worker(notifications, notifier, std::chrono::hours{1});
+
+        std::thread thread([&] { worker.run(); });
+        ASSERT_TRUE(secondServer.waitForAcceptedConnections(4));
+
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+        while (std::chrono::steady_clock::now() < deadline && !notifications.getPending(10).empty())
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        }
+
+        transport.requestStop();
+        worker.requestStop();
+        thread.join();
+    }
+
+    EXPECT_EQ(4, restartedDeliveries.load());
+    EXPECT_TRUE(notifications.getPending(10).empty());
+    for (const auto id : ids)
+    {
+        EXPECT_EQ("sent", stateOf(database->getDBInstance(), id).status);
+    }
+}
+
+TEST_F(NotificationIntegrationTest, CancellationDuringRetryAfterDoesNotBurnAttemptsOrMarkFailed)
+{
+    auto& notifications = database->notifications();
+    ASSERT_TRUE(notifications.enqueueIfAbsent("retry-after-stop", "test", "retry-stop", -1001, 0));
+    const auto id = notifications.getPending(10).front().id;
+
+    LocalHttpTestServer rateLimitedServer([](const std::string&, const std::function<bool()>&)
+    {
+        return LocalHttpTestServer::ResponseSpec{
+            .statusCode = 429,
+            .body = R"({"ok":false,"parameters":{"retry_after":60}})"
+        };
+    });
+
+    {
+        TelegramHttpTransport transport(
+            "test-token",
+            TelegramHttpTransportPolicy{
+                .requestTimeout = std::chrono::seconds{5},
+                .retry = RetryPolicy{3, std::chrono::milliseconds{100}},
+                .baseUrl = rateLimitedServer.baseUrl()
+            });
+        TelegramApiClient apiClient(transport);
+        TelegramNotifier notifier(apiClient);
+        NotificationWorker worker(notifications, notifier, std::chrono::hours{1}, RetryPolicy{1});
+
+        std::thread thread([&] { worker.run(); });
+        ASSERT_TRUE(rateLimitedServer.waitForAcceptedConnections(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds{80});
+
+        const auto stopStart = std::chrono::steady_clock::now();
+        transport.requestStop();
+        worker.requestStop();
+        thread.join();
+        EXPECT_LT(std::chrono::steady_clock::now() - stopStart, std::chrono::seconds{2});
+    }
+
+    const auto afterStop = stateOf(database->getDBInstance(), id);
+    EXPECT_EQ("pending", afterStop.status);
+    EXPECT_EQ(0, afterStop.attempts);
+    EXPECT_EQ(1U, notifications.getPending(10).size());
+    EXPECT_TRUE(afterStop.lastError.empty());
+
+    LocalHttpTestServer okServer([](const std::string&, const std::function<bool()>&)
+    {
+        return LocalHttpTestServer::ResponseSpec{
+            .statusCode = 200,
+            .body = R"({"ok":true,"result":{"message_id":99}})"
+        };
+    });
+
+    {
+        TelegramHttpTransport transport(
+            "test-token",
+            TelegramHttpTransportPolicy{
+                .requestTimeout = std::chrono::seconds{5},
+                .retry = RetryPolicy{1},
+                .baseUrl = okServer.baseUrl()
+            });
+        TelegramApiClient apiClient(transport);
+        TelegramNotifier notifier(apiClient);
+        NotificationWorker worker(notifications, notifier, std::chrono::hours{1}, RetryPolicy{1});
+
+        std::thread thread([&] { worker.run(); });
+        ASSERT_TRUE(okServer.waitForAcceptedConnections(1));
+
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+        while (std::chrono::steady_clock::now() < deadline && !notifications.getPending(10).empty())
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        }
+
+        transport.requestStop();
+        worker.requestStop();
+        thread.join();
+    }
+
+    EXPECT_EQ("sent", stateOf(database->getDBInstance(), id).status);
 }
