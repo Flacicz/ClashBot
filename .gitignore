@@ -7,6 +7,7 @@
 *.vcxproj
 *.vcxproj.*
 data/
+backups/
 config.json
 .idea/
 .ai/

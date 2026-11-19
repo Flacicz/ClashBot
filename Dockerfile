@@ -49,6 +49,9 @@ RUN cmake -S . -B build \
 # ==========================================
 FROM ubuntu:24.04 AS runtime
 
+LABEL org.opencontainers.image.source="https://github.com/Flacicz/ClashBot" \
+      org.opencontainers.image.description="ClashBot — autonomous Clash of Clans clan monitoring bot"
+
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install --no-install-recommends -y \

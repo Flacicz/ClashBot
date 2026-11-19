@@ -354,7 +354,8 @@ Dockerfile использует два этапа:
 2. runtime на Ubuntu 24.04 содержит ClashBot, /app/migrations и /app/resources.
 
 Runtime-контейнер запускается с аргументом config.json; файл обычно монтируется с хоста как read-only, а /app/data и
-/app/logs — как постоянные тома.
+/app/logs — как постоянные тома. Публикация образа в GHCR, запуск через `docker-compose.yml` и бэкапы описаны в
+[deployment.md](deployment.md).
 
 ## Ограничения архитектуры
 

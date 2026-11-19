@@ -63,12 +63,16 @@ Clash of Clans, сохраняет текущее состояние и исто
 include/                 публичные заголовки компонентов
 src/                     реализация приложения
 src/database/migrations  последовательные SQL-миграции
-tests/                    unit- и integration-тесты
+tests/                   unit- и integration-тесты
 resources/telegram/      JSON-каталог видео-гайдов
-docs/                    архитектура, БД, отчёты, Telegram и roadmap
-scripts/                 вспомогательные скрипты Docker-деплоя и SSH-туннеля
+docs/                    архитектура, БД, отчёты, Telegram, деплой и roadmap
+scripts/                 скрипты ежедневного бэкапа SQLite и SSH-туннеля
 CMakeLists.txt           цели сборки и зависимости
+CMakePresets.json        пресеты сборки и тестирования для Linux и Windows
 Dockerfile               multi-stage Docker-сборка
+docker-compose.yml       конфигурация запуска контейнера на сервере
+config.example.json      шаблон несекретной конфигурации для Docker
+.env.example             шаблон переменных окружения с токенами
 vcpkg.json               manifest-зависимости vcpkg
 ```
 
@@ -245,53 +249,35 @@ long polling.
 
 ### SSH-туннель
 
-Туннель нужен только при `use_tunnel: true`. Скрипт [`scripts/startTunnel.sh`](scripts/startTunnel.sh) рассчитан на
-WSL/Linux и содержит окруженческие значения удалённого сервера, которые перед использованием нужно заменить. Он
-пробрасывает локальный порт `8080` к `api.clashofclans.com:443`; пример URL в конфигурации —
-`https://localhost:8080/v1`.
+Туннель нужен только при локальном запуске с `"use_tunnel": true`, чтобы направлять запросы к Clash of Clans API через статический IP сервера. Он пробрасывает локальный порт `8080` к `api.clashofclans.com:443` (`tunnel_base_url`: `https://localhost:8080/v1`):
+
+- на Windows (PowerShell с OpenSSH): `ssh -N -L 8080:api.clashofclans.com:443 <user>@<vps-ip>`;
+- на Linux / WSL: [`scripts/startTunnel.sh`](scripts/startTunnel.sh) (адрес сервера передаётся аргументом или через `CLASHBOT_SSH_HOST`).
 
 ## Docker-развёртывание
 
-Соберите образ на машине, где доступен Docker:
+При каждом merge в `main` GitHub Actions (`.github/workflows/docker-publish.yml`) собирает [`Dockerfile`](Dockerfile), прогоняет тесты и публикует образ `ghcr.io/flacicz/clashbot` с тегами `latest` и `sha-<short>`.
 
-```powershell
-docker build -t clashbot:latest .
-docker save -o clashbot.tar clashbot:latest
+Для запуска на сервере подготовлены [`docker-compose.yml`](docker-compose.yml), [`config.example.json`](config.example.json), [`.env.example`](.env.example) и скрипт ежедневного бэкапа SQLite [`scripts/backup-sqlite.sh`](scripts/backup-sqlite.sh):
+
+```bash
+cp config.example.json config.json
+cp .env.example .env
+mkdir -p data logs backups
+docker compose pull
+docker compose up -d
 ```
 
-На сервере подготовьте каталог и файлы `config.json` и `.env`, затем загрузите образ:
+В образе уже находятся бинарник `/app/ClashBot`, миграции `/app/migrations` и каталог `/app/resources`. Конфигурация `config.json` монтируется только для чтения, секреты передаются через `.env`, а `data` и `logs` остаются на хосте.
 
-``` bash
-mkdir -p ~/clashbot/data ~/clashbot/logs
-docker load -i ~/clashbot/clashbot.tar
-```
-
-Пример запуска:
-
-``` bash
-docker run -d \
-  --name clashbot \
-  --restart unless-stopped \
-  --env-file "$HOME/clashbot/.env" \
-  -v "$HOME/clashbot/config.json:/app/config.json:ro" \
-  -v "$HOME/clashbot/data:/app/data" \
-  -v "$HOME/clashbot/logs:/app/logs" \
-  clashbot:latest
-```
-
-В образе уже находятся бинарник `/app/ClashBot`, миграции `/app/migrations` и каталог `/app/resources`. При запуске
-миграции применяются автоматически. Конфигурация монтируется только для чтения, а `data` и `logs` остаются на хосте.
+Полная пошаговая инструкция по серверу, GHCR, бэкапам SQLite в облако через `rclone` и проверке восстановления находится в [`docs/deployment.md`](docs/deployment.md).
 
 Проверка контейнера:
 
-``` bash
-docker ps
-docker logs -f clashbot
+```bash
+docker compose ps
+docker compose logs -f clashbot
 ```
-
-Скрипт [`scripts/deployProject.sh`](scripts/deployProject.sh) автоматизирует похожий сценарий, но сейчас содержит
-жёстко заданные локальный путь проекта, SSH-сервер и удалённый каталог. Перед использованием отредактируйте эти
-значения и подготовьте `.env` на сервере.
 
 ## Ручное администрирование SQLite
 
@@ -347,6 +333,7 @@ VALUES ('#CLAN_TAG', -1000000000000, 0, 'players');
 - [Схема SQLite и миграции](docs/database.md)
 - [События и отчёты](docs/reports.md)
 - [Telegram-интеграция](docs/telegram.md)
+- [Развёртывание и бэкапы](docs/deployment.md)
 - [Текущее состояние и roadmap](docs/roadmap.md)
 
 ## Правовая информация
