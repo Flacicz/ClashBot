@@ -117,10 +117,10 @@ docker compose logs -f clashbot
 ### Штатное обновление
 
 ```bash
-cd /opt/clashbot
-docker compose pull
-docker compose up -d
+cd /opt/clashbot && docker compose pull && docker compose up -d && docker image prune -f
 ```
+
+`docker image prune -f` удаляет старые неиспользуемые слои образов, чтобы не переполнять небольшой диск VPS. Если в обновлении менялись `docker-compose.yml`, `.env.example`, `config.example.json` или `scripts/backup-sqlite.sh`, перед `docker compose up -d` обновите соответствующие файлы на сервере.
 
 ### Откат к предыдущей версии
 
