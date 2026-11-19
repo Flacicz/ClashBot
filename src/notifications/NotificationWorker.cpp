@@ -219,9 +219,8 @@ long long NotificationWorker::nextAttemptAt(const int attempt,
     }
 
     const auto delayMilliseconds = delay.count();
-    const auto delaySeconds = (std::max)(
-        1LL,
-        (delayMilliseconds + 999) / 1000);
+    const long long computedDelaySeconds = (delayMilliseconds + 999) / 1000;
+    const auto delaySeconds = (std::max)(1LL, computedDelaySeconds);
 
     const auto now = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch());
