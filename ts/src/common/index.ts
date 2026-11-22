@@ -1,4 +1,5 @@
 export { FakeClock, SystemClock, type Clock } from './clock.js';
+export { escapeHtml, formatUnixToMoscowDateTime, removeTrailingNewlines } from './formatUtils.js';
 export {
     AbortError,
     AppError,

@@ -1,0 +1,6 @@
+🚨 <b>ОШИБКА СИНХРОНИЗАЦИИ</b>
+
+Клан: <code>#2J8PJ9VLG</code>
+Сервис: <code>ClanwarService</code>
+Попытка: 3
+Ошибка: <code>Connection failed</code>

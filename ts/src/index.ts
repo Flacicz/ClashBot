@@ -6,5 +6,6 @@ export * from './domainEvents/index.js';
 export * from './events/index.js';
 export * from './logging/index.js';
 export * from './models/index.js';
+export * from './reports/index.js';
 export * from './services/index.js';
 export * from './telegram/index.js';

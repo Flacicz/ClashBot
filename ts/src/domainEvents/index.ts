@@ -1,4 +1,9 @@
 export {
+    DomainEventPayloadDeserializer,
+    deserializeDomainEvent,
+    deserializeDomainEventRecord,
+} from './domainEventPayloadDeserializer.js';
+export {
     CURRENT_DOMAIN_EVENT_PAYLOAD_VERSION,
     DomainEventPayloadSerializer,
     serializeDomainEvent,
