@@ -9,5 +9,6 @@ export {
     ValidationError,
     isAbortError,
     type AppErrorOptions,
+    type DatabaseErrorOptions,
     type ExternalApiErrorOptions,
 } from './errors.js';

@@ -36,9 +36,25 @@ export class AbortError extends AppError {
     }
 }
 
+export interface DatabaseErrorOptions extends AppErrorOptions {
+    readonly sqliteCode?: string;
+}
+
 export class DatabaseError extends AppError {
-    constructor(message: string, options?: AppErrorOptions) {
+    readonly sqliteCode?: string;
+
+    constructor(message: string, options?: DatabaseErrorOptions) {
         super('DATABASE_ERROR', message, options);
+        if (options?.sqliteCode !== undefined) {
+            this.sqliteCode = options.sqliteCode;
+        }
+    }
+
+    isBusy(): boolean {
+        return (
+            this.sqliteCode === 'SQLITE_BUSY' ||
+            (this.sqliteCode?.startsWith('SQLITE_BUSY_') ?? false)
+        );
     }
 }
 

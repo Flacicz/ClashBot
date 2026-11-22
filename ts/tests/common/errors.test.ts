@@ -49,6 +49,17 @@ describe('Application error hierarchy', () => {
         expect(apiError.retryable).toBe(false);
     });
 
+    it('detects SQLITE_BUSY and extended busy codes on DatabaseError', () => {
+        expect(new DatabaseError('busy', { sqliteCode: 'SQLITE_BUSY' }).isBusy()).toBe(true);
+        expect(
+            new DatabaseError('busy snapshot', { sqliteCode: 'SQLITE_BUSY_SNAPSHOT' }).isBusy(),
+        ).toBe(true);
+        expect(new DatabaseError('constraint', { sqliteCode: 'SQLITE_CONSTRAINT' }).isBusy()).toBe(
+            false,
+        );
+        expect(new DatabaseError('generic').isBusy()).toBe(false);
+    });
+
     it('detects AbortError instances and native DOMException AbortError', () => {
         expect(isAbortError(new AbortError())).toBe(true);
         expect(isAbortError(new DOMException('aborted', 'AbortError'))).toBe(true);
