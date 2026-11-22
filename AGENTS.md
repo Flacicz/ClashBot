@@ -43,6 +43,7 @@ git diff --check
 - Деплой на сервер, GHCR, Docker Compose, бэкап и восстановление SQLite → [`docs/deployment.md`](docs/deployment.md)
 - Реализованные возможности и известные ограничения → [`docs/roadmap.md`](docs/roadmap.md)
 - Сборка, конфигурация, переменные окружения и запуск → [`README.md`](README.md)
+- Автономная оркестрация переноса на TypeScript (`#16`, тикеты `#17`–`#35`) → [`docs/agents/ts-migration-orchestration.md`](docs/agents/ts-migration-orchestration.md)
 
 При расхождении кода и документации сначала сообщи пользователю со ссылками и согласуй источник истины.
 
@@ -51,6 +52,7 @@ git diff --check
 - Источник правды по задачам — **GitHub Issues**.
 - **Техлид (пользователь)** формулирует задачу и критерии готовности, принимает доменные решения, ревьюит и **сам сливает PR**.
 - **Исполнитель (агент)** планирует, пишет код и тесты, прогоняет проверки, коммитит в короткую ветку от `main` (`feat/`, `fix/`, `docs/`, `chore/`), пушит ветку и открывает PR через `gh`.
+- **Исключение для TS-миграции (`#17`–`#35`)**: автономный оркестратор ведёт разработку в интеграционной ветке `feat/ts-migration`, принимает решения о слиянии проверенных side-by-side тикетов в `feat/ts-migration` и закрывает их по регламенту [`docs/agents/ts-migration-orchestration.md`](docs/agents/ts-migration-orchestration.md); итоговый PR в `main` и шаги `#36`–`#37` остаются за человеком.
 - Цепочка при сквозных изменениях: `модель / API → сервис → транзакция / репозиторий → доменное событие → форматтер → outbox → Telegram`.
 - Слияние в `main` — squash merge; формат коммитов — Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
 
@@ -84,11 +86,11 @@ git diff --check
 
 - Доменные правила: что считать нарушением в войне, CWL или рейде; какая аудитория (`players` / `management`) получает сообщение и каким должен быть тон.
 - Операционные настройки: значения по умолчанию, расписание синхронизации, контрольные точки, часовой пояс, обратная совместимость.
-- Слияние PR, релизы, сервер, рабочая SQLite-база, токены и реальные Telegram-чаты.
+- Слияние PR в `main`, релизы, сервер, рабочая SQLite-база, токены и реальные Telegram-чаты.
 
 ## Запреты
 
-- Прямой `push` в `main`, `merge` PR, `--force`, `git reset --hard`, `git checkout --`.
+- Прямой `push` в `main`, `merge` PR в `main`, `--force`, `git reset --hard`, `git checkout --` *(единственное исключение для `merge`: слияние проверенных side-by-side веток тикетов `#17`–`#35` в `feat/ts-migration` по регламенту [`docs/agents/ts-migration-orchestration.md`](docs/agents/ts-migration-orchestration.md))*.
 - Чтение, вывод в логи или ответ и изменение `.env`, `config.json`, `data/`, реальных токенов, продовой БД и реальных Telegram-чатов.
 - Изменение уже применённых миграций в `src/database/migrations/`.
 - Деструктивные SQL-команды, деплой и отправка сообщений в реальный Telegram.
@@ -114,3 +116,7 @@ Standard five-label triage vocabulary (`needs-triage`, `needs-info`, `ready-for-
 ### Domain docs
 
 Single-context layout (`GLOSSARY.md` at repo root, `docs/adr/` for ADRs). See `docs/agents/domain.md`.
+
+### TS migration orchestration
+
+Autonomous Swarm runbook for side-by-side TypeScript migration tickets (`#17`–`#35` in `feat/ts-migration`). See `docs/agents/ts-migration-orchestration.md`.
