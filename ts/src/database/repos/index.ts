@@ -45,4 +45,30 @@ export {
     type ClanwarsLeagueMember,
     type ClanwarsLeagueSeason,
 } from './clanwarsLeagueRepo.js';
+export {
+    DEFAULT_PENDING_DESTINATIONS_LIMIT,
+    DomainEventsRepo,
+    type DomainEventDestinationRecord,
+    type DomainEventDestinationStatus,
+    type DomainEventRecord,
+    type PendingDomainEventDestination,
+} from './domainEventsRepo.js';
+export {
+    DEFAULT_PENDING_NOTIFICATIONS_LIMIT,
+    NotificationRepo,
+    type NotificationStatus,
+    type PendingNotification,
+} from './notificationRepo.js';
 export { RaidRepo } from './raidRepo.js';
+export {
+    GENERAL_CHAT_THREAD_ID,
+    SubscriptionRepo,
+    type SubscriptionDestination,
+    type TelegramDestination,
+} from './subscriptionRepo.js';
+export {
+    SYNC_SERVICE_NAMES,
+    SyncOutageRepo,
+    type SyncOutageState,
+    type SyncServiceName,
+} from './syncOutageRepo.js';
