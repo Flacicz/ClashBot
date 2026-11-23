@@ -99,4 +99,26 @@ describe('createLogger', () => {
         expect(secondDest.getOutput()).toContain('second');
         expect(secondDest.getOutput()).not.toContain('first');
     });
+
+    it('redacts Telegram bot tokens, Bearer tokens, and env secrets inside serialized errors', () => {
+        const { stream, getOutput } = createMemoryStream();
+        const logger = createLogger({
+            destination: stream,
+            env: {
+                SUPERCELL_TOKEN: 'ci-dummy-supercell-token',
+                TELEGRAM_TOKEN: '123456:ci-dummy-telegram-token',
+            },
+        });
+
+        const err = new Error(
+            "Network request for 'https://api.telegram.org/bot123456:ci-dummy-telegram-token/getUpdates' failed (Authorization: Bearer ci-dummy-supercell-token)",
+        );
+        logger.error({ err }, 'Telegram getUpdates request failed');
+
+        const output = getOutput();
+        expect(output).not.toContain('123456:ci-dummy-telegram-token');
+        expect(output).not.toContain('ci-dummy-supercell-token');
+        expect(output).toContain('bot[Redacted]');
+        expect(output).toContain('Bearer [Redacted]');
+    });
 });
