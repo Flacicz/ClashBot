@@ -2,7 +2,7 @@
 
 ## Назначение
 
-ClashBot — автономное C++20-приложение, которое периодически синхронизирует данные одного или нескольких кланов Clash
+ClashBot — автономное TypeScript-приложение на Node.js 24 LTS, которое периодически синхронизирует данные одного или нескольких кланов Clash
 of Clans, сохраняет их в SQLite и публикует сообщения в Telegram.
 
 Внешние источники данных:
@@ -29,7 +29,7 @@ Telegram. Так событие и получатели переживают п�
 | database.migrations_path | string | каталог SQL-миграций |
 | telegram.attack_guides_path | string | путь к JSON-каталогу гайдов |
 
-Значения по умолчанию задаются в src/config/ConfigLoader.cpp, но для запуска рекомендуется явно указать все пути.
+Значения по умолчанию задаются в `src/config/configSchema.ts`, но для запуска рекомендуется явно указать все пути.
 Пути разрешаются относительно текущего рабочего каталога процесса, а не относительно каталога конфигурационного файла.
 
 ### Секреты
@@ -39,7 +39,7 @@ Telegram. Так событие и получатели переживают п�
 - SUPERCELL_TOKEN — токен Clash of Clans API;
 - TELEGRAM_TOKEN — токен Telegram-бота.
 
-main.cpp ищет .env рядом с переданным config.json. Файл необязателен. Config::loadDotEnv устанавливает только те
+Загрузчик конфигурации ищет `.env` рядом с переданным `config.json`. Файл необязателен. Загрузчик устанавливает только те
 переменные, которых ещё нет в окружении, поэтому переменные процесса, Docker или CI/CD имеют приоритет.
 
 Значения .env должны иметь простой формат KEY=value; пустые строки и строки, начинающиеся с #, пропускаются. Загрузчик
@@ -47,7 +47,7 @@ main.cpp ищет .env рядом с переданным config.json. Файл 
 
 ### Подключение к Clash of Clans API
 
-APIClient конкатенирует выбранный базовый URL с endpoint'ом и отправляет:
+`CocApiClient` нормализует базовый URL и добавляет путь запроса и отправляет:
 
 ```
 Authorization: Bearer <SUPERCELL_TOKEN>
@@ -67,43 +67,29 @@ Accept: Application/json
 | GET | /clans/{tag}/currentwar/leaguegroup | текущий сезон и раунды CWL |
 | GET | /clanwarleagues/wars/{tag} | детали отдельного раунда CWL |
 
-APIClient преобразует HTTP-ошибки в ApiException: сеть, 404, rate limit 429, доступ 403, некорректный JSON и
+`CocApiClient` классифицирует ошибки в `CocApiError`: сеть, 404, rate limit 429, доступ 403, некорректный JSON и
 неожиданный ответ. Сервисы отдельно обрабатывают отсутствие активной войны или лиги.
 
 ## Запуск приложения
 
-src/main.cpp выполняет следующие шаги:
+`src/cli.ts` передаёт аргументы в `src/main.ts`. По умолчанию используется `config.json` из текущего каталога.
+Приложение инициализирует Pino, загружает конфигурацию, открывает SQLite, применяет миграции и загружает каталог гайдов.
+`src/app/application.ts` создаёт репозитории, клиенты и четыре асинхронных цикла в одном процессе Node.js:
 
-1. настраивает цветной console sink и rotating file sink logs/bot.log (5 МБ, 3 файла);
-2. регистрирует обработчики SIGINT и SIGTERM;
-3. определяет путь к конфигурации: аргумент командной строки или ../config.json;
-4. загружает .env из каталога конфигурации, если файл существует;
-5. валидирует JSON-настройки и обязательные токены;
-6. открывает SQLite и включает foreign_keys, WAL и synchronous = NORMAL;
-7. создаёт MigratorManager и применяет миграции;
-8. создаёт отдельные SQLite-соединения для синхронизации, Telegram-команд, материализации событий и доставки уведомлений;
-9. запускает поток синхронизации ClanManager;
-10. запускает DomainEventWorker для материализации сохранённых событий;
-11. запускает NotificationWorker для фоновой доставки готовых outbox-сообщений;
-12. запускает TelegramBotService для long polling;
-13. ждёт сигнал остановки и через `ShutdownCoordinator` одновременно сигнализирует остановку транспортам (`APIClient`,
-    `TelegramHttpTransport`) и всем рабочим потокам, ограничивая общее ожидание единым бюджетом в 15 секунд
-    (как при штатном завершении, так и при ошибке запуска потоков).
+- синхронизация кланов через `ClanManager`;
+- материализация событий через `DomainEventWorker`;
+- доставка outbox через `NotificationWorker`;
+- получение команд и callback-запросов через `TelegramBotService`.
 
-Остановка через `requestStop()`, `stop()` и `stopLoop()` одновременно будит условные переменные (включая паузы
-`retry_after`, retry-backoff и циклы ожидания), прерывает активные HTTP-запросы через callback отмены `cpr` и
-проверяется между элементами в batch-циклах (`NotificationWorker`, `DomainEventWorker`) и в цикле сервисов/кланов
-(`ClanManager`). При прерывании по остановке `NotificationWorker` и `DomainEventWorker` не сжигают `attempts` и не
-переводят записи в `failed` (необработанные `pending`-записи доставляются после перезапуска), а `ClanManager` не
-фиксирует ложный `sync_outage`. Если блокирующий системный вызов не завершился в рамках общего `shutdown budget` (15 с,
-с запасом до `stop_grace_period: 30s` в `docker-compose.yml`), `main.cpp` логирует `critical` с перечнем зависших
-потоков, сбрасывает буферы логов и контролируемо завершает процесс (`std::_Exit(EXIT_FAILURE)`), не дожидаясь `SIGKILL`.
+`ShutdownCoordinator` обрабатывает SIGINT и SIGTERM и отменяет общий `AbortSignal`, чтобы прервать ожидания и HTTP-запросы.
+После завершения циклов он закрывает HTTP-пул CoC и SQLite. На остановку отведено 15 секунд при `stop_grace_period: 30s`
+в Compose. Превышение бюджета приводит к записи уровня `fatal` и завершению процесса с кодом 1.
 
 ## Слои проекта
 
 ### Domain models
 
-Доменные модели находятся в include/models и src/models. Они преобразуют JSON API в типизированные структуры:
+Доменные модели находятся в `src/models` и `src/api`. Они преобразуют JSON API в типизированные структуры:
 
 - Clan, Player, ClanSnapshot, PlayerSnapshot;
 - Clanwar, ClanwarClan, ClanwarMember, ClanwarAttack;
@@ -112,19 +98,18 @@ src/main.cpp выполняет следующие шаги:
 - агрегаты CompleteClanData, CompleteClanwarData, CompleteClanwarsLeagueData, CompleteRaidData;
 - структуры отчётов и результатов сравнительной аналитики.
 
-Время API приводится к Unix timestamp. При выводе в Telegram utils::formatUnixToLocalDateTime отображает время в
+Время API приводится к Unix timestamp. При выводе в Telegram `formatUnixToMoscowDateTime` отображает время в
 московском часовом поясе UTC+3.
 
 ### API layer
 
-APIClient отвечает за HTTP-запросы к Clash of Clans API и не знает о SQLite, Telegram-подписках или форматировании
-сообщений. TelegramHttpTransport является общей точкой для Telegram HTTP-запросов: задаёт timeout, retry policy,
-exponential backoff и обработку HTTP 429 через `parameters.retry_after`. TelegramApiClient отдельно инкапсулирует
-вызовы sendMessage, editMessageText, answerCallbackQuery, getChatMember и getUpdates.
+`CocApiClient` использует undici для Clash of Clans API и проверяет ответы схемами zod. `TelegramBotService` использует
+grammY для входящих обновлений и ответов на команды. `TelegramGateway` отправляет уведомления через grammY, а
+`NotificationWorker` хранит расписание повторов в SQLite. Параметры запросов и доставки описаны в [telegram.md](telegram.md).
 
 ### Service layer
 
-Все фоновые сервисы реализуют ISyncService:
+Все фоновые сервисы реализуют `SyncService`:
 
 | Сервис | Данные | События |
 | --- | --- | --- |
@@ -135,15 +120,15 @@ exponential backoff и обработку HTTP 429 через `parameters.retry_
 
 Каждый сервис делает одну транзакцию записи. ClanwarService и ClanwarLeagueService возвращают успешный пустой
 результат, если для обработки пока нет активной войны или раунда. RaidService считает отсутствие доступного рейда
-ошибкой синхронизации, чтобы сработал retry. Ошибка получения данных или записи возвращается как SyncResult::error.
+ошибкой синхронизации, чтобы сработал retry. Ошибка получения данных или записи возвращается как ошибка в `SyncResult`.
 
 ### ClanManager
 
 ClanManager координирует сервисы и не содержит SQL-запросов конкретных предметных областей:
 
-1. перед каждым циклом вызывает ClansRepo::getTrackedClans();
-2. для каждого тега запускает сервисы в порядке, заданном main.cpp;
-3. выполняет до трёх попыток сервиса; перед второй и третьей попыткой ждёт по 2 секунды (прерывается по `stop()` без
+1. перед каждым циклом вызывает `clansRepo.getTrackedClans()`;
+2. для каждого тега запускает сервисы в порядке, заданном в `src/app/application.ts`;
+3. выполняет до трёх попыток сервиса; перед второй и третьей попыткой ждёт по 2 секунды (прерывается по `AbortSignal` без
    записи ложного `sync_outage`);
 4. события и их destinations сохраняются DomainEventRecorder внутри транзакции синхронизации; ClanManager не запускает
    вторую, неустойчивую отправку из `SyncResult.events`;
@@ -157,7 +142,7 @@ ClanManager координирует сервисы и не содержит SQL
 
 ### Repository layer
 
-Репозитории скрывают SQL и преобразование sqlite3_stmt в доменные структуры:
+Репозитории скрывают SQL и преобразование строк SQLite в доменные структуры:
 
 - ClansRepo — кланы, игроки, snapshots и история членства;
 - ClanwarRepo — войны, стороны, участники, атаки и выборки для отчётов;
@@ -172,22 +157,12 @@ ClanManager координирует сервисы и не содержит SQL
 
 ### Database layer
 
-Каждый экземпляр Database открывает отдельное SQLite-соединение и создаёт экземпляры всех репозиториев. В приложении
-отдельные соединения используются для синхронизации, Telegram-команд, DomainEventWorker и NotificationWorker. Это не даёт
-потокам одновременно использовать один connection/репозитории в независимых транзакциях. При открытии включаются:
+Одна инстанция `Database` открывает соединение `better-sqlite3` для синхронизации, Telegram-команд и обоих обработчиков
+очередей. SQLite использует WAL, `foreign_keys = ON`, `synchronous = NORMAL` и `busy_timeout = 5000`.
 
-```
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-```
-
-Для ожидания кратковременной блокировки SQLite используется busy timeout 5 секунд. TransactionManager повторяет
-транзакцию при временной ошибке базы до трёх раз с линейной задержкой 100 мс.
-
-Транзакции сервисов, Telegram-команд и миграций используют TransactionManager и RAII-объект TransactionGuard.
-Конструктор guard выполняет `BEGIN IMMEDIATE`; явный `commit()` завершает транзакцию, а деструктор выполняет
-`ROLLBACK`, если commit не был вызван.
+`TransactionManager` выполняет синхронный callback между `BEGIN IMMEDIATE` и `COMMIT`. При ошибке транзакция
+откатывается. Временная блокировка допускает до трёх попыток с линейной задержкой от 100 мс. HTTP выполняется за пределами
+транзакций.
 
 ## Миграции
 
@@ -229,7 +204,7 @@ MigratorManager:
 
 ## Domain events
 
-Тип ApplicationEvent — это std::variant из десяти типов:
+Тип ApplicationEvent — это дискриминируемое объединение десяти типов:
 
 | Событие | Кто создаёт | Назначение |
 | --- | --- | --- |
@@ -283,16 +258,15 @@ destination остаётся `pending`: порог вызывает alert в л�
 - DomainEventWorker десериализует payload, вызывает NotificationService для построения и постановки сообщения и атомарно
   помечает destination материализованным;
 - NotificationWorker выбирает записи со статусом `pending`, готовые к следующей попытке;
-- TelegramNotifier передаёт готовый текст из worker-а в TelegramApiClient;
+- `TelegramGateway` отправляет готовый HTML через grammY;
 - после успеха worker вызывает `markAsSent`, при временной ошибке — `reschedule`, при окончательной — `markAsFailed`;
 - TelegramBotService работает параллельно и обрабатывает пользовательские команды, не участвуя в фоновой синхронизации.
 
 `/unlink` в транзакции отменяет pending destinations и связанные pending notifications для текущего `subscription_id`,
 затем удаляет подписку. Повторный `/link` получает новый `subscription_id`; старые destinations не переходят на него.
-Работники пока не атомарно захватывают строки перед обработкой: если destination или notification уже попала в загруженную
-пачку, обработка может продолжиться после `/unlink`. Для NotificationWorker это означает, что сообщение может быть
-отправлено после отмены; `markAsSent` не меняет строку, уже переведённую в `cancelled`. Это известная гонка, а не строгая
-гарантия немедленной отмены.
+`DomainEventWorker` перед материализацией повторно проверяет статус назначения внутри транзакции.
+`NotificationWorker` проверяет статус сообщения перед HTTP-вызовом. Если запрос уже ушёл, Telegram может доставить
+сообщение после отмены. `markAsSent` обновляет только строки в статусе `pending`.
 
 Отображение аудиторий:
 
@@ -303,8 +277,7 @@ destination остаётся `pending`: порог вызывает alert в л�
 
 ## TelegramBotService
 
-TelegramBotService использует long polling с timeout = 2 секунды. После ошибки API ждёт одну секунду и продолжает работу.
-Обрабатываются только обновления message и callback_query.
+`TelegramBotService` запускает long polling grammY с таймаутом 2 секунды и получает только `message` и `callback_query`.
 
 Поддерживаются:
 
@@ -339,38 +312,23 @@ SyncFailureEvent и SyncRecoveryEvent используют ID одного по�
 
 ## Логирование и ошибки
 
-Логи пишутся с уровня info; более подробная диагностика некоторых компонентов использует debug. Ошибки внешнего API,
-SQLite, JSON, Telegram и синхронизации включают имя компонента и предметный контекст.
-
-Основные исключения:
-
-- DatabaseException — ошибки SQLite и миграций;
-- ApiException — сеть, HTTP-ответ, Telegram или некорректный JSON;
-- ClashBotException — общий базовый тип.
-
-Ошибка запуска приводит к коду EXIT_FAILURE. Ошибка одного сервиса не останавливает остальные сервисы в текущем
-цикле; ошибка потока синхронизации или необработанный критический сбой переводит приложение в остановку.
+Pino пишет структурированные логи в stdout. Уровень по умолчанию — `info`, его можно изменить через `LOG_LEVEL`.
+В производственном контейнере логи имеют формат JSON. Ошибка отдельного сервиса фиксируется в результате синхронизации.
+Необработанный сбой фонового цикла инициирует остановку приложения.
 
 ## Сборка и контейнер
 
-CMakeLists.txt собирает библиотеку ClashBotCore, приложение и два тестовых executable. Зависимости приложения поставляются
-vcpkg manifest mode, а GoogleTest подключается через FetchContent.
+`pnpm build` компилирует `src/` в `dist/`. Dockerfile собирает проект и нативные зависимости на базе `node:24-slim`.
+Runtime-слой содержит `dist/`, production-зависимости, `/app/migrations` и `/app/resources/telegram/attack_guides.json`.
+CI запускает тесты Vitest и smoke-тест контейнера перед публикацией того же образа в GHCR.
 
-Dockerfile использует два этапа:
-
-1. builder на Ubuntu 24.04 устанавливает vcpkg, собирает зависимости, проект и запускает ctest;
-2. runtime на Ubuntu 24.04 содержит ClashBot, /app/migrations и /app/resources.
-
-Runtime-контейнер запускается с аргументом config.json; файл обычно монтируется с хоста как read-only, а /app/data и
-/app/logs — как постоянные тома. Публикация образа в GHCR, запуск через `docker-compose.yml` и бэкапы описаны в
-[deployment.md](deployment.md).
+Развёртывание, откат и бэкап описаны в [deployment.md](deployment.md).
 
 ## Ограничения архитектуры
 
 - события сохраняются в outbox до отправки, но после успешного ответа Telegram и падения до markAsSent возможна повторная
   доставка; гарантия exactly-once не заявляется;
-- `/unlink` отменяет ожидающие строки в базе, но текущие batch workers могут продолжить уже начатую обработку после
-  отмены; атомарного claim/check непосредственно перед материализацией и HTTP-отправкой пока нет;
+- запрос отправки, начатый до отмены подписки через `/unlink`, может завершиться после неё;
 - для нескольких экземпляров приложения нет lease/claim-механизма, поэтому одновременно должен работать один
   NotificationWorker на базу; DomainEventWorker также рассчитан на один активный экземпляр для базы;
 - разбиение сообщений длиннее лимита Telegram пока не реализовано;

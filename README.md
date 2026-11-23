@@ -1,7 +1,7 @@
 # ClashBot
 
-ClashBot — фоновый сервис на C++20 для мониторинга кланов Clash of Clans. Он получает данные из официального API
-Clash of Clans, сохраняет текущее состояние и историю в SQLite, формирует отчёты и отправляет их в Telegram.
+ClashBot — сервис мониторинга кланов Clash of Clans на TypeScript и Node.js 24 LTS. Он получает данные из официального
+API Clash of Clans, сохраняет историю в SQLite и отправляет отчёты в Telegram.
 
 Сервис поддерживает несколько кланов, несколько Telegram-чатов и форумных тем. Список отслеживаемых кланов и подписки
 хранятся в базе данных, поэтому добавление клана не требует изменения конфигурации или перезапуска приложения.
@@ -36,17 +36,16 @@ Clash of Clans, сохраняет текущее состояние и исто
 включены, поэтому действуют правила `ON DELETE`; исключение для исторической пересборки `clans` описано в
 [схеме SQLite](docs/database.md). При ошибке миграции запуск приложения прекращается.
 
-При запуске приложение открывает SQLite, применяет неприменённые миграции, загружает каталог гайдов и запускает четыре
-фоновых потока:
+При запуске приложение открывает SQLite, применяет неприменённые миграции, загружает каталог гайдов и запускает фоновые циклы в одном процессе Node.js:
 
 1. `ClanManager` перечитывает из базы отслеживаемые кланы.
 2. Для каждого клана последовательно запускаются `ClanInfoService`, `ClanwarService`, `RaidService` и
    `ClanwarLeagueService`.
-3. Каждый сервис получает данные через `APIClient`, сохраняет их одной транзакцией и записывает domain events вместе с
+3. Каждый сервис получает данные через `CocApiClient`, сохраняет их одной транзакцией и записывает domain events вместе с
    payload и destinations получателей.
 4. `DomainEventWorker` читает сохранённые события, десериализует payload, строит отчёты и в одной транзакции создаёт
    связанные строки `notifications` и помечает destinations обработанными.
-5. `NotificationWorker` читает готовые pending-сообщения и отправляет их через `TelegramNotifier`. После успеха он
+5. `NotificationWorker` читает готовые pending-сообщения и отправляет их через `TelegramGateway`. После успеха он
    устанавливает `sent`, при временной ошибке оставляет `pending` с `next_attempt_at`, а при окончательной — `failed`.
 6. `TelegramBotService` получает входящие обновления через long polling.
 7. После цикла синхронизации менеджер ждёт 15 минут. При остановке ожидание прерывается сразу.
@@ -59,49 +58,24 @@ Clash of Clans, сохраняет текущее состояние и исто
 
 ## Структура репозитория
 
-``` text
-include/                 публичные заголовки компонентов
-src/                     реализация приложения
-src/database/migrations  последовательные SQL-миграции
-tests/                   unit- и integration-тесты
+```text
+src/                     TypeScript-код приложения
+migrations/              SQL-миграции 001–012
+tests/                   unit-, integration- и golden-тесты Vitest
 resources/telegram/      JSON-каталог видео-гайдов
 docs/                    архитектура, БД, отчёты, Telegram, деплой и roadmap
-scripts/                 скрипты ежедневного бэкапа SQLite и SSH-туннеля
-CMakeLists.txt           цели сборки и зависимости
-CMakePresets.json        пресеты сборки и тестирования для Linux и Windows
-Dockerfile               multi-stage Docker-сборка
-docker-compose.yml       конфигурация запуска контейнера на сервере
-config.example.json      шаблон несекретной конфигурации для Docker
-.env.example             шаблон переменных окружения с токенами
-vcpkg.json               manifest-зависимости vcpkg
+scripts/                 онлайн-бэкап SQLite и SSH-туннель
+Dockerfile               сборка приложения и runtime-образа
+docker-compose.yml       запуск опубликованного образа
+config.example.json      шаблон конфигурации для Docker
+.env.example             шаблон переменных окружения
 ```
-
-Основные цели CMake:
-
-- `ClashBotCore` — статическая библиотека доменных моделей, репозиториев, аналитики, форматтеров и Telegram-утилит;
-- `ClashBot` — исполняемое приложение;
-- `ClashBotTests` — unit-тесты;
-- `ClashBotIntegrationTests` — интеграционные тесты сервисов, миграций, уведомлений и Telegram-бота.
-
-Подробная карта компонентов находится в [`docs/architecture.md`](docs/architecture.md).
 
 ## Требования
 
-### Для локальной разработки на Windows
-
-- Windows x64 и MSVC с поддержкой C++20;
-- CMake 3.24 или новее;
-- Ninja или другой генератор CMake;
-- Git;
-- vcpkg с доступным toolchain-файлом.
-
-Зависимости из `vcpkg.json`: `cpr`, `fmt`, `spdlog`, `nlohmann-json`, `sqlite3`. GoogleTest загружается CMake через
-`FetchContent`, поэтому первая конфигурация требует доступа к исходному архиву GoogleTest и пакетному реестру vcpkg.
-
-### Для Docker
-
-Dockerfile собирает и тестирует проект в Ubuntu 24.04, затем копирует в runtime-образ только бинарник, миграции и
-ресурсы. База и логи должны монтироваться с хоста.
+Для локальной разработки нужны Node.js 24 LTS, pnpm 12.21.0 и Git. Если для платформы нет готовой сборки
+`better-sqlite3`, установщик использует Python и инструменты нативной сборки Node.js. Для сборки контейнера нужны Docker
+и Linux-контейнеры.
 
 ## Конфигурация и секреты
 
@@ -116,7 +90,7 @@ Dockerfile собирает и тестирует проект в Ubuntu 24.04, 
   },
   "database": {
     "path": "data/database.sqlite",
-    "migrations_path": "src/database/migrations"
+    "migrations_path": "migrations"
   },
   "telegram": {
     "attack_guides_path": "resources/telegram/attack_guides.json"
@@ -190,7 +164,7 @@ Telegram используется для доставки уведомлений
 Получатели каждого события фиксируются при его записи: новая подписка не получает старые события. `/unlink` отменяет
 pending-назначения и связанные pending-уведомления текущей подписки; повторный `/link` создаёт новый `subscription_id`.
 Пока нет атомарного захвата строк worker-ами, поэтому уже загруженное событие или уведомление всё ещё может пройти
-обработку после `/unlink`. См. [описание Telegram-потока](docs/telegram.md).
+обработку после `/unlink`. См. [описание Telegram-интеграции](docs/telegram.md).
 
 `/start` открывает меню с разделами:
 
@@ -205,47 +179,27 @@ pending-назначения и связанные pending-уведомлени�
 
 ## Локальная сборка и запуск
 
-Из корня проекта подготовьте vcpkg и рабочие каталоги:
+Из корня репозитория:
 
-``` powershell
-$env:VCPKG_ROOT = "C:\path\to\vcpkg"
-New-Item -ItemType Directory -Force data, logs
+```powershell
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm lint
+pnpm format:check
+pnpm test
+pnpm build
+git diff --check
 ```
 
-Проект поставляет [`CMakePresets.json`](CMakePresets.json) с пресетами для Windows (`windows-debug`, `windows-release` с генератором `Ninja` и `windows-vs` для Visual Studio) и Linux (`linux-debug`, `linux-release`).
+Тесты используют локальные фикстуры и заглушки для CoC API и Telegram. Для запуска с отдельным тестовым ботом и базой
+укажите локальные пути из раздела «Конфигурация и секреты», подготовьте каталог базы и передайте путь к конфигурации:
 
-Из обычного PowerShell (Visual Studio) сконфигурируйте, соберите Debug-вариант и запустите тесты:
-
-``` powershell
-cmake --preset windows-vs
-cmake --build --preset windows-vs-debug --parallel
-ctest --preset windows-vs-debug
+```powershell
+pnpm start config.json
 ```
 
-Из Developer PowerShell или CLion (с генератором `Ninja`; в Developer PowerShell при необходимости повторно задайте `$env:VCPKG_ROOT`, так как `vcvars` может переключить его на встроенный vcpkg Visual Studio):
-
-``` powershell
-cmake --preset windows-debug
-cmake --build --preset windows-debug --parallel
-ctest --preset windows-debug
-```
-
-В состав тестов входят unit-тесты моделей, аналитики, форматтеров и Telegram-компонентов, а также интеграционные тесты
-SQLite, миграций, сервисов синхронизации, уведомлений и Telegram-бота. Тесты используют фиктивные API-клиенты и не
-требуют настоящих токенов.
-
-Запуск приложения из корня проекта (в зависимости от выбранного пресета):
-
-``` powershell
-.\build\windows-vs\Debug\ClashBot.exe .\config.json
-# или для Ninja-пресета:
-.\build\windows-debug\ClashBot.exe .\config.json
-```
-
-По умолчанию лог пишется в `logs/bot.log` и дублируется в консоль. Используется ротация файла при размере 5 МБ с
-хранением трёх файлов. Для отладки запускайте приложение с отдельной базой и тестовыми непустыми токенами; запросы к
-Clash of Clans API не выполняются, пока в базе нет отслеживаемых кланов, но TelegramBotService всё равно запускает
-long polling.
+По умолчанию CLI ищет `config.json` в текущем каталоге. Если локальная конфигурация указывает на прежний каталог SQL,
+задайте `"migrations_path": "migrations"`. Pino пишет в stdout. Переменная `LOG_LEVEL` управляет уровнем логирования.
 
 ### SSH-туннель
 
@@ -256,28 +210,14 @@ long polling.
 
 ## Docker-развёртывание
 
-При каждом merge в `main` GitHub Actions (`.github/workflows/docker-publish.yml`) собирает [`Dockerfile`](Dockerfile), прогоняет тесты и публикует образ `ghcr.io/flacicz/clashbot` с тегами `latest` и `sha-<short>`.
+Для локальной сборки образа выполните `docker build -t clashbot:local .`. На сервере Compose использует образ
+`ghcr.io/flacicz/clashbot`. Контейнер запускает `node dist/cli.js config.json`, читает каталог гайдов из
+`/app/resources/telegram/attack_guides.json` и SQL из `/app/migrations`. Конфигурация монтируется только для чтения,
+секреты передаются через `.env`, а база хранится в `/app/data/database.sqlite` на постоянном томе.
 
-Для запуска на сервере подготовлены [`docker-compose.yml`](docker-compose.yml), [`config.example.json`](config.example.json), [`.env.example`](.env.example) и скрипт ежедневного бэкапа SQLite [`scripts/backup-sqlite.sh`](scripts/backup-sqlite.sh):
-
-```bash
-cp config.example.json config.json
-cp .env.example .env
-mkdir -p data logs backups
-docker compose pull
-docker compose up -d
-```
-
-В образе уже находятся бинарник `/app/ClashBot`, миграции `/app/migrations` и каталог `/app/resources`. Конфигурация `config.json` монтируется только для чтения, секреты передаются через `.env`, а `data` и `logs` остаются на хосте.
-
-Полная пошаговая инструкция по серверу, GHCR, бэкапам SQLite в облако через `rclone` и проверке восстановления находится в [`docs/deployment.md`](docs/deployment.md).
-
-Проверка контейнера:
-
-```bash
-docker compose ps
-docker compose logs -f clashbot
-```
+GitHub Actions прогоняет проверки TypeScript и smoke-тест Docker. Из `main` проверенный образ публикуется с тегами
+`latest` и `sha-<short>`. Инструкции обновления, отката на C++-образ `sha-d10b3f5` и резервного копирования находятся в
+[руководстве по развёртыванию](docs/deployment.md).
 
 ## Ручное администрирование SQLite
 

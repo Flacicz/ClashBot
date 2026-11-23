@@ -21,7 +21,7 @@ sudo apt-get install -y sqlite3 gzip rclone
 Рекомендуемый каталог развёртывания на сервере — `/opt/clashbot` (или `~/clashbot`):
 
 ```bash
-mkdir -p /opt/clashbot/data /opt/clashbot/logs /opt/clashbot/backups /opt/clashbot/scripts
+mkdir -p /opt/clashbot/data /opt/clashbot/backups /opt/clashbot/scripts
 cd /opt/clashbot
 ```
 
@@ -65,19 +65,20 @@ TELEGRAM_TOKEN=<TELEGRAM_BOT_TOKEN>
 }
 ```
 
-> [!NOTE]
-> `APIClient` дописывает пути вида `/clans/...` напрямую к `base_url`, поэтому `base_url` нужно указывать **без** завершающего `/`.
+Базовый URL CoC используется для запросов через `CocApiClient`. Для сервера с разрешённым IP используйте `"use_tunnel": false`.
 
 ## Публикация образа и доступ к GHCR
 
-Workflow [`.github/workflows/docker-publish.yml`](../.github/workflows/docker-publish.yml) при каждом merge в `main` собирает [`Dockerfile`](../Dockerfile) (включая Release-сборку и прогон `ctest`) и публикует образ `ghcr.io/flacicz/clashbot` с тегами:
+[Workflow](../.github/workflows/docker-publish.yml) запускает проверки TypeScript, unit-, integration- и golden-тесты, а
+также сборку и smoke-тест [Docker-образа](../Dockerfile). После успешных проверок на `main` он публикует проверенный образ
+`ghcr.io/flacicz/clashbot` с двумя тегами:
 
-- `latest` — актуальная сборка ветки `main`;
-- `sha-<short>` — конкретный коммит для фиксации версии или отката.
+- `latest` — последняя успешно опубликованная сборка `main`;
+- `sha-<short>` — сборка конкретного коммита для фиксации версии или отката.
 
 ### Публичный пакет (рекомендуемый вариант)
 
-В настройках пакета на GitHub (`Package settings → Change visibility → Public`) образ можно сделать публичным — в нём нет секретов, только бинарник, миграции и открытый каталог гайдов. В этом случае авторизация на VPS не нужна: `docker compose pull` работает без токена.
+В настройках пакета на GitHub (`Package settings → Change visibility → Public`) образ можно сделать публичным — в нём нет секретов, только скомпилированный JavaScript, production-зависимости, миграции и открытый каталог гайдов. В этом случае авторизация на VPS не нужна: `docker compose pull` работает без токена.
 
 ### Приватный пакет
 
@@ -105,14 +106,10 @@ docker compose logs -f clashbot
 
 При первом запуске с пустым каталогом `./data` приложение создаст `data/database.sqlite` и автоматически применит все SQL-миграции из `/app/migrations` внутри контейнера.
 
-### Часовой пояс логов
+### Логи
 
-По умолчанию контейнер работает в UTC (стандарт для серверных журналов). Сообщения в Telegram от системного часового пояса не зависят: форматтеры уже приводят Unix-время к UTC+3. Если нужно видеть московское время и в `logs/bot.log`, добавьте в сервис `clashbot` в `docker-compose.yml`:
-
-```yaml
-    environment:
-      - TZ=MSK-3
-```
+Pino пишет JSON в stdout. Логи смотрят командой `docker compose logs clashbot`. Их ротацию задаёт Docker Compose
+(три файла до 10 МБ каждый). Сообщения Telegram форматируют время в UTC+3.
 
 ### Штатное обновление
 
@@ -122,18 +119,39 @@ docker compose pull
 docker compose up -d
 ```
 
-### Откат к предыдущей версии
+### Переход с C++ на TypeScript
 
-Укажите нужный тег `sha-<short>` в `.env` (или временно перед командой):
+После публикации TypeScript-образа из `main` обновите `docker-compose.yml`, сохранив действующие `.env`, `config.json`
+и каталог `data/`. Новый Compose оставляет `stop_grace_period: 30s` и пишет логи через Docker.
+Снимите свежий онлайн-бэкап перед переключением:
 
 ```bash
-CLASHBOT_IMAGE_TAG=sha-0123456 docker compose up -d
+cd /opt/clashbot
+./scripts/backup-sqlite.sh --local-only
+CLASHBOT_IMAGE_TAG=latest docker compose pull clashbot
+CLASHBOT_IMAGE_TAG=latest docker compose up -d clashbot
+docker compose logs -f clashbot
 ```
 
-Чтобы вернуться на `latest`, уберите `CLASHBOT_IMAGE_TAG` (или задайте `CLASHBOT_IMAGE_TAG=latest`) и выполните `docker compose pull && docker compose up -d`.
+Убедитесь, что опубликованный образ запустился, миграции прошли и завершился первый цикл синхронизации.
+Если в `.env` закреплён C++-тег, после проверки задайте там `CLASHBOT_IMAGE_TAG=latest` или тег проверенной TypeScript-сборки.
 
-> [!TIP]
-> Пошаговый чеклист пробного прогона (Dress Rehearsal) и отката для TypeScript-образа (`ts/Dockerfile`) вынесен в [`docs/ts-dress-rehearsal.md`](ts-dress-rehearsal.md).
+### Откат к C++-версии
+
+Точка отката — `ghcr.io/flacicz/clashbot:sha-d10b3f5`. Исходники этого релиза сохранены в git-теге `v1-cpp`.
+Тот же файл SQLite совместим с обеими версиями по [ADR-0004](adr/0004-sqlite-drop-in-compatibility.md).
+Используйте текущие пути `/app/data/database.sqlite`, `/app/migrations` и `/app/resources/telegram/attack_guides.json`.
+
+```bash
+cd /opt/clashbot
+CLASHBOT_IMAGE_TAG=sha-d10b3f5 docker compose pull clashbot
+CLASHBOT_IMAGE_TAG=sha-d10b3f5 docker compose up -d clashbot
+docker compose logs -f clashbot
+```
+
+Для сохранения отката при последующих обновлениях закрепите `CLASHBOT_IMAGE_TAG=sha-d10b3f5` в `.env`. Процедура
+восстановления снимка нужна при повреждении SQLite или потере данных. Для штатного отката образа используется текущая
+база. Результат пробного прогона описан в [тикете #36](https://github.com/Flacicz/ClashBot/issues/36).
 
 ## Ежедневный бэкап SQLite и выгрузка в облако
 

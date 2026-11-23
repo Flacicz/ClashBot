@@ -33,21 +33,12 @@ Clans API.
 
 ## Long polling
 
-TelegramBotService работает в отдельном потоке и вызывает getUpdates:
+`TelegramBotService` запускает long polling через grammY с таймаутом 2 секунды и HTTP-таймаутом не менее 10 секунд.
+Обрабатываются обновления `message` и `callback_query`. grammY управляет смещением `getUpdates` и обработкой временных
+сбоев polling. `AbortSignal` останавливает polling и отменяет поддерживающие сигнал запросы при завершении приложения.
 
-- offset начинается с 0;
-- timeout long polling — 2 секунды;
-- таймаут HTTP-запроса — не менее 10 секунд;
-- разрешены update-типы message и callback_query;
-- после обработки корректного update_id offset становится update_id + 1;
-- ошибка Telegram API или сети логируется, затем выполняется пауза 1 секунда;
-- `stopLoop()` будит ожидание через `condition_variable`, а совместный вызов `TelegramHttpTransport::requestStop()`
-  прерывает активные запросы `getUpdates`/обработки обновлений и завершает цикл без паузы `1` секунды.
-
-Webhook в приложении не настраивается: для работы этого режима бот должен получать обновления через getUpdates.
-
-Из message обрабатываются только команды. Из callback_query сначала вызывается answerCallbackQuery, затем разбираются
-данные callback и обновляется интерфейс.
+Бот обрабатывает команды из сообщений и отвечает на callback-запросы. Для long polling Telegram-бот должен работать
+без активного webhook.
 
 ## Команды
 
@@ -138,13 +129,9 @@ telegram_chats удаляется. Если у клана не осталось 
 `notifications`, затем удаляет подписку. Повторный `/unlink` для уже отсутствующей подписки ничего не меняет и сообщает,
 что привязка не найдена. Уже отправленное сообщение отменить нельзя.
 
-Есть ограничение гонки на обоих этапах обработки. DomainEventWorker сначала загружает пачку pending destinations, а затем
-материализует каждую; если `/unlink` отменит destination между чтением и материализацией, worker всё ещё может создать
-для неё notification. NotificationWorker также загружает пачку pending notifications до отправки по очереди, поэтому
-отмена после загрузки не гарантирует, что сообщение не будет отправлено. Отмена в SQLite не отзывает уже начатый
-HTTP-запрос. После успешного HTTP-ответа `markAsSent` меняет только строки со статусом `pending`, поэтому отменённая
-строка может остаться со статусом `cancelled`, даже если Telegram получил сообщение. Более строгая граница потребует
-атомарной проверки/аренды destination перед материализацией и атомарного захвата notification перед отправкой.
+`DomainEventWorker` перепроверяет статус назначения перед материализацией внутри той же транзакции.
+`NotificationWorker` перепроверяет статус перед каждым запросом из загруженной пачки. Уже начатую отправку отмена
+подписки не отзывает. Если Telegram получит сообщение после отмены, `markAsSent` оставит строку в статусе `cancelled`.
 
 Кнопка отключения выполняет те же проверки прав, что и команда. Callback без выбранного клана сначала показывает список
 подписок; callback с тегом удаляет выбранную запись.
@@ -218,38 +205,19 @@ AttackGuideCatalog:
    и просит NotificationService сформировать HTML для конкретного сохранённого назначения. В одной транзакции он
    добавляет связанную строку `notifications` со статусом
    `pending` и помечает destination материализованным. Дедупликация не позволяет повторной обработке создать дубль.
-3. После commit DomainEventWorker будит NotificationWorker. TelegramNotifier знает только chat_id, message и
-   message_thread_id и вызывается NotificationWorker-ом.
+3. После commit `DomainEventWorker` будит `NotificationWorker`. Тот выбирает записи `pending` с наступившим
+   `next_attempt_at` и передаёт их в `TelegramGateway`.
+4. `TelegramGateway` вызывает `sendMessage` через grammY с `parse_mode: HTML` и передаёт `message_thread_id` для темы форума.
+   Успешный ответ переводит запись в `sent`.
 
-NotificationWorker выбирает записи `pending`, для которых наступил `next_attempt_at`, и передаёт сообщение в
-TelegramApiClient. После успешного ответа он меняет статус на `sent`. Временные ошибки оставляют запись в очереди и
-переносят следующую попытку, а постоянные ошибки или исчерпание попыток переводят запись в `failed`.
+`TelegramGateway` использует таймаут запроса 10 секунд. Повторы доставки выполняет `NotificationWorker` через outbox.
+По умолчанию доступны до четырёх попыток. При временной сетевой ошибке или HTTP 5xx применяется экспоненциальная
+задержка с начальным значением 500 мс и пределом 8 секунд. При HTTP 429 worker учитывает `parameters.retry_after`
+и сохраняет в `next_attempt_at` большую из двух задержек. Постоянная ошибка или исчерпание попыток переводит запись
+в `failed`.
 
-Ошибка материализации одного destination сохраняется вместе с числом попыток, назначает следующую попытку и не должна
-останавливать обработку остальных destinations. После пяти ошибок worker пишет alert, но оставляет destination pending
-и продолжает retry с backoff. Значит, постоянная ошибка сериализации/форматирования пока не переводит destination в
-отдельный терминальный `failed`-статус.
-
-TelegramApiClient отправляет `sendMessage` с:
-
-- parse_mode = HTML;
-- chat_id;
-- text;
-- message_thread_id, если он не равен 0.
-
-Каждый HTTP-запрос Telegram проходит через TelegramHttpTransport. Значения по умолчанию:
-
-- timeout запроса — 10 секунд;
-- до 4 попыток для сетевых ошибок, HTTP 429 и ответов 5xx;
-- exponential backoff начинается с 500 мс, удваивается на каждой попытке и ограничен 8 секундами;
-- для HTTP 429 используется `parameters.retry_after` из JSON-ответа Telegram, если оно корректно задано;
-- для `getUpdates` timeout HTTP автоматически увеличивается относительно long-polling timeout.
-
-При достижении лимита попыток transport возвращает `ApiException`. Для HTTP 429 исключение дополнительно содержит
-`retry_after`, а NotificationWorker учитывает это значение при расчёте следующей попытки и сохраняет результат в
-`notifications.next_attempt_at`. Используется максимальная задержка из retry policy и ограничения Telegram, поэтому
-сохранённое время переживает перезапуск worker. Если процесс завершится во время внутреннего ожидания transport до
-передачи ошибки worker, это значение не успеет попасть в outbox.
+При ошибке материализации `DomainEventWorker` сохраняет счётчик и время повтора отдельно для каждого назначения.
+После пяти ошибок он пишет предупреждение и продолжает обработку с backoff. Остальные назначения обрабатываются независимо.
 
 Атомарная дедупликация durable-сообщений выполняется уникальным ключом
 `(domain_event_destination_id, event_type, event_id, part_index)`. Повторная материализация не создаёт вторую outbox-
@@ -273,16 +241,6 @@ NotificationWorker оставляет запись со статусом `failed
 
 ## Тестирование
 
-Telegram-компоненты тестируются без сети:
-
-- TelegramCommandsTests — парсинг команд и тегов;
-- TelegramCallbackDataTests — callback-данные и контекст;
-- TelegramKeyboardsTests — JSON inline-клавиатур;
-- AttackGuideCatalogTests — схема каталога, сортировка и фильтрация;
-- TelegramValidationTests — диапазон ратуш;
-- TelegramBotServiceIntegrationTests — команды, права, темы, polling, ошибки и callback-сценарии;
-- NotificationIntegrationTests — постановка в outbox, атомарная дедупликация, выборка pending и переход в `sent`;
-- NotificationServiceIntegrationTests — построение событий и постановка сообщений вместо прямого вызова Telegram.
-- SubscriptionIntegrationTests — получение ID конкретного поколения подписки.
-
-FakeTelegramApiClient записывает отправленные и отредактированные сообщения, callback-ответы и вызовы getUpdates.
+`pnpm test` запускает Vitest. В [`tests/telegram/`](../tests/telegram/) проверяются команды, права, темы, меню и отмена
+long polling. В [`tests/notifications/`](../tests/notifications/) проверяются ошибки Telegram, доставка, дедупликация и
+отмена записей outbox. Тесты используют заглушки API и временные базы SQLite.
