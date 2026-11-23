@@ -27,6 +27,9 @@ export { PlayerJoinedFormatter, type ClanNameReader } from './playerJoinedFormat
 export { PlayerLeftFormatter } from './playerLeftFormatter.js';
 export { PlayerRoleChangedFormatter } from './playerRoleChangedFormatter.js';
 export { RaidReminderFormatter } from './raidReminderFormatter.js';
+export { RaidsComparisonFormatter, type RaidComparisonReader } from './raidsComparisonFormatter.js';
+export { RaidsEndedFormatter, type RaidEndedReportReader } from './raidsEndedFormatter.js';
+export { RaidsViolationsFormatter, type RaidViolationsReader } from './raidsViolationsFormatter.js';
 export { SystemAlertReportFormatter } from './systemAlertReportFormatter.js';
 export { WarReminderFormatter } from './warReminderFormatter.js';
 export {

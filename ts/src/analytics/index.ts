@@ -18,3 +18,14 @@ export {
     type PlayerRosterStats,
     type PlayerViolationStats,
 } from './clanwarRosterAnalyzer.js';
+export {
+    buildRaidComparisonData,
+    calculateRaidHistoricalAverages,
+    compareRaidWithHistoricalAverage,
+    RaidPerformanceTrend,
+    raidsAnalytics,
+    type RaidComparisonData,
+    type RaidHistoricalAverages,
+    type RaidPerformanceComparison,
+    type RaidPerformanceTrendValue,
+} from './raidComparisonAnalyzer.js';
