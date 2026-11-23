@@ -1,27 +1,264 @@
-name: Publish Docker Image
+name: ClashBot CI and Docker Image
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: docker-publish-${{ github.ref }}
-  cancel-in-progress: false
+  group: ts-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  publish:
-    name: Build and Push to GHCR
+  diff-hygiene:
+    name: Diff Hygiene
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check diff whitespace and conflict markers
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$BASE_SHA" ] && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            git diff --check "$BASE_SHA" HEAD
+          elif git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            git diff --check HEAD~1 HEAD
+          fi
+
+  ts-checks:
+    name: TypeScript (ubuntu-24.04, Node 24)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Test
+        run: pnpm test
+
+  ts-docker:
+    name: TypeScript Docker build & smoke (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build TS Docker image
+        run: docker build -t clashbot-ts:ci .
+
+      - name: Smoke test TS container (config, migrations, JSON stdout, SIGTERM <= 15s)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SMOKE_DIR="$(mktemp -d)"
+          CONTAINER_NAME="clashbot-ts-smoke-${GITHUB_RUN_ID:-local}"
+          SINK_PID=""
+
+          cleanup() {
+            docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+            if [ -n "$SINK_PID" ]; then
+              sudo kill "$SINK_PID" >/dev/null 2>&1 || true
+            fi
+            rm -rf "$SMOKE_DIR"
+          }
+          trap cleanup EXIT
+
+          mkdir -p "$SMOKE_DIR/data"
+          cat > "$SMOKE_DIR/config.json" <<'EOF'
+          {
+            "api": {
+              "use_tunnel": false,
+              "tunnel_base_url": "https://localhost:8080/v1",
+              "base_url": "https://api.clashofclans.com/v1"
+            },
+            "database": {
+              "path": "/app/data/database.sqlite",
+              "migrations_path": "/app/migrations"
+            },
+            "telegram": {
+              "attack_guides_path": "/app/resources/telegram/attack_guides.json"
+            }
+          }
+          EOF
+
+          # Локальный TCP-sink для api.telegram.org:443, чтобы контейнер не падал по 401
+          # с dummy-токеном до отправки SIGTERM и проверял реальную отмену long polling.
+          NODE_BIN="$(command -v node)"
+          sudo "$NODE_BIN" -e "const net = require('node:net'); const s = net.createServer((c) => c.resume()); s.listen(443, '127.0.0.1'); setTimeout(() => process.exit(0), 60000);" &
+          SINK_PID=$!
+          sleep 0.5
+
+          docker run -d \
+            --name "$CONTAINER_NAME" \
+            --network host \
+            --add-host api.telegram.org:127.0.0.1 \
+            -e SUPERCELL_TOKEN=ci-dummy-supercell-token \
+            -e TELEGRAM_TOKEN=123456:ci-dummy-telegram-token \
+            -v "$SMOKE_DIR/config.json:/app/config.json:ro" \
+            -v "$SMOKE_DIR/data:/app/data" \
+            clashbot-ts:ci
+
+          READY=0
+          for _ in $(seq 1 30); do
+            if docker logs "$CONTAINER_NAME" 2>&1 | grep -q '\[Main\] Bot is running'; then
+              READY=1
+              break
+            fi
+            if [ "$(docker inspect --format='{{.State.Running}}' "$CONTAINER_NAME")" != "true" ]; then
+              echo "Container exited unexpectedly before startup completed:"
+              docker logs "$CONTAINER_NAME" 2>&1 || true
+              exit 1
+            fi
+            sleep 0.5
+          done
+
+          if [ "$READY" -ne 1 ]; then
+            echo "Timed out waiting for ClashBot startup log:"
+            docker logs "$CONTAINER_NAME" 2>&1 || true
+            exit 1
+          fi
+
+          START_SEC=$(date +%s)
+          docker stop -t 15 "$CONTAINER_NAME" >/dev/null
+          END_SEC=$(date +%s)
+          STOP_ELAPSED=$((END_SEC - START_SEC))
+          echo "Container stopped in ${STOP_ELAPSED}s"
+
+          if [ "$STOP_ELAPSED" -gt 15 ]; then
+            echo "Container exceeded 15s SIGTERM shutdown budget (${STOP_ELAPSED}s)"
+            exit 1
+          fi
+
+          EXIT_CODE="$(docker inspect --format='{{.State.ExitCode}}' "$CONTAINER_NAME")"
+          echo "Container exit code: $EXIT_CODE"
+          if [ "$EXIT_CODE" != "0" ]; then
+            docker logs "$CONTAINER_NAME" 2>&1 || true
+            exit 1
+          fi
+
+          STDOUT_LOGS="$(docker logs "$CONTAINER_NAME" 2>/dev/null)"
+          STDERR_LOGS="$(docker logs "$CONTAINER_NAME" 2>&1 >/dev/null)"
+
+          if [ -n "$STDERR_LOGS" ]; then
+            echo "Unexpected stderr output:"
+            echo "$STDERR_LOGS"
+            exit 1
+          fi
+
+          printf '%s\n' "$STDOUT_LOGS" | node -e '
+            const fs = require("node:fs");
+            const raw = fs.readFileSync(0, "utf8");
+            const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
+            if (lines.length === 0) {
+              throw new Error("Expected JSON logs in stdout, got empty output");
+            }
+            const parsed = lines.map((line, index) => {
+              let obj;
+              try {
+                obj = JSON.parse(line);
+              } catch (err) {
+                throw new Error(`Non-JSON line #${index + 1}: ${line}`);
+              }
+              if (typeof obj.level !== "number" || typeof obj.msg !== "string") {
+                throw new Error(`Invalid pino log shape on line #${index + 1}: ${line}`);
+              }
+              return obj;
+            });
+            const required = [
+              "[Main] Configuration loaded successfully",
+              "[DB] Database migrations completed successfully",
+              "[Main] Application startup completed successfully",
+              "[Main] Shutdown completed successfully",
+            ];
+            for (const marker of required) {
+              if (!parsed.some((entry) => entry.msg.includes(marker))) {
+                throw new Error(`Missing expected log message: ${marker}`);
+              }
+            }
+            if (raw.includes("ci-dummy-supercell-token") || raw.includes("ci-dummy-telegram-token")) {
+              throw new Error("Detected secret token leakage in stdout logs");
+            }
+            console.log(`Verified ${parsed.length} JSON log lines in stdout`);
+          '
+
+          docker run --rm \
+            --entrypoint node \
+            -v "$SMOKE_DIR/data:/app/data" \
+            clashbot-ts:ci \
+            --input-type=module \
+            -e '
+              import Database from "better-sqlite3";
+              const db = new Database("/app/data/database.sqlite");
+              const integrity = db.pragma("integrity_check", { simple: true });
+              const row = db.prepare("SELECT COUNT(*) AS count, MAX(version) AS latest FROM schema_migrations").get();
+              db.close();
+              if (integrity !== "ok") {
+                throw new Error(`Unexpected PRAGMA integrity_check: ${String(integrity)}`);
+              }
+              if (!row || row.count !== 12 || typeof row.latest !== "string" || !row.latest.startsWith("012_")) {
+                throw new Error(`Expected 12 SQLite migrations ending at 012_*, got: ${JSON.stringify(row)}`);
+              }
+              console.log(`Verified SQLite integrity=ok, migrations=${row.count}, latest=${row.latest}`);
+            '
+
+      - name: Save the tested image
+        if: github.ref == 'refs/heads/main'
+        run: docker save clashbot-ts:ci | gzip -1 > clashbot-image.tar.gz
+
+      - name: Upload the tested image
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: clashbot-image
+          path: clashbot-image.tar.gz
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    name: Publish tested image to GHCR
+    if: github.ref == 'refs/heads/main' && github.repository == 'Flacicz/ClashBot'
+    needs: [diff-hygiene, ts-checks, ts-docker]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/flacicz/clashbot
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: clashbot-image
+
+      - name: Load the tested image
+        run: docker load --input clashbot-image.tar.gz
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -30,21 +267,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=sha-
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=docker
-          cache-to: type=gha,mode=max,scope=docker
+      - name: Publish commit and latest tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          COMMIT_TAG="$IMAGE:sha-${GITHUB_SHA:0:7}"
+          docker tag clashbot-ts:ci "$COMMIT_TAG"
+          docker push "$COMMIT_TAG"
+          docker tag clashbot-ts:ci "$IMAGE:latest"
+          docker push "$IMAGE:latest"

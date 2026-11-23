@@ -1,9 +1,9 @@
 # Чеклист пробного прогона (Dress Rehearsal) и отката TypeScript-версии
 
-Руководство описывает безопасный пробный прогон Docker-образа TypeScript-версии (`ts/Dockerfile`) поверх копии продовой базы SQLite перед переключением сервера (cutover, тикет `#36`), а также фиксацию точек отката и процедуру быстрого возврата на C++-версию.
-
-> [!CAUTION]
-> Пробный прогон, работу с реальными токенами, продовой базой и VPS выполняет только человек. Никогда не запускайте второй экземпляр бота с продовым `TELEGRAM_TOKEN` (это ломает long polling `getUpdates`) и не монтируйте рабочую БД напрямую.
+Исторический чеклист ручного прогона [#36](https://github.com/Flacicz/ClashBot/issues/36). Команды сборки ниже относятся к
+дереву [`v1-cpp`](https://github.com/Flacicz/ClashBot/tree/v1-cpp), где TypeScript-код лежал в `ts/`.
+Фактический прогон использовал прямой доступ к CoC API с VPS. Актуальные инструкции переключения и отката на C++
+находятся в [руководстве по развёртыванию](deployment.md#переход-с-c-на-typescript).
 
 ## 1. Снятие консистентной копии продовой БД
 
@@ -136,55 +136,3 @@
   - [ ] `sqlite3 dress-rehearsal/data/database.sqlite "PRAGMA integrity_check;"` возвращает `ok`.
 
 - [ ] **Очистка после прогона**: удалите тестовый контейнер и локальную копию БД (`docker rm clashbot-ts-rehearsal` и `rm -rf dress-rehearsal`).
-
-## 5. Подготовка отката и переключение на сервере (Cutover)
-
-Выполняется человеком при переходе на TS-образ в тикете `#36`:
-
-1. **Зафиксируйте текущий C++-тег в GHCR (`sha-<cpp>`)**:
-
-   ```bash
-   # На сервере: проверьте текущий образ/дайджест перед обновлением
-   docker inspect --format='{{.Config.Image}} {{index .RepoDigests 0}}' clashbot
-   ```
-
-   Запишите короткий SHA текущего C++-коммита (`sha-<cpp>`), опубликованного в `ghcr.io/flacicz/clashbot:sha-<cpp>`.
-
-2. **Создайте git-тег `v1-cpp`** на последнем коммите C++-версии в `main` до слияния cutover-PR:
-
-   ```bash
-   git checkout main
-   git pull --ff-only origin main
-   git tag -a v1-cpp -m "Last C++20 release before TypeScript cutover"
-   git push origin v1-cpp
-   ```
-
-3. **Снимите свежий бэкап SQLite на VPS** непосредственно перед обновлением:
-
-   ```bash
-   cd /opt/clashbot
-   ./scripts/backup-sqlite.sh
-   ```
-
-4. **Переключение после merge cutover-PR** (когда `ghcr.io/flacicz/clashbot:latest` собран из TS):
-
-   ```bash
-   cd /opt/clashbot
-   docker compose pull
-   docker compose up -d
-   docker compose logs -f clashbot
-   ```
-
-   Проверьте отсутствие ошибок в логах, работу `/start` → «📋 Мои кланы» и завершение первого цикла синхронизации.
-
-## 6. Быстрый откат (Rollback)
-
-Схема SQLite (`001`–`012`) полностью обратно совместима между C++ и TypeScript-версиями, поэтому откат занимает ~10 секунд без изменения `config.json` и `.env`:
-
-```bash
-cd /opt/clashbot
-CLASHBOT_IMAGE_TAG=sha-<cpp> docker compose up -d
-docker compose logs -f clashbot
-```
-
-Для закрепления отката в `.env` добавьте строку `CLASHBOT_IMAGE_TAG=sha-<cpp>`. Если требуется восстановить саму базу SQLite из пред-релизного бэкапа, выполните шаги из раздела [«Проверка восстановления (Recovery Drill)»](deployment.md#проверка-восстановления-recovery-drill).

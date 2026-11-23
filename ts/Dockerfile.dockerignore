@@ -1,9 +1,0 @@
-*
-!ts/package.json
-!ts/pnpm-lock.yaml
-!ts/pnpm-workspace.yaml
-!ts/tsconfig.json
-!ts/tsconfig.build.json
-!ts/src/**
-!src/database/migrations/**
-!resources/telegram/attack_guides.json

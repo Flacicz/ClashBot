@@ -9,7 +9,6 @@ services:
     volumes:
       - ./config.json:/app/config.json:ro
       - ./data:/app/data
-      - ./logs:/app/logs
     logging:
       driver: json-file
       options:
