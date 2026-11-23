@@ -6,6 +6,11 @@ on:
   push:
     branches: [main, feat/ts-migration]
   workflow_dispatch:
+    inputs:
+      publish_rehearsal:
+        description: 'Publish the tested TypeScript image to GHCR for dress rehearsal'
+        type: boolean
+        default: false
 
 concurrency:
   group: ts-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -210,3 +215,47 @@ jobs:
               }
               console.log(`Verified SQLite integrity=ok, migrations=${row.count}, latest=${row.latest}`);
             '
+
+      - name: Save the tested image
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_rehearsal && github.repository == 'Flacicz/ClashBot'
+        run: docker save clashbot-ts:ci | gzip > "$RUNNER_TEMP/clashbot-ts.tar.gz"
+        shell: bash
+
+      - name: Upload the tested image
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_rehearsal && github.repository == 'Flacicz/ClashBot'
+        uses: actions/upload-artifact@v4
+        with:
+          name: clashbot-ts-rehearsal
+          path: ${{ runner.temp }}/clashbot-ts.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish-rehearsal:
+    name: Publish TypeScript rehearsal image
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_rehearsal && github.repository == 'Flacicz/ClashBot'
+    needs: [ts-checks, ts-docker]
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+    env:
+      REHEARSAL_IMAGE: ghcr.io/flacicz/clashbot-ts:rehearsal
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: clashbot-ts-rehearsal
+          path: ${{ runner.temp }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the tested image
+        shell: bash
+        run: |
+          docker load --input "$RUNNER_TEMP/clashbot-ts.tar.gz"
+          docker tag clashbot-ts:ci "$REHEARSAL_IMAGE"
+          docker push "$REHEARSAL_IMAGE"
