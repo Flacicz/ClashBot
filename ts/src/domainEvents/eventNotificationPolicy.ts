@@ -28,3 +28,7 @@ export function audiencesForEvent(event: ApplicationEvent): readonly Audience[] 
             return assertNever(event);
     }
 }
+
+export const EventNotificationPolicy = {
+    audiencesFor: audiencesForEvent,
+} as const;

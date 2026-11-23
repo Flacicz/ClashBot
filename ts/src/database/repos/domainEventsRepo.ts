@@ -153,51 +153,60 @@ export class DomainEventsRepo {
 
     getPendingDestinations(
         limit: number = DEFAULT_PENDING_DESTINATIONS_LIMIT,
+        nowEpochSeconds?: number,
     ): PendingDomainEventDestination[] {
         if (limit <= 0) {
             return [];
         }
 
-        return runRepoQuery(REPO_NAME, 'load pending domain event destinations', { limit }, () => {
-            const rows = getConnection(this.source)
-                .prepare<[number], PendingDestinationRow>(
-                    `SELECT d.id,
-                            d.domain_event_id,
-                            e.event_type,
-                            e.event_id,
-                            e.event_payload,
-                            e.payload_version,
-                            e.clan_tag,
-                            d.chat_id,
-                            d.message_thread_id,
-                            d.audience,
-                            d.subscription_id,
-                            d.attempts
-                     FROM domain_event_destinations d
-                     JOIN domain_events e ON e.id = d.domain_event_id
-                     WHERE d.status = 'pending'
-                       AND (d.next_attempt_at IS NULL
-                            OR d.next_attempt_at <= strftime('%s', 'now'))
-                     ORDER BY d.created_at, d.id
-                     LIMIT ?;`,
-                )
-                .all(limit);
+        return runRepoQuery(
+            REPO_NAME,
+            'load pending domain event destinations',
+            { limit, ...(nowEpochSeconds !== undefined ? { nowEpochSeconds } : {}) },
+            () => {
+                const rows = getConnection(this.source)
+                    .prepare<[number | null, number | null, number], PendingDestinationRow>(
+                        `SELECT d.id,
+                                d.domain_event_id,
+                                e.event_type,
+                                e.event_id,
+                                e.event_payload,
+                                e.payload_version,
+                                e.clan_tag,
+                                d.chat_id,
+                                d.message_thread_id,
+                                d.audience,
+                                d.subscription_id,
+                                d.attempts
+                         FROM domain_event_destinations d
+                         JOIN domain_events e ON e.id = d.domain_event_id
+                         WHERE d.status = 'pending'
+                           AND (d.next_attempt_at IS NULL
+                                OR (d.attempts = 0
+                                    AND d.next_attempt_at <= MAX(COALESCE(?, 0), CAST(strftime('%s', 'now') AS INTEGER)))
+                                OR (d.attempts > 0
+                                    AND d.next_attempt_at <= COALESCE(?, CAST(strftime('%s', 'now') AS INTEGER))))
+                         ORDER BY d.created_at, d.id
+                         LIMIT ?;`,
+                    )
+                    .all(nowEpochSeconds ?? null, nowEpochSeconds ?? null, limit);
 
-            return rows.map((row) => ({
-                destinationId: row.id,
-                domainEventId: row.domain_event_id,
-                eventType: row.event_type,
-                eventId: row.event_id,
-                payload: row.event_payload,
-                payloadVersion: row.payload_version,
-                clanTag: row.clan_tag,
-                chatId: row.chat_id,
-                messageThreadId: row.message_thread_id,
-                audience: parseAudience(row.audience),
-                subscriptionId: row.subscription_id,
-                attempts: row.attempts,
-            }));
-        });
+                return rows.map((row) => ({
+                    destinationId: row.id,
+                    domainEventId: row.domain_event_id,
+                    eventType: row.event_type,
+                    eventId: row.event_id,
+                    payload: row.event_payload,
+                    payloadVersion: row.payload_version,
+                    clanTag: row.clan_tag,
+                    chatId: row.chat_id,
+                    messageThreadId: row.message_thread_id,
+                    audience: parseAudience(row.audience),
+                    subscriptionId: row.subscription_id,
+                    attempts: row.attempts,
+                }));
+            },
+        );
     }
 
     isDestinationPending(destinationId: number): boolean {

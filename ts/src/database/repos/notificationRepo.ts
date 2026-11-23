@@ -132,40 +132,51 @@ export class NotificationRepo {
         );
     }
 
-    getPending(limit: number = DEFAULT_PENDING_NOTIFICATIONS_LIMIT): PendingNotification[] {
+    getPending(
+        limit: number = DEFAULT_PENDING_NOTIFICATIONS_LIMIT,
+        nowEpochSeconds?: number,
+    ): PendingNotification[] {
         if (limit <= 0) {
             return [];
         }
 
-        return runRepoQuery(REPO_NAME, 'load pending notifications', { limit }, () => {
-            const rows = getConnection(this.source)
-                .prepare<[number], PendingNotificationRow>(
-                    `SELECT id,
-                            event_type,
-                            event_id,
-                            chat_id,
-                            message_thread_id,
-                            message_text,
-                            attempts
-                     FROM notifications
-                     WHERE status = 'pending'
-                       AND (next_attempt_at IS NULL
-                            OR next_attempt_at <= strftime('%s', 'now'))
-                     ORDER BY created_at, id
-                     LIMIT ?;`,
-                )
-                .all(limit);
+        return runRepoQuery(
+            REPO_NAME,
+            'load pending notifications',
+            { limit, ...(nowEpochSeconds !== undefined ? { nowEpochSeconds } : {}) },
+            () => {
+                const rows = getConnection(this.source)
+                    .prepare<[number | null, number | null, number], PendingNotificationRow>(
+                        `SELECT id,
+                                event_type,
+                                event_id,
+                                chat_id,
+                                message_thread_id,
+                                message_text,
+                                attempts
+                         FROM notifications
+                         WHERE status = 'pending'
+                           AND (next_attempt_at IS NULL
+                                OR (attempts = 0
+                                    AND next_attempt_at <= MAX(COALESCE(?, 0), CAST(strftime('%s', 'now') AS INTEGER)))
+                                OR (attempts > 0
+                                    AND next_attempt_at <= COALESCE(?, CAST(strftime('%s', 'now') AS INTEGER))))
+                         ORDER BY created_at, id
+                         LIMIT ?;`,
+                    )
+                    .all(nowEpochSeconds ?? null, nowEpochSeconds ?? null, limit);
 
-            return rows.map((row) => ({
-                id: row.id,
-                eventType: row.event_type,
-                eventId: row.event_id,
-                chatId: row.chat_id,
-                messageThreadId: row.message_thread_id,
-                messageText: row.message_text,
-                attempts: row.attempts,
-            }));
-        });
+                return rows.map((row) => ({
+                    id: row.id,
+                    eventType: row.event_type,
+                    eventId: row.event_id,
+                    chatId: row.chat_id,
+                    messageThreadId: row.message_thread_id,
+                    messageText: row.message_text,
+                    attempts: row.attempts,
+                }));
+            },
+        );
     }
 
     isPending(notificationId: number): boolean {

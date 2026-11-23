@@ -9,4 +9,15 @@ export {
     serializeDomainEvent,
 } from './domainEventPayloadSerializer.js';
 export { DomainEventRecorder } from './domainEventRecorder.js';
-export { audiencesForEvent } from './eventNotificationPolicy.js';
+export {
+    DEFAULT_DOMAIN_EVENT_POLL_INTERVAL_MS,
+    DEFAULT_DOMAIN_EVENT_RETRY_INITIAL_DELAY_MS,
+    DEFAULT_DOMAIN_EVENT_RETRY_MAX_ATTEMPTS,
+    DEFAULT_DOMAIN_EVENT_RETRY_MAX_DELAY_MS,
+    DomainEventWorker,
+    createDefaultDomainEventRetryPolicy,
+    type DomainEventDeserializer,
+    type DomainEventWorkerDependencies,
+    type DomainEventWorkerOptions,
+} from './domainEventWorker.js';
+export { EventNotificationPolicy, audiencesForEvent } from './eventNotificationPolicy.js';
