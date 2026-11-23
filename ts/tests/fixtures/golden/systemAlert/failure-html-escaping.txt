@@ -1,0 +1,6 @@
+🚨 <b>ОШИБКА СИНХРОНИЗАЦИИ</b>
+
+Клан: <code>#&lt;2J8PJ9VLG&amp;&gt;</code>
+Сервис: <code>Clan &amp; &lt;Service&gt;</code>
+Попытка: 1
+Ошибка: <code>&lt;A&amp;B&gt; &lt;details&gt;</code>

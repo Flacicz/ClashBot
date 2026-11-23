@@ -1,0 +1,53 @@
+export type { ClanRaid, CompleteRaidData, PlayerRaidSnapshot } from '../api/models.js';
+
+export type RaidState = 'ended' | 'ongoing' | 'scheduled';
+
+export interface RaidReference {
+    readonly raidId: number;
+}
+
+export interface RaidStats {
+    readonly totalLoot: number;
+    readonly raidsCompleted: number;
+    readonly totalAttacks: number;
+    readonly enemyDistrictsDestroyed: number;
+    readonly offensiveReward: number;
+    readonly defensiveReward: number;
+}
+
+export interface RaidMemberStats {
+    readonly playerTag: string;
+    readonly playerName: string;
+    readonly attacksCount: number;
+    readonly bonusAttacks: number;
+    readonly totalLoot: number;
+}
+
+export interface RaidSlacker {
+    readonly playerTag: string;
+    readonly playerName: string;
+    readonly attacksCount: number;
+    readonly bonusAttacks: number;
+}
+
+export interface RaidReportData {
+    readonly clanTag: string;
+    readonly clanName: string;
+    readonly stats: RaidStats;
+    readonly bestMembers: readonly RaidMemberStats[];
+}
+
+export interface RaidComparisonStats {
+    readonly startTime: number;
+    readonly totalLoot: number;
+    readonly raidsCompleted: number;
+    readonly usedAttacks: number;
+    readonly availableAttacks: number;
+    readonly activeParticipants: number;
+    readonly eligibleParticipants: number;
+    readonly participantsWithAllAttacksUsed: number;
+    readonly participantsWithoutAttacks: number;
+    readonly enemyDistrictsDestroyed: number;
+    readonly offensiveReward: number;
+    readonly defensiveReward: number;
+}

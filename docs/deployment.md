@@ -132,6 +132,9 @@ CLASHBOT_IMAGE_TAG=sha-0123456 docker compose up -d
 
 Чтобы вернуться на `latest`, уберите `CLASHBOT_IMAGE_TAG` (или задайте `CLASHBOT_IMAGE_TAG=latest`) и выполните `docker compose pull && docker compose up -d`.
 
+> [!TIP]
+> Пошаговый чеклист пробного прогона (Dress Rehearsal) и отката для TypeScript-образа (`ts/Dockerfile`) вынесен в [`docs/ts-dress-rehearsal.md`](ts-dress-rehearsal.md).
+
 ## Ежедневный бэкап SQLite и выгрузка в облако
 
 ClashBot работает с SQLite в режиме `WAL` (`PRAGMA journal_mode = WAL`). Простое копирование файла `database.sqlite` во время работы контейнера может дать несогласованный снимок без изменений из `-wal`.

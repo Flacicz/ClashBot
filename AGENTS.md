@@ -31,6 +31,26 @@ git diff --check
 
 Основные цели `CMakeLists.txt`: `ClashBotCore`, `ClashBot`, `ClashBotTests` (unit), `ClashBotIntegrationTests` (integration).
 
+### TypeScript side-by-side (`ts/`)
+
+На период переноса (`#16`, тикеты `#17`–`#35`) TypeScript-реализация разрабатывается рядом с C++ в подкаталоге `ts/` (Node.js 24 LTS, ESM, `strict` + `noUncheckedIndexedAccess`, `pnpm`, `zod`, `pino` в `stdout`, Vitest, ESLint, Prettier).
+
+```powershell
+# Установка зависимостей по lockfile
+pnpm --dir ts install --frozen-lockfile
+
+# Проверка типов, линт, форматирование и тесты
+pnpm --dir ts typecheck
+pnpm --dir ts lint
+pnpm --dir ts format:check
+pnpm --dir ts test
+
+# Автоформатирование при необходимости
+pnpm --dir ts format
+```
+
+Отдельный CI-workflow `.github/workflows/ts-ci.yml` прогоняет `typecheck`, `lint`, `format:check` и `test` на `ubuntu-24.04` (Node.js 24) при PR в `main`, push в `main` и push в `feat/ts-migration`.
+
 ## Карта `docs/`
 
 Открывай нужный документ по триггеру до проектирования и правок:

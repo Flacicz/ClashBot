@@ -1,0 +1,757 @@
+import { DatabaseError } from '../common/errors.js';
+import type { ClansRepo } from '../database/repos/clansRepo.js';
+import type { ClanwarRepo } from '../database/repos/clanwarRepo.js';
+import type { ClanwarsLeagueRepo } from '../database/repos/clanwarsLeagueRepo.js';
+import type { PendingDomainEventDestination } from '../database/repos/domainEventsRepo.js';
+import type { NotificationRepo } from '../database/repos/notificationRepo.js';
+import type { RaidRepo } from '../database/repos/raidRepo.js';
+import type { SubscriptionRepo } from '../database/repos/subscriptionRepo.js';
+import type { TransactionManager } from '../database/transactionManager.js';
+import {
+    APPLICATION_EVENT_TYPES,
+    type ApplicationEvent,
+    type ClanwarsLeagueRoundEndedEvent,
+    type PlayerJoinedClanEvent,
+    type PlayerLeftClanEvent,
+    type PlayerRoleChangedEvent,
+    type RaidReminderEvent,
+    type RaidsEndedEvent,
+    type SyncFailureEvent,
+    type SyncRecoveryEvent,
+    type WarEndedEvent,
+    type WarReminderEvent,
+    getApplicationEventKey,
+} from '../events/applicationEvents.js';
+import type { Logger } from '../logging/logger.js';
+import {
+    ClanwarComparisonFormatter,
+    ClanwarEndedFormatter,
+    ClanwarRosterFormatter,
+    ClanwarsLeagueRoundEndedFormatter,
+    ClanwarsLeagueRoundViolationsFormatter,
+    ClanwarViolationsFormatter,
+    PlayerJoinedFormatter,
+    PlayerLeftFormatter,
+    PlayerRoleChangedFormatter,
+    RaidReminderFormatter,
+    RaidsComparisonFormatter,
+    RaidsEndedFormatter,
+    RaidsViolationsFormatter,
+    SystemAlertReportFormatter,
+    WarReminderFormatter,
+} from '../reports/index.js';
+import type { Audience } from '../telegram/validation.js';
+
+export const DEFAULT_NOTIFICATION_PART_INDEX = 1;
+export const DEFAULT_NOTIFICATION_PART_COUNT = 1;
+
+export const NOTIFICATION_EVENT_TYPES = {
+    playerJoinedClan: APPLICATION_EVENT_TYPES.playerJoinedClan,
+    playerLeftClan: APPLICATION_EVENT_TYPES.playerLeftClan,
+    playerRoleChanged: APPLICATION_EVENT_TYPES.playerRoleChanged,
+    warEnded: APPLICATION_EVENT_TYPES.warEnded,
+    warComparison: ClanwarComparisonFormatter.EventType,
+    warViolations: ClanwarViolationsFormatter.eventType,
+    warRosterReliability: ClanwarRosterFormatter.EventType,
+    raidsEnded: APPLICATION_EVENT_TYPES.raidsEnded,
+    raidsComparison: RaidsComparisonFormatter.EventType,
+    raidsViolations: RaidsViolationsFormatter.EventType,
+    cwlRoundEnded: APPLICATION_EVENT_TYPES.cwlRoundEnded,
+    cwlViolations: ClanwarsLeagueRoundViolationsFormatter.eventType,
+    syncFailure: APPLICATION_EVENT_TYPES.syncFailure,
+    syncRecovery: APPLICATION_EVENT_TYPES.syncRecovery,
+    warReminder: APPLICATION_EVENT_TYPES.warReminder,
+    raidReminder: APPLICATION_EVENT_TYPES.raidReminder,
+} as const;
+
+export type NotificationEventType =
+    (typeof NOTIFICATION_EVENT_TYPES)[keyof typeof NOTIFICATION_EVENT_TYPES];
+
+export interface EventFormatter<TEvent> {
+    format(event: TEvent): string;
+}
+
+export interface DomainEventMaterializer {
+    materialize(event: ApplicationEvent, destination: PendingDomainEventDestination): void;
+}
+
+export interface WakeableNotificationWorker {
+    notify(): void;
+}
+
+export interface NotificationServiceDependencies {
+    readonly notificationRepo: NotificationRepo;
+    readonly clansRepo?: ClansRepo;
+    readonly clanwarRepo?: ClanwarRepo;
+    readonly clanwarsLeagueRepo?: ClanwarsLeagueRepo;
+    readonly raidRepo?: RaidRepo;
+    readonly subscriptionRepo?: SubscriptionRepo;
+    readonly transactionManager?: TransactionManager;
+    readonly notificationWorker?: WakeableNotificationWorker;
+    readonly playerJoinedFormatter?: EventFormatter<PlayerJoinedClanEvent>;
+    readonly playerLeftFormatter?: EventFormatter<PlayerLeftClanEvent>;
+    readonly playerRoleChangedFormatter?: EventFormatter<PlayerRoleChangedEvent>;
+    readonly raidsEndedFormatter?: EventFormatter<RaidsEndedEvent>;
+    readonly raidsComparisonFormatter?: EventFormatter<RaidsEndedEvent>;
+    readonly raidsViolationsFormatter?: EventFormatter<RaidsEndedEvent>;
+    readonly clanwarEndedFormatter?: EventFormatter<WarEndedEvent>;
+    readonly clanwarViolationsFormatter?: EventFormatter<WarEndedEvent>;
+    readonly clanwarComparisonFormatter?: EventFormatter<WarEndedEvent>;
+    readonly clanwarRosterFormatter?: EventFormatter<WarEndedEvent>;
+    readonly clanwarsLeagueRoundEndedFormatter?: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
+    readonly clanwarsLeagueRoundViolationsFormatter?: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
+    readonly logger?: Logger;
+}
+
+function assertNever(value: never): never {
+    throw new Error(`Unhandled application event in NotificationService: ${JSON.stringify(value)}`);
+}
+
+function requireDep<T>(value: T | undefined, name: string): T {
+    if (value === undefined) {
+        throw new Error(`NotificationService missing required dependency: ${name}`);
+    }
+    return value;
+}
+
+export class NotificationService implements DomainEventMaterializer {
+    private readonly notificationRepo: NotificationRepo;
+    private readonly subscriptionRepo?: SubscriptionRepo;
+    private readonly transactionManager?: TransactionManager;
+    private readonly notificationWorker?: WakeableNotificationWorker;
+    private readonly playerJoinedFormatter: EventFormatter<PlayerJoinedClanEvent>;
+    private readonly playerLeftFormatter: EventFormatter<PlayerLeftClanEvent>;
+    private readonly playerRoleChangedFormatter: EventFormatter<PlayerRoleChangedEvent>;
+    private readonly raidsEndedFormatter: EventFormatter<RaidsEndedEvent>;
+    private readonly raidsComparisonFormatter: EventFormatter<RaidsEndedEvent>;
+    private readonly raidsViolationsFormatter: EventFormatter<RaidsEndedEvent>;
+    private readonly clanwarEndedFormatter: EventFormatter<WarEndedEvent>;
+    private readonly clanwarViolationsFormatter: EventFormatter<WarEndedEvent>;
+    private readonly clanwarComparisonFormatter: EventFormatter<WarEndedEvent>;
+    private readonly clanwarRosterFormatter: EventFormatter<WarEndedEvent>;
+    private readonly clanwarsLeagueRoundEndedFormatter: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
+    private readonly clanwarsLeagueRoundViolationsFormatter: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
+    private readonly logger?: Logger;
+
+    constructor(deps: NotificationServiceDependencies) {
+        this.notificationRepo = deps.notificationRepo;
+        if (deps.subscriptionRepo !== undefined) {
+            this.subscriptionRepo = deps.subscriptionRepo;
+        }
+        if (deps.transactionManager !== undefined) {
+            this.transactionManager = deps.transactionManager;
+        }
+        if (deps.notificationWorker !== undefined) {
+            this.notificationWorker = deps.notificationWorker;
+        }
+        if (deps.logger !== undefined) {
+            this.logger = deps.logger;
+        }
+
+        this.playerJoinedFormatter =
+            deps.playerJoinedFormatter ??
+            new PlayerJoinedFormatter(requireDep(deps.clansRepo, 'clansRepo'));
+        this.playerLeftFormatter =
+            deps.playerLeftFormatter ??
+            new PlayerLeftFormatter(requireDep(deps.clansRepo, 'clansRepo'));
+        this.playerRoleChangedFormatter =
+            deps.playerRoleChangedFormatter ??
+            new PlayerRoleChangedFormatter(requireDep(deps.clansRepo, 'clansRepo'));
+        this.raidsEndedFormatter =
+            deps.raidsEndedFormatter ??
+            new RaidsEndedFormatter(
+                requireDep(deps.clansRepo, 'clansRepo'),
+                requireDep(deps.raidRepo, 'raidRepo'),
+            );
+        this.raidsComparisonFormatter =
+            deps.raidsComparisonFormatter ??
+            new RaidsComparisonFormatter(
+                requireDep(deps.clansRepo, 'clansRepo'),
+                requireDep(deps.raidRepo, 'raidRepo'),
+            );
+        this.raidsViolationsFormatter =
+            deps.raidsViolationsFormatter ??
+            new RaidsViolationsFormatter(requireDep(deps.raidRepo, 'raidRepo'));
+        this.clanwarEndedFormatter =
+            deps.clanwarEndedFormatter ??
+            new ClanwarEndedFormatter(requireDep(deps.clanwarRepo, 'clanwarRepo'));
+        this.clanwarViolationsFormatter =
+            deps.clanwarViolationsFormatter ??
+            new ClanwarViolationsFormatter(requireDep(deps.clanwarRepo, 'clanwarRepo'));
+        this.clanwarComparisonFormatter =
+            deps.clanwarComparisonFormatter ??
+            new ClanwarComparisonFormatter(requireDep(deps.clanwarRepo, 'clanwarRepo'));
+        this.clanwarRosterFormatter =
+            deps.clanwarRosterFormatter ??
+            new ClanwarRosterFormatter(
+                requireDep(deps.clansRepo, 'clansRepo'),
+                requireDep(deps.clanwarRepo, 'clanwarRepo'),
+            );
+        this.clanwarsLeagueRoundEndedFormatter =
+            deps.clanwarsLeagueRoundEndedFormatter ??
+            new ClanwarsLeagueRoundEndedFormatter(
+                requireDep(deps.clanwarsLeagueRepo, 'clanwarsLeagueRepo'),
+                requireDep(deps.clanwarRepo, 'clanwarRepo'),
+            );
+        this.clanwarsLeagueRoundViolationsFormatter =
+            deps.clanwarsLeagueRoundViolationsFormatter ??
+            new ClanwarsLeagueRoundViolationsFormatter(
+                requireDep(deps.clanwarsLeagueRepo, 'clanwarsLeagueRepo'),
+                requireDep(deps.clanwarRepo, 'clanwarRepo'),
+            );
+    }
+
+    materialize(event: ApplicationEvent, destination: PendingDomainEventDestination): void {
+        switch (event.type) {
+            case APPLICATION_EVENT_TYPES.playerJoinedClan:
+                this.materializePlayerJoined(event, destination);
+                return;
+            case APPLICATION_EVENT_TYPES.playerLeftClan:
+                this.materializePlayerLeft(event, destination);
+                return;
+            case APPLICATION_EVENT_TYPES.playerRoleChanged:
+                this.materializePlayerRoleChanged(event, destination);
+                return;
+            case APPLICATION_EVENT_TYPES.warEnded:
+                this.materializeWarEnded(event, destination);
+                return;
+            case APPLICATION_EVENT_TYPES.raidsEnded:
+                this.materializeRaidsEnded(event, destination);
+                return;
+            case APPLICATION_EVENT_TYPES.cwlRoundEnded:
+                this.materializeCwlRoundEnded(event, destination);
+                return;
+            case APPLICATION_EVENT_TYPES.syncFailure:
+                this.materializeSyncFailure(event, destination);
+                return;
+            case APPLICATION_EVENT_TYPES.syncRecovery:
+                this.materializeSyncRecovery(event, destination);
+                return;
+            case APPLICATION_EVENT_TYPES.warReminder:
+                this.materializeWarReminder(event, destination);
+                return;
+            case APPLICATION_EVENT_TYPES.raidReminder:
+                this.materializeRaidReminder(event, destination);
+                return;
+            default:
+                assertNever(event);
+        }
+    }
+
+    handle(event: ApplicationEvent): void {
+        const eventId = getApplicationEventKey(event);
+
+        switch (event.type) {
+            case APPLICATION_EVENT_TYPES.playerJoinedClan: {
+                const message = this.playerJoinedFormatter.format(event);
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.playerJoinedClan,
+                    eventId,
+                    'PlayerJoinedClanEvent',
+                    message,
+                    'players',
+                );
+                return;
+            }
+            case APPLICATION_EVENT_TYPES.playerLeftClan: {
+                const message = this.playerLeftFormatter.format(event);
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.playerLeftClan,
+                    eventId,
+                    'PlayerLeftClanEvent',
+                    message,
+                    'players',
+                );
+                return;
+            }
+            case APPLICATION_EVENT_TYPES.playerRoleChanged: {
+                const message = this.playerRoleChangedFormatter.format(event);
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.playerRoleChanged,
+                    eventId,
+                    'PlayerRoleChangedEvent',
+                    message,
+                    'players',
+                );
+                return;
+            }
+            case APPLICATION_EVENT_TYPES.raidsEnded: {
+                const message = this.raidsEndedFormatter.format(event);
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.raidsEnded,
+                    eventId,
+                    'RaidsReport',
+                    message,
+                    'players',
+                );
+
+                const comparisonMessage = this.raidsComparisonFormatter.format(event);
+                if (comparisonMessage.length > 0) {
+                    this.enqueueToDestinations(
+                        event.clanTag,
+                        NOTIFICATION_EVENT_TYPES.raidsComparison,
+                        eventId,
+                        'RaidsComparisonReport',
+                        comparisonMessage,
+                        'players',
+                    );
+                }
+
+                const violationsMessage = this.raidsViolationsFormatter.format(event);
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.raidsViolations,
+                    eventId,
+                    'RaidsViolationsReport',
+                    violationsMessage,
+                    'management',
+                );
+                return;
+            }
+            case APPLICATION_EVENT_TYPES.warEnded: {
+                const message = this.clanwarEndedFormatter.format(event);
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.warEnded,
+                    eventId,
+                    'WarReport',
+                    message,
+                    'players',
+                );
+
+                const violationsMessage = this.clanwarViolationsFormatter.format(event);
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.warViolations,
+                    eventId,
+                    'WarViolationsReport',
+                    violationsMessage,
+                    'management',
+                );
+
+                const comparisonMessage = this.clanwarComparisonFormatter.format(event);
+                if (comparisonMessage.length > 0) {
+                    this.enqueueToDestinations(
+                        event.clanTag,
+                        NOTIFICATION_EVENT_TYPES.warComparison,
+                        eventId,
+                        'WarComparisonReport',
+                        comparisonMessage,
+                        'players',
+                    );
+                }
+
+                const rosterMessage = this.clanwarRosterFormatter.format(event);
+                if (rosterMessage.length > 0) {
+                    this.enqueueToDestinations(
+                        event.clanTag,
+                        NOTIFICATION_EVENT_TYPES.warRosterReliability,
+                        eventId,
+                        'WarRosterReport',
+                        rosterMessage,
+                        'management',
+                    );
+                }
+                return;
+            }
+            case APPLICATION_EVENT_TYPES.cwlRoundEnded: {
+                const message = this.clanwarsLeagueRoundEndedFormatter.format(event);
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.cwlRoundEnded,
+                    eventId,
+                    'CwlRoundReport',
+                    message,
+                    'players',
+                );
+
+                const violationsMessage = this.clanwarsLeagueRoundViolationsFormatter.format(event);
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.cwlViolations,
+                    eventId,
+                    'CwlRoundViolationsReport',
+                    violationsMessage,
+                    'management',
+                );
+                return;
+            }
+            case APPLICATION_EVENT_TYPES.syncFailure: {
+                const message = SystemAlertReportFormatter.formatFailureAlert(event);
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.syncFailure,
+                    eventId,
+                    'SyncFailureEvent',
+                    message,
+                    'management',
+                );
+                return;
+            }
+            case APPLICATION_EVENT_TYPES.syncRecovery: {
+                const message = SystemAlertReportFormatter.formatRecoveryAlert(event);
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.syncRecovery,
+                    eventId,
+                    'SyncRecoveryEvent',
+                    message,
+                    'management',
+                );
+                return;
+            }
+            case APPLICATION_EVENT_TYPES.warReminder: {
+                const message = WarReminderFormatter.format(event);
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.warReminder,
+                    eventId,
+                    'WarReminderEvent',
+                    message,
+                    'players',
+                );
+                return;
+            }
+            case APPLICATION_EVENT_TYPES.raidReminder: {
+                const message = RaidReminderFormatter.format(event);
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.raidReminder,
+                    eventId,
+                    'RaidReminderEvent',
+                    message,
+                    'players',
+                );
+                return;
+            }
+            default:
+                assertNever(event);
+        }
+    }
+
+    private materializePlayerJoined(
+        event: PlayerJoinedClanEvent,
+        destination: PendingDomainEventDestination,
+    ): void {
+        if (destination.audience !== 'players') {
+            return;
+        }
+
+        const message = this.playerJoinedFormatter.format(event);
+        this.enqueueDomainEvent(
+            message,
+            destination,
+            NOTIFICATION_EVENT_TYPES.playerJoinedClan,
+            DEFAULT_NOTIFICATION_PART_INDEX,
+            DEFAULT_NOTIFICATION_PART_COUNT,
+        );
+    }
+
+    private materializePlayerLeft(
+        event: PlayerLeftClanEvent,
+        destination: PendingDomainEventDestination,
+    ): void {
+        if (destination.audience !== 'players') {
+            return;
+        }
+
+        const message = this.playerLeftFormatter.format(event);
+        this.enqueueDomainEvent(
+            message,
+            destination,
+            NOTIFICATION_EVENT_TYPES.playerLeftClan,
+            DEFAULT_NOTIFICATION_PART_INDEX,
+            DEFAULT_NOTIFICATION_PART_COUNT,
+        );
+    }
+
+    private materializePlayerRoleChanged(
+        event: PlayerRoleChangedEvent,
+        destination: PendingDomainEventDestination,
+    ): void {
+        if (destination.audience !== 'players') {
+            return;
+        }
+
+        const message = this.playerRoleChangedFormatter.format(event);
+        this.enqueueDomainEvent(
+            message,
+            destination,
+            NOTIFICATION_EVENT_TYPES.playerRoleChanged,
+            DEFAULT_NOTIFICATION_PART_INDEX,
+            DEFAULT_NOTIFICATION_PART_COUNT,
+        );
+    }
+
+    private materializeWarEnded(
+        event: WarEndedEvent,
+        destination: PendingDomainEventDestination,
+    ): void {
+        if (destination.audience === 'players') {
+            const message = this.clanwarEndedFormatter.format(event);
+            this.enqueueDomainEvent(
+                message,
+                destination,
+                NOTIFICATION_EVENT_TYPES.warEnded,
+                DEFAULT_NOTIFICATION_PART_INDEX,
+                DEFAULT_NOTIFICATION_PART_COUNT,
+            );
+
+            const comparisonMessage = this.clanwarComparisonFormatter.format(event);
+            if (comparisonMessage.length > 0) {
+                this.enqueueDomainEvent(
+                    comparisonMessage,
+                    destination,
+                    NOTIFICATION_EVENT_TYPES.warComparison,
+                    DEFAULT_NOTIFICATION_PART_INDEX,
+                    DEFAULT_NOTIFICATION_PART_COUNT,
+                );
+            }
+            return;
+        }
+
+        const violationsMessage = this.clanwarViolationsFormatter.format(event);
+        this.enqueueDomainEvent(
+            violationsMessage,
+            destination,
+            NOTIFICATION_EVENT_TYPES.warViolations,
+            DEFAULT_NOTIFICATION_PART_INDEX,
+            DEFAULT_NOTIFICATION_PART_COUNT,
+        );
+
+        const rosterMessage = this.clanwarRosterFormatter.format(event);
+        if (rosterMessage.length > 0) {
+            this.enqueueDomainEvent(
+                rosterMessage,
+                destination,
+                NOTIFICATION_EVENT_TYPES.warRosterReliability,
+                DEFAULT_NOTIFICATION_PART_INDEX,
+                DEFAULT_NOTIFICATION_PART_COUNT,
+            );
+        }
+    }
+
+    private materializeRaidsEnded(
+        event: RaidsEndedEvent,
+        destination: PendingDomainEventDestination,
+    ): void {
+        if (destination.audience === 'players') {
+            const message = this.raidsEndedFormatter.format(event);
+            this.enqueueDomainEvent(
+                message,
+                destination,
+                NOTIFICATION_EVENT_TYPES.raidsEnded,
+                DEFAULT_NOTIFICATION_PART_INDEX,
+                DEFAULT_NOTIFICATION_PART_COUNT,
+            );
+
+            const comparisonMessage = this.raidsComparisonFormatter.format(event);
+            if (comparisonMessage.length > 0) {
+                this.enqueueDomainEvent(
+                    comparisonMessage,
+                    destination,
+                    NOTIFICATION_EVENT_TYPES.raidsComparison,
+                    DEFAULT_NOTIFICATION_PART_INDEX,
+                    DEFAULT_NOTIFICATION_PART_COUNT,
+                );
+            }
+            return;
+        }
+
+        const violationsMessage = this.raidsViolationsFormatter.format(event);
+        this.enqueueDomainEvent(
+            violationsMessage,
+            destination,
+            NOTIFICATION_EVENT_TYPES.raidsViolations,
+            DEFAULT_NOTIFICATION_PART_INDEX,
+            DEFAULT_NOTIFICATION_PART_COUNT,
+        );
+    }
+
+    private materializeCwlRoundEnded(
+        event: ClanwarsLeagueRoundEndedEvent,
+        destination: PendingDomainEventDestination,
+    ): void {
+        if (destination.audience === 'players') {
+            const message = this.clanwarsLeagueRoundEndedFormatter.format(event);
+            this.enqueueDomainEvent(
+                message,
+                destination,
+                NOTIFICATION_EVENT_TYPES.cwlRoundEnded,
+                DEFAULT_NOTIFICATION_PART_INDEX,
+                DEFAULT_NOTIFICATION_PART_COUNT,
+            );
+            return;
+        }
+
+        const violationsMessage = this.clanwarsLeagueRoundViolationsFormatter.format(event);
+        this.enqueueDomainEvent(
+            violationsMessage,
+            destination,
+            NOTIFICATION_EVENT_TYPES.cwlViolations,
+            DEFAULT_NOTIFICATION_PART_INDEX,
+            DEFAULT_NOTIFICATION_PART_COUNT,
+        );
+    }
+
+    private materializeSyncFailure(
+        event: SyncFailureEvent,
+        destination: PendingDomainEventDestination,
+    ): void {
+        if (destination.audience !== 'management') {
+            return;
+        }
+
+        const message = SystemAlertReportFormatter.formatFailureAlert(event);
+        this.enqueueDomainEvent(
+            message,
+            destination,
+            NOTIFICATION_EVENT_TYPES.syncFailure,
+            DEFAULT_NOTIFICATION_PART_INDEX,
+            DEFAULT_NOTIFICATION_PART_COUNT,
+        );
+    }
+
+    private materializeSyncRecovery(
+        event: SyncRecoveryEvent,
+        destination: PendingDomainEventDestination,
+    ): void {
+        if (destination.audience !== 'management') {
+            return;
+        }
+
+        const message = SystemAlertReportFormatter.formatRecoveryAlert(event);
+        this.enqueueDomainEvent(
+            message,
+            destination,
+            NOTIFICATION_EVENT_TYPES.syncRecovery,
+            DEFAULT_NOTIFICATION_PART_INDEX,
+            DEFAULT_NOTIFICATION_PART_COUNT,
+        );
+    }
+
+    private materializeWarReminder(
+        event: WarReminderEvent,
+        destination: PendingDomainEventDestination,
+    ): void {
+        if (destination.audience !== 'players') {
+            return;
+        }
+
+        const message = WarReminderFormatter.format(event);
+        this.enqueueDomainEvent(
+            message,
+            destination,
+            NOTIFICATION_EVENT_TYPES.warReminder,
+            DEFAULT_NOTIFICATION_PART_INDEX,
+            DEFAULT_NOTIFICATION_PART_COUNT,
+        );
+    }
+
+    private materializeRaidReminder(
+        event: RaidReminderEvent,
+        destination: PendingDomainEventDestination,
+    ): void {
+        if (destination.audience !== 'players') {
+            return;
+        }
+
+        const message = RaidReminderFormatter.format(event);
+        this.enqueueDomainEvent(
+            message,
+            destination,
+            NOTIFICATION_EVENT_TYPES.raidReminder,
+            DEFAULT_NOTIFICATION_PART_INDEX,
+            DEFAULT_NOTIFICATION_PART_COUNT,
+        );
+    }
+
+    private enqueueDomainEvent(
+        message: string,
+        destination: PendingDomainEventDestination,
+        eventType: NotificationEventType,
+        partIndex: number = DEFAULT_NOTIFICATION_PART_INDEX,
+        partCount: number = DEFAULT_NOTIFICATION_PART_COUNT,
+    ): void {
+        const inserted = this.notificationRepo.enqueueDomainEventIfAbsent(
+            message,
+            destination.destinationId,
+            eventType,
+            destination.eventId,
+            destination.chatId,
+            destination.messageThreadId,
+            partIndex,
+            partCount,
+        );
+
+        if (!inserted) {
+            this.logger?.debug(
+                {
+                    eventType,
+                    clanTag: destination.clanTag,
+                    chatId: destination.chatId,
+                    destinationId: destination.destinationId,
+                },
+                '[NotificationService] Notification is already queued',
+            );
+        }
+    }
+
+    private enqueueToDestinations(
+        clanTag: string,
+        eventType: NotificationEventType,
+        eventId: string,
+        eventName: string,
+        message: string,
+        audience: Audience,
+    ): void {
+        const subscriptionRepo = requireDep(this.subscriptionRepo, 'subscriptionRepo');
+        const transactionManager = requireDep(this.transactionManager, 'transactionManager');
+
+        const destinations = subscriptionRepo.getDestinationsForClan(clanTag, audience);
+
+        try {
+            transactionManager.retryInTransaction(() => {
+                for (const { chatId, messageThreadId } of destinations) {
+                    const inserted = this.notificationRepo.enqueueIfAbsent(
+                        message,
+                        eventType,
+                        eventId,
+                        chatId,
+                        messageThreadId,
+                    );
+
+                    if (!inserted) {
+                        this.logger?.debug(
+                            {
+                                eventName,
+                                clanTag,
+                                chatId,
+                            },
+                            '[NotificationService] Notification is already queued',
+                        );
+                    }
+                }
+            });
+
+            this.notificationWorker?.notify();
+        } catch (error: unknown) {
+            if (error instanceof DatabaseError) {
+                this.logger?.error(
+                    {
+                        err: error,
+                        eventName,
+                        clanTag,
+                    },
+                    '[NotificationService] Failed to enqueue notification',
+                );
+                return;
+            }
+            throw error;
+        }
+    }
+}
