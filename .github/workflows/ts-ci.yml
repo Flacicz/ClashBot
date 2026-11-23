@@ -193,20 +193,20 @@ jobs:
 
           docker run --rm \
             --entrypoint node \
-            -v "$SMOKE_DIR/data:/app/data:ro" \
+            -v "$SMOKE_DIR/data:/app/data" \
             clashbot-ts:ci \
             --input-type=module \
             -e '
               import Database from "better-sqlite3";
-              const db = new Database("/app/data/database.sqlite", { readonly: true });
+              const db = new Database("/app/data/database.sqlite");
               const integrity = db.pragma("integrity_check", { simple: true });
-              const row = db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get();
+              const row = db.prepare("SELECT COUNT(*) AS count, MAX(version) AS latest FROM schema_migrations").get();
               db.close();
               if (integrity !== "ok") {
                 throw new Error(`Unexpected PRAGMA integrity_check: ${String(integrity)}`);
               }
-              if (!row || row.version !== 12) {
-                throw new Error(`Expected SQLite schema version 12, got: ${JSON.stringify(row)}`);
+              if (!row || row.count !== 12 || typeof row.latest !== "string" || !row.latest.startsWith("012_")) {
+                throw new Error(`Expected 12 SQLite migrations ending at 012_*, got: ${JSON.stringify(row)}`);
               }
-              console.log(`Verified SQLite integrity=ok and schema_version=${row.version}`);
+              console.log(`Verified SQLite integrity=ok, migrations=${row.count}, latest=${row.latest}`);
             '
