@@ -134,16 +134,135 @@ describe('RaidRepo', () => {
             defensiveReward: 250,
         });
 
-        // Verify no duplicate rows and that ON CONFLICT preserves initial state & end_time (C++ parity)
+        // Verify no duplicate rows and that ON CONFLICT updates state and end_time
         const raidRow = db.connection
             .prepare('SELECT COUNT(*) AS cnt, state, end_time FROM clan_raids WHERE clan_tag = ?')
             .get('#CLAN1') as { cnt: number; state: string; end_time: number };
-        expect(raidRow).toEqual({ cnt: 1, state: 'ongoing', end_time: 1_700_259_200 });
+        expect(raidRow).toEqual({ cnt: 1, state: 'ended', end_time: 1_700_999_999 });
 
         const snapshotCount = db.connection
             .prepare('SELECT COUNT(*) AS cnt FROM player_raid_snapshots WHERE raid_id = ?')
             .get(firstRef.raidId) as { cnt: number };
         expect(snapshotCount.cnt).toBe(2);
+    });
+
+    it('updates state and end_time on conflict across ongoing -> ended transition and repeated saves', () => {
+        const { db, tx, clansRepo, raidRepo } = createMigratedDb();
+
+        clansRepo.insertMinimalClan('#CLAN1');
+
+        const startTime = 1_700_000_000;
+        const initialEndTime = 1_700_259_200;
+        const updatedEndTime = 1_700_262_800;
+
+        // 1. Initial save in ongoing state
+        const firstRef = tx.retryInTransaction(() =>
+            raidRepo.saveRaid(
+                makeRaid({
+                    clanTag: '#CLAN1',
+                    startTime,
+                    endTime: initialEndTime,
+                    state: 'ongoing',
+                    totalLoot: 40_000,
+                    raidsCompleted: 4,
+                    totalAttacks: 20,
+                    enemyDistrictsDestroyed: 15,
+                    offensiveReward: 500,
+                    defensiveReward: 100,
+                }),
+            ),
+        );
+
+        const ongoingRow = db.connection
+            .prepare(
+                `SELECT id, clan_tag, start_time, end_time, state,
+                        total_loot, raids_completed, total_attacks,
+                        enemy_districts_destroyed, offensive_reward, defensive_reward
+                 FROM clan_raids
+                 WHERE id = ?`,
+            )
+            .get(firstRef.raidId);
+        expect(ongoingRow).toEqual({
+            id: firstRef.raidId,
+            clan_tag: '#CLAN1',
+            start_time: startTime,
+            end_time: initialEndTime,
+            state: 'ongoing',
+            total_loot: 40_000,
+            raids_completed: 4,
+            total_attacks: 20,
+            enemy_districts_destroyed: 15,
+            offensive_reward: 500,
+            defensive_reward: 100,
+        });
+
+        // 2. Transition ongoing -> ended with changed end_time and final stats
+        const endedRef = tx.retryInTransaction(() =>
+            raidRepo.saveRaid(
+                makeRaid({
+                    clanTag: '#CLAN1',
+                    startTime,
+                    endTime: updatedEndTime,
+                    state: 'ended',
+                    totalLoot: 120_000,
+                    raidsCompleted: 10,
+                    totalAttacks: 60,
+                    enemyDistrictsDestroyed: 55,
+                    offensiveReward: 1200,
+                    defensiveReward: 300,
+                }),
+            ),
+        );
+
+        expect(endedRef).toEqual(firstRef);
+
+        const endedRow = db.connection
+            .prepare(
+                `SELECT id, clan_tag, start_time, end_time, state,
+                        total_loot, raids_completed, total_attacks,
+                        enemy_districts_destroyed, offensive_reward, defensive_reward
+                 FROM clan_raids
+                 WHERE id = ?`,
+            )
+            .get(firstRef.raidId);
+        expect(endedRow).toEqual({
+            id: firstRef.raidId,
+            clan_tag: '#CLAN1',
+            start_time: startTime,
+            end_time: updatedEndTime,
+            state: 'ended',
+            total_loot: 120_000,
+            raids_completed: 10,
+            total_attacks: 60,
+            enemy_districts_destroyed: 55,
+            offensive_reward: 1200,
+            defensive_reward: 300,
+        });
+
+        // 3. Repeated idempotent save of the ended raid keeps same id, state, end_time and single row
+        const repeatedRef = tx.retryInTransaction(() =>
+            raidRepo.saveRaid(
+                makeRaid({
+                    clanTag: '#CLAN1',
+                    startTime,
+                    endTime: updatedEndTime,
+                    state: 'ended',
+                    totalLoot: 120_000,
+                    raidsCompleted: 10,
+                    totalAttacks: 60,
+                    enemyDistrictsDestroyed: 55,
+                    offensiveReward: 1200,
+                    defensiveReward: 300,
+                }),
+            ),
+        );
+
+        expect(repeatedRef).toEqual(firstRef);
+
+        const countRow = db.connection
+            .prepare('SELECT COUNT(*) AS cnt FROM clan_raids WHERE clan_tag = ? AND start_time = ?')
+            .get('#CLAN1', startTime) as { cnt: number };
+        expect(countRow.cnt).toBe(1);
     });
 
     it('throws DatabaseError for missing raid or FK violations', () => {

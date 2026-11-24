@@ -31,6 +31,8 @@ export class RaidRepo extends BaseRepository {
                                    enemy_districts_destroyed, offensive_reward, defensive_reward)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(clan_tag, start_time) DO UPDATE SET
+                end_time = excluded.end_time,
+                state = excluded.state,
                 total_loot = excluded.total_loot,
                 raids_completed = excluded.raids_completed,
                 total_attacks = excluded.total_attacks,
