@@ -53,7 +53,7 @@ function formatLastParticipation(player: ClanwarRosterPlayerReport): string {
     }
 
     if (player.lastWarOffset === 0) {
-        return 'посл. 0 КВ';
+        return 'в последней КВ';
     }
 
     return `посл. ${String(player.lastWarOffset)} КВ назад`;

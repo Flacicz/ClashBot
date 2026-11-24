@@ -151,7 +151,7 @@ order_num ASC`) с нормализованными позициями (`ROW_NUM
     абсолютные итоги рейда выводятся как контекст.
 - `ClanwarRosterFormatter` (`clanwarRosterAnalyzer.ts`):
   - Строит срез по текущему активному составу (`ClansRepo.getActiveMembers`) за текущую и до 4 предыдущих обычных войн
-    (максимум 5 КВ): число включений, давность последнего участия (`lastWarOffset`: `0 КВ`, `N КВ назад`, `не участвовал`),
+    (максимум 5 КВ): число включений, давность последнего участия (`lastWarOffset`: `в последней КВ`, `посл. N КВ назад`, `не участвовал`),
     сумма и средние по атакам, счётчики нарушений (`warsWithoutAttacks`, `warsWithOneAttack`, `firstAttacksNotOnMirror`).
   - Взаимоисключающие категории: `Риск` (`includedWars > 0 && warsWithoutAttacks > 0`), `Требуют внимания`
     (`includedWars > 0`, не риск, `warsWithOneAttack > 0 || firstAttacksNotOnMirror > 0`), `Стабильные` (`includedWars > 0`
