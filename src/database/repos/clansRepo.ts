@@ -302,7 +302,7 @@ export class ClansRepo extends BaseRepository {
         const updatePlayerSql = `
             UPDATE players
             SET clan_tag = NULL
-            WHERE tag = ?;
+            WHERE tag = ? AND clan_tag = ?;
         `;
 
         this.execute(
@@ -310,6 +310,7 @@ export class ClansRepo extends BaseRepository {
             'update player',
             `clan_tag = ${clanTag}, player_tag = ${playerTag}`,
             playerTag,
+            clanTag,
         );
 
         return membershipId;

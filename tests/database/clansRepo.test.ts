@@ -426,6 +426,65 @@ describe('ClansRepo', () => {
         expect(membershipHistory[1]?.left_at).toBeNull();
     });
 
+    it('preserves new players.clan_tag when registerPlayerLeave runs after player moved to another tracked clan', () => {
+        const { db, tx, repo } = createMigratedDb();
+
+        repo.saveClan(makeClan({ tag: '#CLAN_A', name: 'Clan A' }));
+        repo.saveClan(makeClan({ tag: '#CLAN_B', name: 'Clan B' }));
+
+        const aliceInA: Player = { tag: '#P1', name: 'Alice', clanTag: '#CLAN_A' };
+        const aliceInB: Player = { tag: '#P1', name: 'Alice', clanTag: '#CLAN_B' };
+        const bobInA: Player = { tag: '#P2', name: 'Bob', clanTag: '#CLAN_A' };
+        const bobInB: Player = { tag: '#P2', name: 'Bob', clanTag: '#CLAN_B' };
+
+        repo.savePlayers([aliceInA, bobInA]);
+        tx.retryInTransaction(() =>
+            repo.saveMembershipChanges({
+                leftPlayers: [],
+                joinedPlayers: [aliceInA, bobInA],
+            }),
+        );
+
+        // Order A -> B for Bob: leave A first, then join B
+        tx.retryInTransaction(() => {
+            repo.registerPlayerLeave('#P2', '#CLAN_A');
+        });
+        const bobAfterLeaveA = db.connection
+            .prepare('SELECT clan_tag FROM players WHERE tag = ?')
+            .get('#P2') as { clan_tag: string | null };
+        expect(bobAfterLeaveA.clan_tag).toBeNull();
+
+        tx.retryInTransaction(() => {
+            repo.savePlayers([bobInB]);
+            repo.registerPlayerJoin('#P2', '#CLAN_B');
+        });
+        const bobAfterJoinB = db.connection
+            .prepare('SELECT clan_tag FROM players WHERE tag = ?')
+            .get('#P2') as { clan_tag: string | null };
+        expect(bobAfterJoinB.clan_tag).toBe('#CLAN_B');
+
+        // Order B -> A for Alice: join B first (updates players.clan_tag = '#CLAN_B'), then leave A
+        tx.retryInTransaction(() => {
+            repo.savePlayers([aliceInB]);
+            repo.registerPlayerJoin('#P1', '#CLAN_B');
+        });
+        tx.retryInTransaction(() => {
+            repo.registerPlayerLeave('#P1', '#CLAN_A');
+        });
+
+        const aliceAfterLeaveA = db.connection
+            .prepare('SELECT clan_tag FROM players WHERE tag = ?')
+            .get('#P1') as { clan_tag: string | null };
+        expect(aliceAfterLeaveA.clan_tag).toBe('#CLAN_B');
+        expect(repo.getActiveMembers('#CLAN_A')).toEqual([]);
+        expect(
+            repo
+                .getActiveMembers('#CLAN_B')
+                .map((p) => p.tag)
+                .sort(),
+        ).toEqual(['#P1', '#P2']);
+    });
+
     it('rolls back repository writes cleanly when enclosing TransactionManager transaction fails', () => {
         const { tx, repo } = createMigratedDb();
 

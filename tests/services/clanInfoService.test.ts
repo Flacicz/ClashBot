@@ -400,4 +400,113 @@ describe('ClanInfoService', () => {
         ).toEqual(['#P1', '#P2']);
         expect(domainEventsRepo.getPendingDestinations(50)).toHaveLength(1);
     });
+
+    it.each([
+        { label: 'A -> B', order: ['#CLAN_A', '#CLAN_B'] as const },
+        { label: 'B -> A', order: ['#CLAN_B', '#CLAN_A'] as const },
+    ])(
+        'preserves players.clan_tag when a player moves between two tracked clans in sync order $label',
+        async ({ order }) => {
+            const { db, clansRepo, apiClient, service } = setup();
+            const clanA = '#CLAN_A';
+            const clanB = '#CLAN_B';
+
+            clansRepo.insertMinimalClan(clanA);
+            clansRepo.insertMinimalClan(clanB);
+
+            const responses = new Map<string, CompleteClanData>([
+                [
+                    clanA,
+                    makeClanData(
+                        clanA,
+                        [
+                            { tag: '#P1', name: 'Mover', role: 'member' },
+                            { tag: '#PA', name: 'StayA', role: 'leader' },
+                        ],
+                        { clanName: 'Clan A' },
+                    ),
+                ],
+                [
+                    clanB,
+                    makeClanData(clanB, [{ tag: '#PB', name: 'StayB', role: 'leader' }], {
+                        clanName: 'Clan B',
+                    }),
+                ],
+            ]);
+
+            apiClient.onGetCompleteClanData = (requestedTag) => {
+                apiClient.clanData = responses.get(requestedTag) ?? null;
+            };
+
+            // Initial sync for both clans
+            expect((await service.updateData(clanA)).successFlag).toBe(true);
+            expect((await service.updateData(clanB)).successFlag).toBe(true);
+
+            // #P1 moves from Clan A to Clan B
+            responses.set(
+                clanA,
+                makeClanData(clanA, [{ tag: '#PA', name: 'StayA', role: 'leader' }], {
+                    clanName: 'Clan A',
+                }),
+            );
+            responses.set(
+                clanB,
+                makeClanData(
+                    clanB,
+                    [
+                        { tag: '#PB', name: 'StayB', role: 'leader' },
+                        { tag: '#P1', name: 'Mover', role: 'member' },
+                    ],
+                    { clanName: 'Clan B' },
+                ),
+            );
+
+            const results = new Map<string, Awaited<ReturnType<typeof service.updateData>>>();
+            for (const tag of order) {
+                const res = await service.updateData(tag);
+                expect(res.successFlag).toBe(true);
+                results.set(tag, res);
+            }
+
+            expect(results.get(clanA)?.events).toEqual([
+                expect.objectContaining({
+                    type: 'PlayerLeftClanEvent',
+                    clanTag: clanA,
+                    playerTag: '#P1',
+                }),
+            ]);
+            expect(results.get(clanB)?.events).toEqual([
+                expect.objectContaining({
+                    type: 'PlayerJoinedClanEvent',
+                    clanTag: clanB,
+                    playerTag: '#P1',
+                }),
+            ]);
+
+            const moverRow = db.connection
+                .prepare('SELECT clan_tag FROM players WHERE tag = ?')
+                .get('#P1') as { clan_tag: string | null };
+            expect(moverRow.clan_tag).toBe(clanB);
+
+            expect(clansRepo.getActiveMembers(clanA).map((p) => p.tag)).toEqual(['#PA']);
+            expect(
+                clansRepo
+                    .getActiveMembers(clanB)
+                    .map((p) => p.tag)
+                    .sort(),
+            ).toEqual(['#P1', '#PB']);
+
+            // Repeated syncs are idempotent and preserve players.clan_tag
+            for (const tag of order) {
+                const repeated = await service.updateData(tag);
+                expect(repeated.successFlag).toBe(true);
+                expect(repeated.events).toHaveLength(0);
+            }
+
+            const moverRowAfterRepeat = db.connection
+                .prepare('SELECT clan_tag FROM players WHERE tag = ?')
+                .get('#P1') as { clan_tag: string | null };
+            expect(moverRowAfterRepeat.clan_tag).toBe(clanB);
+        },
+    );
 });
