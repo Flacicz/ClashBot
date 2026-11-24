@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { CocApiError, parseRaidSeasonsResponse } from '../../src/api/index.js';
 import { FakeClock } from '../../src/common/clock.js';
 import { AbortError, DatabaseError } from '../../src/common/errors.js';
 import {
@@ -9,6 +10,7 @@ import {
     Database,
     DomainEventsRepo,
     MigratorManager,
+    RaidRepo,
     RetryPolicy,
     SubscriptionRepo,
     SYNC_SERVICE_NAMES,
@@ -25,6 +27,8 @@ import {
     DEFAULT_CLAN_LOAD_RETRY_DELAY_MS,
     DEFAULT_SYNC_CYCLE_INTERVAL_MS,
     DEFAULT_SYNC_RETRY_DELAY_MS,
+    RaidService,
+    type RaidApiClient,
     type SyncResult,
     type SyncService,
     type TrackedClansReader,
@@ -885,6 +889,143 @@ describe('ClanManager', () => {
         expect(ctx.getDomainEvents()).toHaveLength(0);
         expect(healthyCalls).toEqual(['#CLAN1']);
         expect(error).toHaveBeenCalled();
+
+        controller.abort();
+        await runPromise;
+    });
+
+    it('does not retry or open sync_outages for absent raid responses (items: [], scheduled, 404), but opens outage on 5xx, network, and invalid_schema', async () => {
+        const ctx = createTestContext();
+        ctx.seedTrackedClan('#CLAN1', { managementChatId: 2001 });
+
+        const clock = new FakeClock(120_000);
+        const raidRepo = new RaidRepo(ctx.db);
+        const endpoint = '/clans/%23CLAN1/capitalraidseasons?limit=1';
+
+        type ApiOutcome =
+            | { readonly kind: 'raw'; readonly body: unknown }
+            | { readonly kind: 'null' }
+            | { readonly kind: 'error'; readonly error: Error };
+
+        let currentOutcome: ApiOutcome = { kind: 'raw', body: { items: [] } };
+        let apiCalls = 0;
+
+        const apiClient: RaidApiClient = {
+            getCompleteRaidData(clanTag: string) {
+                apiCalls += 1;
+                if (currentOutcome.kind === 'error') {
+                    return Promise.reject(currentOutcome.error);
+                }
+                if (currentOutcome.kind === 'null') {
+                    return Promise.resolve(null);
+                }
+                try {
+                    return Promise.resolve(
+                        parseRaidSeasonsResponse(currentOutcome.body, clanTag, endpoint),
+                    );
+                } catch (err: unknown) {
+                    return Promise.reject(err instanceof Error ? err : new Error(String(err)));
+                }
+            },
+        };
+
+        const raidService = new RaidService(
+            ctx.clansRepo,
+            raidRepo,
+            apiClient,
+            ctx.transactionManager,
+            ctx.recorder,
+            clock,
+        );
+
+        const manager = new ClanManager(
+            [raidService],
+            ctx.clansRepo,
+            ctx.syncOutageRepo,
+            ctx.transactionManager,
+            ctx.recorder,
+            { clock },
+        );
+
+        const controller = new AbortController();
+        const runPromise = manager.syncAll(controller.signal);
+
+        // Cycle 1: items: [] -> 1 API call (no retry), no outage
+        await waitForCondition(() => apiCalls === 1 && clock.pendingSleepCount() === 1);
+        expect(ctx.getOutages()).toHaveLength(0);
+        expect(ctx.getDomainEvents()).toHaveLength(0);
+
+        // Cycle 2: state === 'scheduled' -> 1 API call (no retry), no outage
+        currentOutcome = { kind: 'raw', body: { items: [{ state: 'scheduled' }] } };
+        clock.advance(DEFAULT_SYNC_CYCLE_INTERVAL_MS);
+        await waitForCondition(() => apiCalls === 2 && clock.pendingSleepCount() === 1);
+        expect(ctx.getOutages()).toHaveLength(0);
+        expect(ctx.getDomainEvents()).toHaveLength(0);
+
+        // Cycle 3: 404 (null) -> 1 API call (no retry), no outage
+        currentOutcome = { kind: 'null' };
+        clock.advance(DEFAULT_SYNC_CYCLE_INTERVAL_MS);
+        await waitForCondition(() => apiCalls === 3 && clock.pendingSleepCount() === 1);
+        expect(ctx.getOutages()).toHaveLength(0);
+        expect(ctx.getDomainEvents()).toHaveLength(0);
+
+        // Cycle 4: HTTP 503 -> 3 attempts (2 retries), opens RaidService outage + SyncFailureEvent
+        currentOutcome = {
+            kind: 'error',
+            error: new CocApiError('HTTP 503', {
+                kind: 'server_error',
+                statusCode: 503,
+                retryable: true,
+                endpoint,
+            }),
+        };
+        clock.advance(DEFAULT_SYNC_CYCLE_INTERVAL_MS);
+        await waitForCondition(() => apiCalls === 4 && clock.pendingSleepCount() === 1);
+        clock.advance(DEFAULT_SYNC_RETRY_DELAY_MS);
+        await waitForCondition(() => apiCalls === 5 && clock.pendingSleepCount() === 1);
+        clock.advance(DEFAULT_SYNC_RETRY_DELAY_MS);
+        await waitForCondition(() => apiCalls === 6 && clock.pendingSleepCount() === 1);
+
+        const outagesAfter503 = ctx.getOutages();
+        expect(outagesAfter503).toHaveLength(1);
+        expect(outagesAfter503[0]).toMatchObject({
+            clan_tag: '#CLAN1',
+            service_name: 'RaidService',
+            failure_count: 1,
+            recovered_at: null,
+        });
+        expect(ctx.getDomainEvents()).toHaveLength(1);
+        expect(ctx.getDomainEvents()[0]?.event_type).toBe(APPLICATION_EVENT_TYPES.syncFailure);
+
+        // Cycle 5: recovers cleanly when raid data is normally absent (items: [])
+        currentOutcome = { kind: 'raw', body: { items: [] } };
+        clock.advance(DEFAULT_SYNC_CYCLE_INTERVAL_MS);
+        await waitForCondition(() => apiCalls === 7 && clock.pendingSleepCount() === 1);
+
+        expect(ctx.syncOutageRepo.getOpenOutageId('#CLAN1', 'RaidService')).toBeNull();
+        expect(ctx.getOutages()[0]?.recovered_at).not.toBeNull();
+        expect(ctx.getDomainEvents()).toHaveLength(2);
+        expect(ctx.getDomainEvents()[1]?.event_type).toBe(APPLICATION_EVENT_TYPES.syncRecovery);
+
+        // Cycle 6: invalid_schema ({ items: [{ state: 'ongoing' }] } without members) -> 3 attempts, opens new outage
+        currentOutcome = { kind: 'raw', body: { items: [{ state: 'ongoing' }] } };
+        clock.advance(DEFAULT_SYNC_CYCLE_INTERVAL_MS);
+        await waitForCondition(() => apiCalls === 8 && clock.pendingSleepCount() === 1);
+        clock.advance(DEFAULT_SYNC_RETRY_DELAY_MS);
+        await waitForCondition(() => apiCalls === 9 && clock.pendingSleepCount() === 1);
+        clock.advance(DEFAULT_SYNC_RETRY_DELAY_MS);
+        await waitForCondition(() => apiCalls === 10 && clock.pendingSleepCount() === 1);
+
+        const outagesAfterInvalidSchema = ctx.getOutages();
+        expect(outagesAfterInvalidSchema).toHaveLength(2);
+        expect(outagesAfterInvalidSchema[1]).toMatchObject({
+            clan_tag: '#CLAN1',
+            service_name: 'RaidService',
+            failure_count: 1,
+            recovered_at: null,
+        });
+        expect(ctx.getDomainEvents()).toHaveLength(3);
+        expect(ctx.getDomainEvents()[2]?.event_type).toBe(APPLICATION_EVENT_TYPES.syncFailure);
 
         controller.abort();
         await runPromise;

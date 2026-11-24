@@ -107,7 +107,7 @@ ClashBot — автономный сервис мониторинга клано
 | Метод клиента | Endpoint | Поведение при `404` / отсутствии данных |
 | --- | --- | --- |
 | `getCompleteClanData` | `GET /clans/{tag}` | `404` → `null` |
-| `getCompleteRaidData` | `GET /clans/{tag}/capitalraidseasons?limit=1` | `404` или пустой/неполный сезон → `null` |
+| `getCompleteRaidData` | `GET /clans/{tag}/capitalraidseasons?limit=1` | `404`, пустой `items: []` или `state === 'scheduled'` → `null` |
 | `getCompleteClanwarData` | `GET /clans/{tag}/currentwar` | `state === 'notInWar'` → `null`; `403` пробрасывается как `CocApiError` |
 | `getCompleteClanwarsLeagueData` | `GET /clans/{tag}/currentwar/leaguegroup` + раунды `GET /clanwarleagues/wars/{warTag}` | `404` на группе или неактивном сезоне → `null`; пропускает `warTag === '#0'` и выбирает первый найденный раунд с участием целевого клана |
 
@@ -125,7 +125,7 @@ ClashBot — автономный сервис мониторинга клано
 
 1. `ClanInfoService` — запрашивает состав и параметры клана; в одной транзакции сохраняет клан, игроков и снимки (`clans`, `players`, `clan_snapshots`, `player_snapshots`), обновляет `clan_memberships` и порождает события входа, выхода и смены игровой роли. При самой первой синхронизации клана (`activeMemberships.length === 0 && latestPlayerStates.length === 0`) события не генерируются (`isInitialSync`), чтобы не рассылать весь стартовый состав. Пустой ответ `null` трактуется как ошибка синхронизации.
 2. `ClanwarService` — синхронизирует текущую обычную войну (`wars`, `war_clans`, `war_members`, `attacks`). Ответ `notInWar` и закрытый журнал войн (`403`, если это не `accessDenied.invalidIp` и не `invalid authorization`) считаются штатным успешным результатом без записи сбоя.
-3. `RaidService` — запрашивает последний доступный рейдовый уикенд. Перед сохранением `player_raid_snapshots` гарантирует наличие записей игроков через `clansRepo.insertMinimal()` в той же транзакции. Отсутствие данных (`null`) считается ошибкой синхронизации (для срабатывания ретраев и отслеживания сбоев).
+3. `RaidService` — запрашивает последний доступный рейдовый уикенд. Перед сохранением `player_raid_snapshots` гарантирует наличие записей игроков через `clansRepo.insertMinimal()` в той же транзакции. Штатное отсутствие данных рейда (`null`: `404`, пустой `items: []` или `state === 'scheduled'`) считается успешным пустым результатом без ретраев и без записи сбоя.
 4. `ClanwarLeagueService` — синхронизирует сезон CWL, состав и все найденные раунды. Отсутствие активного сезона (`null`) считается штатным успешным результатом.
 
 ### Оркестрация в `ClanManager` (`src/services/clanManager.ts`)
