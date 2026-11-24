@@ -1,252 +1,211 @@
-# События и отчёты
-
-## Общая схема
-
-Сервисы синхронизации не вызывают Telegram напрямую. Изменения игровых данных, ApplicationEvent payload и снимок
-получателей сохраняются в одной транзакции. Поэтому rollback отменяет и изменение, и событие с назначениями. Получатели
-фиксируются именно в момент события: позднее подключившийся подписчик не получает старое событие.
-
-После commit DomainEventWorker материализует каждое назначение в строку outbox `notifications`, а NotificationWorker
-доставляет готовую запись в Telegram. `SyncResult` пока сохраняет события для совместимости, но отдельной отправки через
-него нет.
-
-Один доменный event может порождать несколько независимых сообщений для разных аудиторий. Форматтеры отвечают за текст и
-чтение дополнительных данных из репозиториев, но не знают о Telegram API и не решают, кому отправлять сообщение.
-
-## Матрица доставки
-
-| Событие | players | management | Дедупликация |
-| --- | --- | --- | --- |
-| PlayerJoinedClanEvent | сообщение о вступлении | — | membership ID |
-| PlayerLeftClanEvent | сообщение о выходе | — | membership ID |
-| PlayerRoleChangedEvent | изменение роли | — | snapshot ID |
-| WarEndedEvent | итог войны, сравнение при наличии предыдущей войны | нарушения, надёжность состава | да |
-| ClanwarsLeagueRoundEndedEvent | итог раунда CWL | нарушения раунда | да |
-| RaidsEndedEvent | итог рейда, сравнение при наличии предыдущего рейда | нарушения рейда | да |
-| WarReminderEvent | напоминание | — | да |
-| RaidReminderEvent | напоминание | — | да |
-| SyncFailureEvent | — | системное предупреждение | outage ID |
-| SyncRecoveryEvent | — | сообщение о восстановлении | outage ID |
-
-В таблице notifications для разных частей одного события используются разные event_type. Например, итоговая война
-использует war_ended, нарушения — war_violations, сравнение — war_comparison, а надёжность состава —
-war_roster_reliability.
-
-## Отчёты о составе
-
-### PlayerJoinedFormatter
-
-Создаёт сообщение для аудитории players после появления нового игрока в текущем составе. Имя клана, имя игрока и теги
-экранируются для HTML parse mode.
-
-### PlayerLeftFormatter
-
-Создаёт сообщение для players после закрытия периода членства игрока.
-
-### PlayerRoleChangedFormatter
-
-Показывает имя игрока, старую и новую роль. В тексте различаются повышение и понижение, включая изменение роли до или
-после co-leader/leader.
-
-Эти три события вычисляются сравнением последнего активного состава и последнего snapshot роли. Вступление и выход
-ссылаются на строку периода членства, а изменение роли — на snapshot, в котором зафиксирована новая роль. Поэтому
-повторная генерация того же события использует тот же ключ дедупликации.
-
-## Итог обычной войны
-
-WarEndedEvent появляется, когда API возвращает state warEnded. ClanwarEndedFormatter формирует:
-
-- название и теги обеих сторон;
-- результат: победа, поражение или ничья;
-- звёзды и процент разрушения;
-- использованные и максимальные атаки;
-- средние звёзды и разрушение на атаку;
-- распределение атак по 0, 1, 2 и 3 звёздам;
-- лучшие атаки.
-
-Управленческий ClanwarViolationsFormatter отдельно показывает:
-
-- игроков без атак;
-- игроков ровно с одной атакой;
-- первые атаки не по зеркалу.
-
-Clanwars League и обычная война используют общие части вывода WarReportParts, но отличаются заголовками и набором
-проверок нарушений.
-
-## Итог раунда CWL
-
-ClanwarsLeagueRoundEndedFormatter получает из wars сезон и номер раунда, затем использует те же обзор сторон, статистику
-атак и лучшие атаки, что и итог обычной войны. Заголовок содержит номер раунда от первого до седьмого.
-
-ClanwarsLeagueRoundViolationsFormatter для management показывает:
-
-- игроков, пропустивших атаку раунда;
-- первые атаки не по зеркалу.
-
-Игроки с одной атакой в отдельный отчёт нарушений CWL не включаются.
-
-## Итог рейдового выходного
-
-RaidsEndedFormatter показывает для players:
-
-- название и тег клана;
-- добычу;
-- количество завершённых рейдов;
-- использованные атаки;
-- уничтоженные районы;
-- награды за нападение и оборону;
-- до трёх лучших участников по добыче.
-
-RaidsViolationsFormatter для management проверяет лимит 5 + bonus_attacks и разделяет участников на:
-
-- не использовали все доступные атаки;
-- не сделали ни одной атаки.
-
-Игроки, которые покинули клан до окончания рейда, исключаются из выборки нарушений.
-
-## Временные напоминания
-
-### Войны и CWL
-
-WarReminderEvent имеет warKind Regular или CWL и три вида контрольной точки:
-
-- Started;
-- SixHoursLeft;
-- OneHourLeft.
-
-Для каждого события ключ дедупликации строится как war_id:kind. Сообщения предназначены только для players.
-
-### Рейды
-
-RaidReminderEvent использует пять контрольных точек:
-
-- Started;
-- FortyEightHoursLeft;
-- TwentyFourHoursLeft;
-- SixHoursLeft;
-- OneHourLeft.
-
-Ключ строится как raid_id:kind. Форматтер выводит время окончания в московском часовом поясе UTC+3.
-
-Событие создаётся, когда текущее время находится в контрольном окне. Цикл синхронизации составляет 15 минут, поэтому
-сообщение может прийти после номинального времени, но повторно одному назначению не отправляется.
-
-## Сравнение войн
-
-ClanwarComparisonFormatter строит отчёт только при наличии предыдущей обычной войны. Он сравнивает:
-
-1. текущую войну с непосредственно предыдущей;
-2. текущую войну со средним максимум трёх предыдущих войн;
-3. последовательность недавних результатов.
-
-Основные показатели войны:
-
-- средние звёзды на атаку;
-- среднее разрушение на атаку;
-- доля игроков без атак;
-- доля первых атак не по зеркалу.
-
-Итоговая оценка performance сравнивает четыре метрики. Больше звёзд и разрушение — лучше, меньше доля игроков без
-атак и атак не по зеркалу — лучше. По количеству улучшившихся и ухудшившихся метрик выводится тренд Better, Worse или
-Similar.
-
-В отчёте также показывается активность: использование доступных атак, количество участников с атаками и связанные
-доли. Использование атак остаётся контекстом и не входит в четыре основные метрики performance.
-
-Исторические средние считаются с взвешенными суммами фактических атак и командных размеров, поэтому войны разных размеров
-не получают одинаковый вес по каждой отдельной атаке.
-
-## Сравнение рейдов
-
-RaidsComparisonFormatter строит отчёт только при наличии предыдущего рейда. Он сравнивает текущий рейд с предыдущим и
-средним максимум трёх предыдущих рейдов.
-
-Основные метрики:
-
-- добыча на использованную атаку;
-- доля активных участников, использовавших все атаки;
-- доля eligible-участников без атак.
-
-Итоговая оценка performance использует эти три метрики: первые две должны расти, последняя — уменьшаться. Дополнительно
-выводятся использование доступных атак, доля активных участников и результаты рейда: добыча, завершённые рейды,
-уничтоженные районы и обе награды.
-
-Для процентных метрик изменение показывается в процентных пунктах. Нулевые знаменатели превращаются в 0, а не в
-некорректные числа.
-
-## Надёжность состава
-
-ClanwarRosterFormatter получает текущий активный состав и до четырёх предыдущих обычных войн. В отчёте участвуют максимум
-пять войн вместе с текущей.
-
-Для каждого текущего игрока рассчитываются:
-
-- сколько войн он входил в состав;
-- насколько давно участвовал в последней войне;
-- количество атак, средние звёзды и разрушение;
-- войны без атак;
-- войны с одной атакой;
-- первые атаки не по зеркалу.
-
-Категории:
-
-- Риск — игрок участвовал хотя бы в одной войне и хотя бы раз не сделал ни одной атаки;
-- Требуют внимания — нет пропуска всей войны, но есть одна атака или первая атака не по зеркалу;
-- Стабильные — участвовал и не имеет перечисленных нарушений;
-- Не участвовали — не входил в состав ни одной из выбранных войн.
-
-Отчёт отправляется в management и дедуплицируется как war_roster_reliability.
-
-## Формат сообщения
-
-`TelegramGateway` отправляет сообщения с parse_mode HTML. Форматтеры экранируют имена, теги и другие значения,
-приходящие из API или базы. Поэтому изменение разметки требует проверки строк с символами <, > и &.
-
-## Outbox, дедупликация и ошибки доставки
-
-Порядок обработки сообщения:
-
-1. при обработке события `DomainEventRecorder` выбирает активные подписки и сохраняет destinations рядом с payload
-   события в транзакции синхронизации; destination содержит `subscription_id`, chat и topic;
-2. `DomainEventWorker` десериализует событие, формирует текст и в одной транзакции вызывает `enqueueIfAbsent` и помечает
-   destination материализованным;
-3. после commit DomainEventWorker будит NotificationWorker;
-4. NotificationWorker получает записи со статусом `pending`, у которых наступил `next_attempt_at`;
-5. отправляет сообщение через `TelegramGateway`;
-6. после успешного ответа Telegram вызывает `markAsSent`;
-7. при временной ошибке вызывает `reschedule`, при постоянной — `markAsFailed`.
-
-При `/unlink` в одной транзакции `pending`-назначения и связанные уведомления отменяются по сохранённому
-`subscription_id`, затем удаляется подписка. Повторный `/link` создаёт новый `subscription_id`. Обработчики проверяют
-статус перед материализацией и отправкой. Уже начатый HTTP-запрос может завершиться после отмены подписки.
-См. [Telegram-интеграцию](telegram.md#просмотр-и-отключение).
-
-Дедупликация выполняется атомарным уникальным ключом
-`(domain_event_destination_id, event_type, event_id, part_index)`. Повторная материализация не создаёт вторую строку
-outbox для того же назначения и типа отчёта. Если процесс упал после успешного ответа Telegram, но до `markAsSent`, запись
-останется `pending` и возможна повторная доставка. Поэтому система допускает дубликат и не обещает exactly-once. Строка
-outbox и исходное событие сохраняются в SQLite; однако после исчерпания автоматических попыток запись становится
-`failed` и требует операционного requeue, поэтому автоматическая доставка Telegram не гарантируется при постоянных
-ошибках.
-
-Сбои материализации сохраняются на конкретном destination с числом попыток, текстом ошибки и временем следующего запуска;
-после порога worker пишет alert и продолжает повторять обработку с backoff. Ошибка одного destination не должна блокировать
-следующие. У доставки Telegram отдельная политика: после исчерпания её попыток строка получает `failed` и автоматически
-не возвращается в очередь, хотя остаётся в SQLite; для повторного запуска нужен операционный requeue-механизм.
-
-Для составных итогов один доменный event может иметь несколько записей в notifications, потому что обычный,
-сравнительный и управленческий форматтеры используют разные event_type.
-
-## Добавление нового отчёта
-
-Рекомендуемый порядок:
-
-1. добавить структуру события в `src/events/applicationEvents.ts`;
-2. включить её в ApplicationEvent;
-3. генерировать событие в нужном сервисе из `src/services/`;
-4. создать форматтер в `src/reports/` и добавить Vitest-проверки, включая golden-фикстуры при необходимости;
-5. зарегистрировать обработчик в NotificationService;
-6. выбрать аудиторию, event_type и стабильный event ID;
-7. обновить эту матрицу и docs/roadmap.md.
-
-Форматтер не должен напрямую вызывать `TelegramGateway` или изменять базу.
+# События, отчёты и напоминания
+
+Единственный источник истины по контрактам `ApplicationEvent` (`src/events/`), сериализации (`src/domainEvents/`),
+форматтерам и аналитике (`src/reports/`, `src/analytics/`), контрольным точкам напоминаний (`src/services/reminders.ts`)
+и политике outbox (`DomainEventWorker`, `NotificationService`, `NotificationWorker`).
+
+Смежные документы:
+
+- термины предметной области — [`GLOSSARY.md`](../GLOSSARY.md);
+- общая архитектура циклов и транзакций — [`docs/architecture.md`](architecture.md);
+- DDL таблиц `domain_events`, `domain_event_destinations`, `notifications`, `sync_outages` — [`docs/database.md`](database.md);
+- правила выбора аудитории по типу чата и работа `TelegramGateway` — [`docs/telegram.md`](telegram.md).
+
+## Границы слоя и сквозной поток
+
+Сервисы синхронизации (`src/services/`) не вызывают Telegram Bot API напрямую и не формируют текст уведомлений:
+
+1. В одной SQLite-транзакции сервис обновляет игровое состояние и передаёт массив `ApplicationEvent` в
+   `DomainEventRecorder.recordAll` (`src/domainEvents/domainEventRecorder.ts`). Исключение — `SyncFailureEvent` и
+   `SyncRecoveryEvent`, которые в отдельной транзакции после цикла записывает `ClanManager` через `SyncOutageRepo`.
+   Поле `SyncResult.events` хранит сгенерированные события только для логов/совместимости — повторной отправки из него нет.
+2. `DomainEventRecorder` сериализует каждое событие (`DomainEventPayloadSerializer`), определяет допустимые аудитории через
+   `EventNotificationPolicy.audiencesFor` и фиксирует снимок активных подписок (`subscription_id`, `chat_id`,
+   `message_thread_id`, `audience`) — **получателей события** на момент события. Подписки, созданные позже, старые
+   доменные события не получают.
+3. После commit `DomainEventWorker` загружает `pending`-получателей, десериализует payload (`DomainEventPayloadDeserializer`)
+   и в одной транзакции вызывает `NotificationService.materialize` + `DomainEventsRepo.markMaterialized`. При успехе
+   будит `NotificationWorker`.
+4. `NotificationWorker` читает `pending`-уведомления из outbox `notifications`, отправляет HTML-текст через `TelegramGateway`
+   и переводит запись в `sent`, `pending` (reschedule) или `failed`.
+
+Legacy-метод `NotificationService.handle` сохраняется для обратной совместимости (пишет в `notifications` напрямую с
+`domain_event_destination_id = NULL`), но в основном runtime-потоке не используется.
+
+## Каталог `ApplicationEvent` и контракты payload
+
+Сериализатор (`src/domainEvents/domainEventPayloadSerializer.ts`) и десериализатор
+(`src/domainEvents/domainEventPayloadDeserializer.ts`) используют `CURRENT_DOMAIN_EVENT_PAYLOAD_VERSION = 1`. При
+несовпадении `payload_version`, невалидном JSON или нарушении `zod`-схемы десериализатор выбрасывает `ValidationError`.
+
+| `event_type` (`APPLICATION_EVENT_TYPES`) | Ключ `event_id` (`getApplicationEventKey`) | Поля JSON payload (`snake_case`)                                                       | Источник генерации                                                 |
+| ---------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `PlayerJoinedClanEvent`                  | `String(membershipId)`                     | `player_tag`, `player_name`, `membership_id`                                           | `ClanInfoService` (кроме первичной синхронизации клана)            |
+| `PlayerLeftClanEvent`                    | `String(membershipId)`                     | `player_tag`, `player_name`, `membership_id`                                           | `ClanInfoService`                                                  |
+| `PlayerRoleChangedEvent`                 | `String(snapshotId)`                       | `player_tag`, `player_name`, `old_role`, `new_role`, `snapshot_id`                     | `ClanInfoService`                                                  |
+| `war_ended`                              | `String(warReference.warId)`               | `war_reference: { clan_tag, war_id, home_clan_id, opponent_clan_id }`                  | `ClanwarService` при `state === 'warEnded'`                        |
+| `cwl_round_ended`                        | `String(warReference.warId)`               | `cwl_season_id`, `war_reference: { clan_tag, war_id, home_clan_id, opponent_clan_id }` | `ClanwarLeagueService` для каждого раунда с `state === 'warEnded'` |
+| `raids_ended`                            | `String(raidReference.raidId)`             | `raid_reference: { raid_id }`                                                          | `RaidService` при `state === 'ended'`                              |
+| `war_reminder`                           | `${warId}:${kind}`                         | `war_id`, `end_time`, `war_kind` (`regular` \| `cwl`), `reminder_kind`                 | `ClanwarService` / `ClanwarLeagueService`                          |
+| `raid_reminder`                          | `${raidId}:${kind}`                        | `raid_reference: { raid_id }`, `end_time`, `reminder_kind`                             | `RaidService`                                                      |
+| `SyncFailureEvent`                       | `String(outageId)`                         | `service_name`, `error_message`, `attempts`, `outage_id`                               | `ClanManager` после исчерпания попыток синхронизации               |
+| `SyncRecoveryEvent`                      | `String(outageId)`                         | `service_name`, `outage_id`                                                            | `ClanManager` при первом успехе после открытого сбоя               |
+
+Особенности генерации:
+
+- В `ClanInfoService` при первой синхронизации клана (`activeMemberships.length === 0 && latestPlayerStates.length === 0`)
+  события состава не создаются, чтобы не заспамить чат при первом `/link`.
+- Для `SyncFailureEvent` ключ `event_id` равен `outageId`. Повторные сбои в рамках одного открытого `outage_id` увеличивают
+  `sync_outages.failure_count`, но повторное доменное событие отбрасывается по уникальному ключу
+  `(clan_tag, event_type, event_id)` в `domain_events`.
+
+## Матрица доставки и соответствие `notifications.event_type`
+
+`EventNotificationPolicy` (`src/domainEvents/eventNotificationPolicy.ts`) задаёт аудиторию доменного события на этапе
+записи получателей. Один получатель события может материализоваться в несколько уведомлений с разными
+`notifications.event_type` (`NOTIFICATION_EVENT_TYPES` в `src/notifications/notificationService.ts`). Всего 10 типов
+`ApplicationEvent` отображаются в 16 типов уведомлений:
+
+| Доменное событие         | Аудитория `players` (`notifications.event_type` / форматтер)                                                                      | Аудитория `management` (`notifications.event_type` / форматтер)                                        |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `PlayerJoinedClanEvent`  | `PlayerJoinedClanEvent` / `PlayerJoinedFormatter`                                                                                 | —                                                                                                      |
+| `PlayerLeftClanEvent`    | `PlayerLeftClanEvent` / `PlayerLeftFormatter`                                                                                     | —                                                                                                      |
+| `PlayerRoleChangedEvent` | `PlayerRoleChangedEvent` / `PlayerRoleChangedFormatter`                                                                           | —                                                                                                      |
+| `war_ended`              | `war_ended` / `ClanwarEndedFormatter`<br>`war_comparison` / `ClanwarComparisonFormatter` (если есть ≥ 1 предыдущая обычная война) | `war_violations` / `ClanwarViolationsFormatter`<br>`war_roster_reliability` / `ClanwarRosterFormatter` |
+| `cwl_round_ended`        | `cwl_round_ended` / `ClanwarsLeagueRoundEndedFormatter`                                                                           | `cwl_violations` / `ClanwarsLeagueRoundViolationsFormatter`                                            |
+| `raids_ended`            | `raids_ended` / `RaidsEndedFormatter`<br>`raids_comparison` / `RaidsComparisonFormatter` (если есть ≥ 1 предыдущий рейд)          | `raids_violations` / `RaidsViolationsFormatter`                                                        |
+| `war_reminder`           | `war_reminder` / `WarReminderFormatter`                                                                                           | —                                                                                                      |
+| `raid_reminder`          | `raid_reminder` / `RaidReminderFormatter`                                                                                         | —                                                                                                      |
+| `SyncFailureEvent`       | —                                                                                                                                 | `SyncFailureEvent` / `SystemAlertReportFormatter.formatFailureAlert`                                   |
+| `SyncRecoveryEvent`      | —                                                                                                                                 | `SyncRecoveryEvent` / `SystemAlertReportFormatter.formatRecoveryAlert`                                 |
+
+Инвариант двойной проверки аудитории: `NotificationService.materialize` повторно проверяет `destination.audience` для
+событий, ограниченных одной аудиторией (`players` или `management`), и при несоответствии не создаёт строку в `notifications`.
+
+## Форматтеры, аналитика и контрольные точки
+
+### Состав клана и системные оповещения
+
+- `PlayerJoinedFormatter` и `PlayerLeftFormatter` подставляют имя отслеживаемого клана из `ClansRepo.getClanNameByTag`.
+- `PlayerRoleChangedFormatter` сопоставляет игровые роли: `member` (`Участник`, ранг 1), `admin` (`Старейшина`, ранг 2),
+  `coLeader` (`Соруководитель`, ранг 3), `leader` (`Глава`, ранг 4). Неизвестная игровая роль вызывает `ValidationError`.
+  Различаются повышение (`newRank > oldRank`) и понижение.
+- `SystemAlertReportFormatter` выводит `clanTag`, `serviceName`, для сбоя также `attempts` и текст ошибки.
+
+### Итоги войн, CWL и рейдов
+
+Общие части войн вынесены в `src/reports/warReportParts.ts`:
+
+- `ClanwarEndedFormatter` и `ClanwarsLeagueRoundEndedFormatter` выводят: названия/теги обеих сторон, счёт по звёздам и `%`
+  разрушения, итог (`Победа` / `Поражение` / `Ничья`), статистику атак (использовано/максимум, средние звёзды и `%`
+  разрушения на атаку, распределение `3⭐`/`2⭐`/`1⭐`/`0⭐`) и до 3 лучших атак (`stars DESC, destruction_percentage DESC,
+order_num ASC`) с нормализованными позициями (`ROW_NUMBER() OVER (ORDER BY map_position)`).
+- `ClanwarsLeagueRoundEndedFormatter` и `ClanwarsLeagueRoundViolationsFormatter` поддерживают раунды `1..7`
+  (`getCwlRoundName`); номер вне диапазона или нецелое значение вызывают `ValidationError`.
+- Нарушения обычной войны (`ClanwarViolationsFormatter`): участники без атак, участники ровно с 1 атакой, первые атаки
+  (минимальный `order_num` игрока) не по зеркалу (`attacker_position !== defender_position`). При отсутствии нарушений
+  выводится сообщение «Нарушений в войне кланов не обнаружено!».
+- Нарушения раунда CWL (`ClanwarsLeagueRoundViolationsFormatter`): только пропустившие атаку (с пометкой `[0/1]`) и первые
+  атаки не по зеркалу; отдельного раздела для одной атаки нет (в CWL 1 атака на раунд).
+- Итог рейдов (`RaidsEndedFormatter`): добыча золота, завершённые рейды, использованные атаки, уничтоженные районы,
+  награды за нападение и оборону, до 3 лучших участников (`total_loot DESC, player_tag ASC`) с указанием бонусных атак.
+- Нарушения рейдов (`RaidsViolationsFormatter`): лимит `5 + bonus_attacks`. В выборку попадают только участники,
+  состоявшие в клане на момент `end_time` (`joined_at <= end_time AND (left_at IS NULL OR left_at >= end_time)`);
+  вышедшие до окончания рейда исключаются. Разделы: не использовали все атаки (`0 < attacks < limit`) и без атак (`0/limit`).
+
+### Напоминания (`src/services/reminders.ts`)
+
+Напоминания предназначены только для аудитории `players`. На каждом цикле синхронизации проверяются все контрольные
+окна, для которых `nowEpochSeconds >= threshold && nowEpochSeconds < endTime`:
+
+| Событие                             | `kind`                   | Порог (`threshold`) | Особенности                                                      |
+| ----------------------------------- | ------------------------ | ------------------- | ---------------------------------------------------------------- |
+| `war_reminder` (`regular` \| `cwl`) | `started`                | `startTime`         | Разные тексты для обычной войны и раунда ЛВК                     |
+| `war_reminder` (`regular` \| `cwl`) | `six_hours_left`         | `endTime - 6h`      | Повторная отправка в рамках окна блокируется ключом `warId:kind` |
+| `war_reminder` (`regular` \| `cwl`) | `one_hour_left`          | `endTime - 1h`      | Повторная отправка в рамках окна блокируется ключом `warId:kind` |
+| `raid_reminder`                     | `started`                | `startTime`         | —                                                                |
+| `raid_reminder`                     | `forty_eight_hours_left` | `endTime - 48h`     | —                                                                |
+| `raid_reminder`                     | `twenty_four_hours_left` | `endTime - 24h`     | —                                                                |
+| `raid_reminder`                     | `six_hours_left`         | `endTime - 6h`      | —                                                                |
+| `raid_reminder`                     | `one_hour_left`          | `endTime - 1h`      | —                                                                |
+
+Время окончания в напоминаниях (и дата рейда в сравнении рейдов) форматируется через `formatUnixToMoscowDateTime`
+(`UTC+3`, `DD.MM.YYYY HH:MM`; при значении `<= 0` или нечисловом — `"неизвестно"`). Так как цикл синхронизации
+работает с интервалом 15 минут, напоминание приходит в первом цикле после наступления порога и больше не дублируется.
+
+### Сравнительная аналитика и надёжность состава (`src/analytics/`)
+
+- `ClanwarComparisonFormatter` (`clanwarComparisonAnalyzer.ts`):
+  - Если предыдущих обычных войн (`war_type = 'regular'`, более ранний `preparation_start_time`) нет, возвращает `""` и
+    строка `war_comparison` в outbox не создаётся.
+  - Загружает до 4 предыдущих войн для ленты исходов; исторические средние строятся максимум по **3** ближайшим предыдущим
+    войнам как взвешенные отношения сумм (а не среднее средних), деление на `0` даёт `0`.
+  - Тренд (`better` / `worse` / `similar`) считается строго по **4 основным метрикам**: средние звёзды на атаку (↑),
+    среднее разрушение на атаку (↑), доля участников без атак (↓), доля первых атак не по зеркалу (↓). Активность
+    (использование атак, пропущенные атаки, ровно 1 атака) выводится справочно и не влияет на тренд.
+- `RaidsComparisonFormatter` (`raidComparisonAnalyzer.ts`):
+  - При отсутствии предыдущего рейда возвращает `""` и строка `raids_comparison` в outbox не создаётся.
+  - Загружает до 3 предыдущих рейдов (и для сравнения, и для взвешенного среднего).
+  - Тренд (`better` / `worse` / `similar`) считается строго по **3 основным метрикам**: добыча на использованную атаку (↑),
+    доля активных участников, использовавших все атаки (↑), доля eligible-участников без атак (↓). Активность и
+    абсолютные итоги рейда выводятся как контекст.
+- `ClanwarRosterFormatter` (`clanwarRosterAnalyzer.ts`):
+  - Строит срез по текущему активному составу (`ClansRepo.getActiveMembers`) за текущую и до 4 предыдущих обычных войн
+    (максимум 5 КВ): число включений, давность последнего участия (`lastWarOffset`: `0 КВ`, `N КВ назад`, `не участвовал`),
+    сумма и средние по атакам, счётчики нарушений (`warsWithoutAttacks`, `warsWithOneAttack`, `firstAttacksNotOnMirror`).
+  - Взаимоисключающие категории: `Риск` (`includedWars > 0 && warsWithoutAttacks > 0`), `Требуют внимания`
+    (`includedWars > 0`, не риск, `warsWithOneAttack > 0 || firstAttacksNotOnMirror > 0`), `Стабильные` (`includedWars > 0`
+    без нарушений), `Не участвовали` (`includedWars === 0`).
+
+### HTML-форматирование и округление
+
+- Все уведомления отправляются с `parse_mode: 'HTML'`. `escapeHtml` (`src/common/formatUtils.ts`) в один проход экранирует
+  `&`, `<`, `>`, а также декоративные угловые скобки `\u300A` (`《` → `&lt;`) и `\u300B` (`》` → `&gt;`). Любые данные из
+  CoC API и БД (названия кланов, имена игроков, теги, имена сервисов, сообщения об ошибках) должны проходить через `escapeHtml`.
+- Дробные метрики округляются по правилам IEEE-754 round-half-to-even (`formatFixedHalfToEven` в `src/reports/numberFormat.ts`,
+  `formatFixed2` в `src/reports/warReportParts.ts`). Долевые сдвиги в сравнениях отображаются в процентных пунктах (`п.п.`).
+
+## Дедупликация и политика outbox
+
+### Идемпотентность и семантика доставки
+
+1. `DomainEventsRepo.appendEvent` дедуплицирует событие по `(clan_tag, event_type, event_id)` и получателей по
+   `(domain_event_id, chat_id, message_thread_id, audience, subscription_id)`.
+2. `NotificationRepo.enqueueDomainEventIfAbsent` дедуплицирует строки outbox по
+   `(domain_event_destination_id, event_type, event_id, part_index)` (сейчас `part_index = 1`, `part_count = 1`). Повторная
+   материализация одного получателя не создаёт вторую запись.
+3. Гарантия доставки — **at-least-once**: при падении процесса после успешного ответа Telegram API, но до `markAsSent`,
+   запись останется `pending` и будет отправлена повторно после перезапуска.
+
+### Отмена по поколению подписки (`/unlink`)
+
+При отключении клана через `/unlink` или меню в одной транзакции (`DomainEventsRepo.cancelForSubscription`) все `pending`
+записи в `domain_event_destinations` и связанные `pending` строки в `notifications` переводятся в `cancelled`
+(`last_error = 'subscription cancelled'`). Повторный `/link` создаёт новое поколение подписки (`subscription_id`), не
+воскрешая отменённые.
+
+Защита от гонок:
+
+- `DomainEventWorker` внутри транзакции материализации перепроверяет `isDestinationPending(destinationId)`.
+- `NotificationWorker` перед вызовом `TelegramGateway.sendMessage` перепроверяет `isPending(notification.id)`.
+- Уже начатый HTTP-запрос не отменяется; если Telegram принял сообщение после `/unlink`, `markAsSent` (обновляющий
+  только `WHERE status = 'pending'`) оставит строку в статусе `cancelled`.
+
+### Политики повторов (Retry) и отказы
+
+| Компонент            | Интервал / батч по умолчанию    | Стратегия повторов                                                                                                                                                                                                  | Поведение при исчерпании                                                                                                                                                      |
+| -------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DomainEventWorker`  | `1000 мс` / `100` destinations  | Экспоненциальный backoff: старт `1000 мс`, потолок `3 600 000 мс` (1 ч), округление вверх до целых секунд (мин. `1 с`)                                                                                              | После `maxAttempts = 5` логирует `error`-alert, но destination **остаётся `pending`** и продолжает повторяться, не блокируя остальные                                         |
+| `NotificationWorker` | `1000 мс` / `100` notifications | `permanent` (4xx кроме 429) → сразу `failed`; `transient` (сеть, 5xx) / `rate_limit` (429) → экспоненциальный backoff: старт `500 мс`, потолок `8000 мс` (для 429 берётся `max(backoff, ceil(retry_after) * 1000)`) | После `maxAttempts = 4` или при `permanent`-ошибке переводит запись в `status = 'failed'`; автоматического requeue нет (ручной сброс — см. [`docs/database.md`](database.md)) |
+
+## Добавление нового типа отчёта или напоминания
+
+1. Добавить структуру события и ключ `getApplicationEventKey` в `src/events/applicationEvents.ts`.
+2. Обновить `DomainEventPayloadSerializer` и `zod`-схему в `DomainEventPayloadDeserializer` (сохраняя обратную
+   совместимость или повышая `payload_version`).
+3. Задать аудиторию в `EventNotificationPolicy` (`src/domainEvents/eventNotificationPolicy.ts`).
+4. Генерировать событие в сервисе `src/services/` внутри транзакции через `DomainEventRecorder`.
+5. Реализовать чистый форматтер в `src/reports/` с HTML-экранированием (без прямых вызовов Telegram и записи в БД) и
+   добавить тесты (включая golden-фикстуры в `tests/fixtures/golden/`, если применимо).
+6. Зарегистрировать `NOTIFICATION_EVENT_TYPES` и обработку в `NotificationService.materialize` (и при необходимости `handle`).
+7. Обновить таблицы каталога и матрицы доставки в этом документе.

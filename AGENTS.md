@@ -35,9 +35,11 @@ git diff --check
 - Несколько слоёв, асинхронные циклы, транзакции, `DomainEventWorker`, outbox → [`docs/architecture.md`](docs/architecture.md)
 - Схема SQLite, новые миграции, индексы, внешние ключи, запросы репозиториев → [`docs/database.md`](docs/database.md)
 - `ApplicationEvent`, payload, форматтеры, матрица доставки, дедупликация → [`docs/reports.md`](docs/reports.md)
-- Команды `/start`, `/link`, `/unlink`, права, форумные темы, гайды, long polling → [`docs/telegram.md`](docs/telegram.md)
+- Команды `/start`, `/link`, `/unlink`, права администратора чата, форумные темы, гайды, long polling → [`docs/telegram.md`](docs/telegram.md)
 - Деплой на сервер, GHCR, Docker Compose, бэкап и восстановление SQLite → [`docs/deployment.md`](docs/deployment.md)
 - Реализованные возможности и известные ограничения → [`docs/roadmap.md`](docs/roadmap.md)
+- Архитектурные решения и контекст принятых компромиссов → [`docs/adr/`](docs/adr/)
+- Рыночный обзор аналогов и позиционирование → [`docs/research/competitors.md`](docs/research/competitors.md)
 - Сборка, конфигурация, переменные окружения и запуск → [`README.md`](README.md)
 
 При расхождении кода и документации сначала сообщи пользователю со ссылками и согласуй источник истины.

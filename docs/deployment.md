@@ -1,199 +1,175 @@
-# Развёртывание и эксплуатация на сервере
+# Развёртывание и эксплуатация ClashBot
 
-Руководство описывает запуск ClashBot на VPS через готовый Docker-образ из GitHub Container Registry (GHCR), обновление через Docker Compose, ежедневное резервное копирование SQLite и проверку восстановления.
+Руководство описывает требования к хосту, устройство Docker-сборки, CI/CD-публикацию в GHCR, настройку сервера, резервное копирование SQLite и локальный запуск через SSH-туннель.
 
-## Требования к серверу
+## 1. Требования к серверу
 
-- ОС: `Ubuntu 24.04 LTS`;
-- ресурсы: от 1 vCPU, 1–2 ГБ RAM;
-- сеть: статический IPv4 (указывается в настройках ключа Clash of Clans API);
-- пакеты на хосте: Docker Engine с плагином `docker compose`, `sqlite3`, `gzip`, `rclone`, `openssh-server`.
+- **ОС**: `Ubuntu 24.04 LTS`;
+- **Ресурсы**: от 1 vCPU, 1–2 ГБ RAM;
+- **Сеть**: статический IPv4 (указывается в ключе Clash of Clans API);
+- **Пакеты на хосте**: Docker Engine с плагином `docker compose`, `sqlite3`, `gzip`, `rclone`, `openssh-server`.
 
-Установка вспомогательных утилит для бэкапов на Ubuntu 24.04:
+Установка утилит резервного копирования на Ubuntu 24.04:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y sqlite3 gzip rclone
 ```
 
-## Подготовка каталога и конфигурации
+## 2. Docker-образ и Compose-конфигурация
 
-Рекомендуемый каталог развёртывания на сервере — `/opt/clashbot` (или `~/clashbot`):
+### Сборка образа ([`Dockerfile`](../Dockerfile))
+
+Multi-stage сборка на базе `node:24-slim` (контекст ограничен белым списком в [`.dockerignore`](../.dockerignore)):
+
+| Этап | База | Что выполняется |
+| --- | --- | --- |
+| `builder` | `node:24-slim` | Ставит `python3`, `make`, `g++`, `ca-certificates` (для нативного `better-sqlite3`) и `pnpm@12.21.0`; выполняет `pnpm install --frozen-lockfile`, `pnpm build` и `pnpm prune --prod` |
+| `runtime` | `node:24-slim` | `NODE_ENV=production`, `WORKDIR /app`; копирует `package.json`, production `node_modules`, `dist/`, `migrations/`, `resources/telegram/attack_guides.json`; создаёт `/app/data`; `ENTRYPOINT ["node", "dist/cli.js"]`, `CMD ["config.json"]` |
+
+> **Примечание AS-IS:** директива `USER` в [`Dockerfile`](../Dockerfile) не задана — процесс внутри контейнера работает от стандартного пользователя `root`. Учитывайте это при настройке прав доступа и `cron` на хосте.
+
+### Сервис в [`docker-compose.yml`](../docker-compose.yml)
+
+| Параметр | Значение | Назначение |
+| --- | --- | --- |
+| `image` | `ghcr.io/flacicz/clashbot:${CLASHBOT_IMAGE_TAG:-latest}` | Образ из GHCR с переопределением тега через `.env` |
+| `restart` | `unless-stopped` | Автоперезапуск при сбое и перезагрузке хоста |
+| `stop_grace_period` | `30s` | Внешний таймаут Compose; внутри приложения `ShutdownCoordinator` завершает циклы за `15s` |
+| `env_file` | `.env` | Токены и переменные окружения |
+| `volumes` | `./config.json:/app/config.json:ro`, `./data:/app/data` | Конфигурация (read-only) и персистентная SQLite БД |
+| `logging` | `json-file` (`max-size: 10m`, `max-file: 3`) | Ротация JSON-логов `pino` из `stdout` силами Docker |
+
+## 3. CI/CD и публикация в GHCR
+
+[Workflow `.github/workflows/docker-publish.yml`](../.github/workflows/docker-publish.yml) запускается на `ubuntu-24.04` при `pull_request` и `push` в `main` (а также вручную через `workflow_dispatch`):
+
+1. **`diff-hygiene`**: проверяет `git diff --check` (пробелы, окончания строк, маркеры конфликтов).
+2. **`ts-checks`**: на Node.js 24 и `pnpm` выполняет `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test`.
+3. **`ts-docker`**: собирает образ (`docker build -t clashbot-ts:ci .`) и прогоняет smoke-тест контейнера:
+   - поднимает локальную TCP-заглушку для `api.telegram.org:443` (`--network host`, `--add-host api.telegram.org:127.0.0.1`) с тестовыми токенами и временными `config.json` и `data/`;
+   - ждёт в логах `[Main] Bot is running`, отправляет `docker stop -t 15` и проверяет остановку за `<= 15` секунд с `ExitCode=0`;
+   - проверяет пустой `stderr`, валидный JSON `pino` в `stdout`, наличие маркеров старта, миграций и остановки, отсутствие утечки токенов;
+   - проверяет на созданной БД `PRAGMA integrity_check` (`ok`) и 12 применённых миграций (`012_*`).
+4. **`publish`** (только на `push` в `main` репозитория `Flacicz/ClashBot` после успеха всех проверок): публикует проверенный образ в `ghcr.io/flacicz/clashbot` с двумя тегами — `sha-<7chars>` и `latest`.
+
+Локальная проверка Docker-сборки:
+
+```bash
+docker build -t clashbot:local .
+```
+
+### Доступ сервера к GHCR
+
+- **Публичный пакет** (рекомендуется, так как образ не содержит секретов): `docker compose pull` работает без авторизации.
+- **Приватный пакет**: выполните однократный вход с Personal Access Token (`read:packages`):
+
+```bash
+echo "<GHCR_READ_PACKAGES_PAT>" | docker login ghcr.io -u <github-username> --password-stdin
+```
+
+## 4. Подготовка каталога, конфигурации и запуск на сервере
+
+Рекомендуемый каталог развёртывания — `/opt/clashbot` (или `~/clashbot`):
 
 ```bash
 mkdir -p /opt/clashbot/data /opt/clashbot/backups /opt/clashbot/scripts
 cd /opt/clashbot
 ```
 
-Скопируйте из репозитория (или скачайте через `curl`) файлы:
+Скопируйте из репозитория файлы:
 
-- `docker-compose.yml`
-- `config.example.json` → `config.json`
-- `.env.example` → `.env`
-- `scripts/backup-sqlite.sh` → `scripts/backup-sqlite.sh`
+- [`docker-compose.yml`](../docker-compose.yml)
+- [`config.example.json`](../config.example.json) → `config.json`
+- [`.env.example`](../.env.example) → `.env`
+- [`scripts/backup-sqlite.sh`](../scripts/backup-sqlite.sh) → `scripts/backup-sqlite.sh`
 
-Выдайте права на запуск скрипта и ограничьте доступ к секретам:
+Выдайте права:
 
 ```bash
 chmod +x scripts/backup-sqlite.sh
 chmod 600 .env
 ```
 
-Заполните `.env` без кавычек и с окончаниями строк LF:
+Заполните `.env` в формате `KEY=value` без кавычек и с окончаниями строк LF:
 
 ```env
 SUPERCELL_TOKEN=<CLASH_OF_CLANS_API_TOKEN>
 TELEGRAM_TOKEN=<TELEGRAM_BOT_TOKEN>
+# Необязательно для фиксации версии или отката:
+# CLASHBOT_IMAGE_TAG=sha-0123456
 ```
 
-Проверьте `config.json` (значения из `config.example.json` уже настроены под пути внутри контейнера):
+Полный справочник ключей `config.json`, значений по умолчанию и правил валидации `configSchema.ts` находится в [`docs/architecture.md`](architecture.md). На сервере для Compose-контейнера шаблон [`config.example.json`](../config.example.json) уже настроен на внутренние пути `/app/data/database.sqlite`, `/app/migrations`, `/app/resources/telegram/attack_guides.json` и `"use_tunnel": false`.
 
-```json
-{
-  "api": {
-    "use_tunnel": false,
-    "tunnel_base_url": "https://localhost:8080/v1",
-    "base_url": "https://api.clashofclans.com/v1"
-  },
-  "database": {
-    "path": "/app/data/database.sqlite",
-    "migrations_path": "/app/migrations"
-  },
-  "telegram": {
-    "attack_guides_path": "/app/resources/telegram/attack_guides.json"
-  }
-}
-```
+### Запуск, логи и обновление
 
-Базовый URL CoC используется для запросов через `CocApiClient`. Для сервера с разрешённым IP используйте `"use_tunnel": false`.
-
-## Публикация образа и доступ к GHCR
-
-[Workflow](../.github/workflows/docker-publish.yml) запускает проверки TypeScript, unit-, integration- и golden-тесты, а
-также сборку и smoke-тест [Docker-образа](../Dockerfile). После успешных проверок на `main` он публикует проверенный образ
-`ghcr.io/flacicz/clashbot` с двумя тегами:
-
-- `latest` — последняя успешно опубликованная сборка `main`;
-- `sha-<short>` — сборка конкретного коммита для фиксации версии или отката.
-
-### Публичный пакет (рекомендуемый вариант)
-
-В настройках пакета на GitHub (`Package settings → Change visibility → Public`) образ можно сделать публичным — в нём нет секретов, только скомпилированный JavaScript, production-зависимости, миграции и открытый каталог гайдов. В этом случае авторизация на VPS не нужна: `docker compose pull` работает без токена.
-
-### Приватный пакет
-
-Если пакет в GHCR остаётся приватным, создайте Personal Access Token (classic) с правом `read:packages` и выполните вход на сервере один раз:
+Первый запуск и проверка:
 
 ```bash
-echo "<GHCR_READ_PACKAGES_PAT>" | docker login ghcr.io -u <github-username> --password-stdin
-```
-
-## Запуск, обновление и откат
-
-Первый запуск из каталога `/opt/clashbot`:
-
-```bash
+cd /opt/clashbot
 docker compose pull
 docker compose up -d
-```
-
-Проверка состояния и логов:
-
-```bash
 docker compose ps
 docker compose logs -f clashbot
 ```
 
-При первом запуске с пустым каталогом `./data` приложение создаст `data/database.sqlite` и автоматически применит все SQL-миграции из `/app/migrations` внутри контейнера.
+При пустом `./data` приложение создаёт `data/database.sqlite` и применяет SQL-миграции из `/app/migrations` внутри контейнера. `pino` пишет структурированный JSON в `stdout`; сообщения в Telegram форматируют даты в `UTC+3`.
 
-### Логи
-
-Pino пишет JSON в stdout. Логи смотрят командой `docker compose logs clashbot`. Их ротацию задаёт Docker Compose
-(три файла до 10 МБ каждый). Сообщения Telegram форматируют время в UTC+3.
-
-### Штатное обновление
-
-```bash
-cd /opt/clashbot
-docker compose pull
-docker compose up -d
-```
-
-### Переход с C++ на TypeScript
-
-После публикации TypeScript-образа из `main` обновите `docker-compose.yml`, сохранив действующие `.env`, `config.json`
-и каталог `data/`. Новый Compose оставляет `stop_grace_period: 30s` и пишет логи через Docker.
-Снимите свежий онлайн-бэкап перед переключением:
+Штатное обновление:
 
 ```bash
 cd /opt/clashbot
 ./scripts/backup-sqlite.sh --local-only
-CLASHBOT_IMAGE_TAG=latest docker compose pull clashbot
-CLASHBOT_IMAGE_TAG=latest docker compose up -d clashbot
-docker compose logs -f clashbot
+docker compose pull
+docker compose up -d
 ```
 
-Убедитесь, что опубликованный образ запустился, миграции прошли и завершился первый цикл синхронизации.
-Если в `.env` закреплён C++-тег, после проверки задайте там `CLASHBOT_IMAGE_TAG=latest` или тег проверенной TypeScript-сборки.
+Откат на предыдущую сборку (при неизменной схеме БД): задайте `CLASHBOT_IMAGE_TAG=sha-<short>` в `.env` (или перед командой) и выполните `docker compose pull && docker compose up -d`. Если более новая версия уже применила несовместимую миграцию, дополнительно восстановите предрелизный снимок БД по процедуре Recovery Drill.
 
-### Откат к C++-версии
+## 5. Резервное копирование SQLite (`scripts/backup-sqlite.sh`)
 
-Точка отката — `ghcr.io/flacicz/clashbot:sha-d10b3f5`. Исходники этого релиза сохранены в git-теге `v1-cpp`.
-Тот же файл SQLite совместим с обеими версиями по [ADR-0004](adr/0004-sqlite-drop-in-compatibility.md).
-Используйте текущие пути `/app/data/database.sqlite`, `/app/migrations` и `/app/resources/telegram/attack_guides.json`.
-
-```bash
-cd /opt/clashbot
-CLASHBOT_IMAGE_TAG=sha-d10b3f5 docker compose pull clashbot
-CLASHBOT_IMAGE_TAG=sha-d10b3f5 docker compose up -d clashbot
-docker compose logs -f clashbot
-```
-
-Для сохранения отката при последующих обновлениях закрепите `CLASHBOT_IMAGE_TAG=sha-d10b3f5` в `.env`. Процедура
-восстановления снимка нужна при повреждении SQLite или потере данных. Для штатного отката образа используется текущая
-база. Результат пробного прогона описан в [тикете #36](https://github.com/Flacicz/ClashBot/issues/36).
-
-## Ежедневный бэкап SQLite и выгрузка в облако
-
-ClashBot работает с SQLite в режиме `WAL` (`PRAGMA journal_mode = WAL`). Простое копирование файла `database.sqlite` во время работы контейнера может дать несогласованный снимок без изменений из `-wal`.
+ClashBot работает с SQLite в режиме `WAL` (`PRAGMA journal_mode = WAL`), поэтому прямое копирование `database.sqlite` во время работы контейнера может дать несогласованный файл без изменений из `-wal`.
 
 Скрипт [`scripts/backup-sqlite.sh`](../scripts/backup-sqlite.sh):
 
-1. снимает консистентный онлайн-снимок без остановки бота через `sqlite3 -cmd ".timeout 5000" ... ".backup ..."`;
-2. проверяет целостность снимка командой `PRAGMA integrity_check;` (ожидается `ok`);
-3. сжимает файл через `gzip` и проверяет архив `gzip -t`;
-4. выгружает новый архив в облако через `rclone copy` (без удаления существующих облачных копий при локальном сбое);
-5. сохраняет на сервере 14 самых свежих архивов `clashbot_YYYYMMDD_HHMMSS.sqlite.gz`, удаляя более старые.
+1. защищается от параллельного запуска через `flock -n` (`$BACKUP_DIR/.backup.lock`);
+2. снимает онлайн-снимок без остановки контейнера через `sqlite3 -cmd ".timeout 5000" "$DB_PATH" ".backup ..."`;
+3. проверяет снимок командой `PRAGMA integrity_check;` (требуется `ok`);
+4. сжимает снимок через `gzip` и проверяет архив `gzip -t`;
+5. при запуске без `--local-only` выгружает архив через `rclone copy` в `$RCLONE_REMOTE`;
+6. хранит локально `RETENTION_COUNT` (по умолчанию `14`) самых свежих архивов `clashbot_YYYYMMDD_HHMMSS.sqlite.gz`.
 
-### Настройка rclone и тестовый прогон
+Переменные окружения и флаги скрипта:
 
-Настройте удалённое хранилище интерактивно:
+| Параметр | По умолчанию | Описание |
+| --- | --- | --- |
+| `--local-only` | `false` | Пропустить выгрузку в `rclone` |
+| `DB_PATH` | `./data/database.sqlite` | Путь к исходной БД SQLite |
+| `BACKUP_DIR` | `./backups` | Каталог локальных архивов |
+| `RETENTION_COUNT` | `14` | Число сохраняемых локальных архивов |
+| `RCLONE_REMOTE` | — | Удалённый путь `rclone` (обязателен без `--local-only`) |
+
+Настройка `rclone` и тестовый прогон:
 
 ```bash
 rclone config
-```
-
-Проверьте локальный бэкап (без выгрузки в облако) и полный прогон:
-
-```bash
 cd /opt/clashbot
 ./scripts/backup-sqlite.sh --local-only
 RCLONE_REMOTE="gdrive:clashbot-backups" ./scripts/backup-sqlite.sh
 ```
 
-### Расписание через cron
-
-Откройте `crontab` пользователя с доступом к `/opt/clashbot/data` (если контейнер запускается от `root`, настройте `sudo crontab -e`):
+Ежедневный запуск через `cron` (настройте в `crontab` пользователя с правами на `/opt/clashbot/data`, например `sudo crontab -e`, если контейнер работает от `root`):
 
 ```cron
 0 3 * * * cd /opt/clashbot && DB_PATH=/opt/clashbot/data/database.sqlite BACKUP_DIR=/opt/clashbot/backups RCLONE_REMOTE=gdrive:clashbot-backups /opt/clashbot/scripts/backup-sqlite.sh >> /var/log/clashbot-backup.log 2>&1
 ```
 
-## Проверка восстановления (Recovery Drill)
+## 6. Проверка восстановления (Recovery Drill)
 
-После первого запуска и при смене сервера обязательно проверьте, что бэкап реально восстанавливается:
+Обязательно выполняйте проверку после первичного деплоя и при переносе на новый сервер:
 
-1. Выберите нужный архив (локально в `./backups` или скачайте из облака):
+1. Скачайте и проверьте архив:
 
    ```bash
    rclone copy "gdrive:clashbot-backups/clashbot_20261119_030000.sqlite.gz" /tmp/
@@ -202,16 +178,16 @@ RCLONE_REMOTE="gdrive:clashbot-backups" ./scripts/backup-sqlite.sh
    sqlite3 /tmp/restored.sqlite "PRAGMA integrity_check;"
    ```
 
-   Вывод должен быть строго `ok`.
+   Ожидаемый вывод: `ok`.
 
-2. Остановите контейнер перед заменой файла базы:
+2. Остановите контейнер перед заменой БД:
 
    ```bash
    cd /opt/clashbot
    docker compose stop clashbot
    ```
 
-3. Сохраните текущую базу на случай отката и **обязательно удалите старые файлы WAL/SHM** (иначе SQLite при запуске применит старый WAL поверх восстановленной базы):
+3. Сохраните текущую БД и **обязательно удалите файлы `-wal` и `-shm`** (иначе SQLite при старте применит старый WAL поверх восстановленного снимка):
 
    ```bash
    mv data/database.sqlite data/database.sqlite.before-restore
@@ -219,28 +195,52 @@ RCLONE_REMOTE="gdrive:clashbot-backups" ./scripts/backup-sqlite.sh
    cp /tmp/restored.sqlite data/database.sqlite
    ```
 
-4. Запустите контейнер и проверьте работу:
+4. Запустите контейнер и проверьте результат:
 
    ```bash
    docker compose up -d
    docker compose logs -f clashbot
    ```
 
-   Убедитесь, что в логах нет ошибок миграций и SQLite, а команда `/start` → `📋 Мои кланы` в Telegram возвращает ожидаемые подписки. После проверки удалите `/tmp/restored.sqlite` и `data/database.sqlite.before-restore`.
+   Убедитесь, что миграции и запуск прошли без ошибок, а команда `/start` → `📋 Мои кланы` в Telegram возвращает ожидаемые **подписки**. После проверки удалите `/tmp/restored.sqlite` и `data/database.sqlite.before-restore`.
 
-## Локальный запуск и SSH-туннель
+## 7. Локальная разработка, проверки и SSH-туннель
 
-Для локальной отладки используйте **отдельного тестового Telegram-бота** и отдельную локальную базу — запуск двух экземпляров с одним `TELEGRAM_TOKEN` ломает long polling `getUpdates`.
+Требования для локальной работы без Docker (см. [`package.json`](../package.json)): Node.js `>=24.0.0`, `pnpm@12.21.0`.
 
-Поскольку ключ Clash of Clans API привязан к статическому IP сервера, локально запросы к CoC API можно пробросить через SSH-туннель на VPS:
+Основные команды из корня репозитория:
 
-- В **Windows PowerShell** (встроенный OpenSSH):
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm lint
+pnpm format:check
+pnpm test
+pnpm build
+git diff --check
+```
+
+Локальный запуск собранного приложения:
+
+```bash
+node dist/cli.js config.local.json
+# или через скрипт package.json:
+pnpm start config.local.json
+```
+
+> **Важно:** для локальной отладки используйте **отдельный тестовый `TELEGRAM_TOKEN`** и отдельную локальную SQLite БД. Запуск двух экземпляров с одним `TELEGRAM_TOKEN` ломает long polling `getUpdates`. Файл `.env` автоматически загружается из каталога переданного `config.json` (если переменные ещё не заданы в окружении). Для читаемых логов локально можно задать `LOG_FORMAT=pretty` и `LOG_LEVEL=debug`.
+
+### SSH-туннель к Clash of Clans API
+
+Так как токен Supercell привязан к статическому IP сервера, при локальной разработке трафик можно пробрасывать через VPS:
+
+- **Windows PowerShell**:
 
   ```powershell
   ssh -N -L 8080:api.clashofclans.com:443 <user>@<vps-ip>
   ```
 
-- В **Linux / WSL** можно использовать [`scripts/startTunnel.sh`](../scripts/startTunnel.sh):
+- **Linux / WSL** ([`scripts/startTunnel.sh`](../scripts/startTunnel.sh)):
 
   ```bash
   ./scripts/startTunnel.sh <user>@<vps-ip>
@@ -248,4 +248,6 @@ RCLONE_REMOTE="gdrive:clashbot-backups" ./scripts/backup-sqlite.sh
   CLASHBOT_SSH_HOST=<user>@<vps-ip> ./scripts/startTunnel.sh
   ```
 
-В локальном `config.json` установите `"use_tunnel": true` и `"tunnel_base_url": "https://localhost:8080/v1"`.
+  Скрипт поддерживает переменные `LOCAL_PORT` (`8080`), `REMOTE_HOST` (`api.clashofclans.com`), `REMOTE_PORT` (`443`) и `TUNNEL_DURATION_SEC` (`3600`).
+
+В локальном `config.json` включите `"use_tunnel": true` и укажите `"tunnel_base_url": "https://localhost:8080/v1"` (при локальном запуске внутри Docker используйте `https://host.docker.internal:8080/v1`). При `use_tunnel: true` `CocApiClient` отключает проверку TLS только в изолированном `undici` `Agent` для запросов к CoC API.
