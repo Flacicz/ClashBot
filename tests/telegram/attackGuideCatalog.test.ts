@@ -318,7 +318,7 @@ describe('AttackGuideCatalog', () => {
         expect(catalog.getGuidesForStrategy(8, 'unknown_army')).toEqual([]);
     });
 
-    it('finds enabled guide by id and ignores disabled or unknown guides', () => {
+    it('finds enabled guide by id and ignores disabled, unknown, or incompatible town hall guides', () => {
         const filePath = createTempJsonFile(makeCatalogJson());
         const catalog = loadAttackGuideCatalog(filePath);
 
@@ -328,8 +328,179 @@ describe('AttackGuideCatalog', () => {
         expect(found?.title).toBe('Видео shared_early');
         expect(found?.townHalls).toEqual([8]);
 
+        expect(catalog.findById('shared_early', 8)?.id).toBe('shared_early');
+        expect(catalog.findById('shared_early', 7)).toBeNull();
+        expect(catalog.findById('global', 14)?.id).toBe('global');
+
         expect(catalog.findById('disabled')).toBeNull();
+        expect(catalog.findById('disabled', 7)).toBeNull();
         expect(catalog.findById('unknown')).toBeNull();
+        expect(catalog.findById('unknown', 8)).toBeNull();
+    });
+
+    describe('semantic validation', () => {
+        it('rejects empty, whitespace-only, or colon-containing id and army_id', () => {
+            const invalidCases: {
+                readonly label: string;
+                readonly id: string;
+                readonly armyId: string;
+            }[] = [
+                { label: 'empty id', id: '', armyId: 'valid_army' },
+                { label: 'whitespace id', id: '   ', armyId: 'valid_army' },
+                { label: 'colon in id', id: 'th14:zap', armyId: 'valid_army' },
+                { label: 'empty army_id', id: 'valid_id', armyId: '' },
+                { label: 'whitespace army_id', id: 'valid_id', armyId: '   ' },
+                { label: 'colon in army_id', id: 'valid_id', armyId: 'zap:dragons' },
+            ];
+
+            for (const testCase of invalidCases) {
+                expect(
+                    () =>
+                        AttackGuideCatalog.fromJson({
+                            guides: [
+                                makeGuideJson(
+                                    testCase.id,
+                                    testCase.armyId,
+                                    'Strategy',
+                                    [14],
+                                    10,
+                                    true,
+                                ),
+                            ],
+                        }),
+                    testCase.label,
+                ).toThrow(ConfigError);
+            }
+        });
+
+        it('rejects duplicate guide ids including disabled entries', () => {
+            expect(() =>
+                AttackGuideCatalog.fromJson({
+                    guides: [
+                        makeGuideJson('dup_id', 'army_a', 'Army A', [14], 10, true),
+                        makeGuideJson('dup_id', 'army_b', 'Army B', [15], 20, false),
+                    ],
+                }),
+            ).toThrow(ConfigError);
+        });
+
+        it('rejects invalid or non-http(s) youtube_url values and accepts valid http(s) URLs', () => {
+            const invalidUrls = [
+                '',
+                '   ',
+                'not-a-url',
+                'javascript:alert(1)',
+                'ftp://example.com/guide',
+                ' https://www.youtube.com/watch?v=abc ',
+            ];
+
+            for (const url of invalidUrls) {
+                const guide = makeGuideJson('valid_id', 'valid_army', 'Strategy', [14], 10, true);
+                guide.youtube_url = url;
+                expect(
+                    () => AttackGuideCatalog.fromJson({ guides: [guide] }),
+                    `Invalid URL: ${url}`,
+                ).toThrow(ConfigError);
+            }
+
+            const validGuide = makeGuideJson('valid_id', 'valid_army', 'Strategy', [14], 10, true);
+            validGuide.youtube_url = 'https://www.youtube.com/watch?v=abc&t=42';
+            const catalog = AttackGuideCatalog.fromJson({ guides: [validGuide] });
+            expect(catalog.findById('valid_id', 14)?.youtubeUrl).toBe(
+                'https://www.youtube.com/watch?v=abc&t=42',
+            );
+        });
+
+        it('rejects town_halls outside TH7-TH18 and accepts boundary values and empty array', () => {
+            const invalidTownHalls = [[6], [19], [0], [-7], [7, 19]];
+            for (const townHalls of invalidTownHalls) {
+                expect(
+                    () =>
+                        AttackGuideCatalog.fromJson({
+                            guides: [
+                                makeGuideJson(
+                                    'valid_id',
+                                    'valid_army',
+                                    'Strategy',
+                                    townHalls,
+                                    10,
+                                    true,
+                                ),
+                            ],
+                        }),
+                    `Invalid town_halls: ${JSON.stringify(townHalls)}`,
+                ).toThrow(ConfigError);
+            }
+
+            const validCatalog = AttackGuideCatalog.fromJson({
+                guides: [
+                    makeGuideJson('th7_id', 'army_a', 'Army A', [7], 10, true),
+                    makeGuideJson('th18_id', 'army_b', 'Army B', [18], 20, true),
+                    makeGuideJson('universal_id', 'army_c', 'Army C', [], 30, true),
+                ],
+            });
+            expect(validCatalog.getAll()).toHaveLength(3);
+        });
+
+        it('enforces Telegram 64-byte UTF-8 limit on guide and strategy callback_data', () => {
+            // "guides:guide:14:" is 16 bytes -> 48 ASCII bytes id = 64 bytes (valid), 49 bytes = 65 bytes (invalid)
+            const exactGuideId = 'g'.repeat(48);
+            const tooLongGuideId = 'g'.repeat(49);
+            // 25 Cyrillic chars = 50 UTF-8 bytes -> 16 + 50 = 66 bytes (> 64) despite string length 41
+            const multibyteTooLongGuideId = 'г'.repeat(25);
+
+            expect(() =>
+                AttackGuideCatalog.fromJson({
+                    guides: [makeGuideJson(exactGuideId, 'army', 'Army', [14], 10, true)],
+                }),
+            ).not.toThrow();
+
+            expect(() =>
+                AttackGuideCatalog.fromJson({
+                    guides: [makeGuideJson(tooLongGuideId, 'army', 'Army', [14], 10, true)],
+                }),
+            ).toThrow(ConfigError);
+
+            expect(() =>
+                AttackGuideCatalog.fromJson({
+                    guides: [
+                        makeGuideJson(multibyteTooLongGuideId, 'army', 'Army', [14], 10, true),
+                    ],
+                }),
+            ).toThrow(ConfigError);
+
+            // Universal guide (empty town_halls) must fit for 2-digit MAX_TOWN_HALL (18)
+            expect(() =>
+                AttackGuideCatalog.fromJson({
+                    guides: [makeGuideJson(tooLongGuideId, 'army', 'Army', [], 10, true)],
+                }),
+            ).toThrow(ConfigError);
+
+            // "guides:strategy:14:" is 19 bytes -> 45 ASCII bytes army_id = 64 bytes (valid), 46 bytes = 65 bytes (invalid)
+            const exactArmyId = 'a'.repeat(45);
+            const tooLongArmyId = 'a'.repeat(46);
+            const multibyteTooLongArmyId = 'а'.repeat(23); // 46 UTF-8 bytes -> 19 + 46 = 65 bytes
+
+            expect(() =>
+                AttackGuideCatalog.fromJson({
+                    guides: [makeGuideJson('guide_ok', exactArmyId, 'Army', [14], 10, true)],
+                }),
+            ).not.toThrow();
+
+            expect(() =>
+                AttackGuideCatalog.fromJson({
+                    guides: [makeGuideJson('guide_ok', tooLongArmyId, 'Army', [14], 10, true)],
+                }),
+            ).toThrow(ConfigError);
+
+            expect(() =>
+                AttackGuideCatalog.fromJson({
+                    guides: [
+                        makeGuideJson('guide_ok', multibyteTooLongArmyId, 'Army', [14], 10, true),
+                    ],
+                }),
+            ).toThrow(ConfigError);
+        });
     });
 
     it('is idempotent across repeated loads and queries', () => {

@@ -7,6 +7,7 @@ import type {
 } from 'grammy/types';
 
 import { DatabaseError, isAbortError } from '../common/errors.js';
+import { escapeHtml } from '../common/formatUtils.js';
 import type {
     ClansRepo,
     DomainEventsRepo,
@@ -1038,16 +1039,19 @@ export class TelegramBotService {
         townHall: number,
         guideId: string,
     ): Promise<void> {
-        const guide = this.attackGuideCatalog.findById(guideId);
+        const guide = this.attackGuideCatalog.findById(guideId, townHall);
         if (guide === null) {
-            this.logger.warn({ townHall, guideId }, 'Guide not found for callback');
+            this.logger.warn(
+                { townHall, guideId },
+                'Guide not found or not available for town hall callback',
+            );
             return;
         }
 
         await this.sendHtmlMessage(
             api,
             context.chatId,
-            `${guide.title}\n${guide.youtubeUrl}`,
+            `${escapeHtml(guide.title)}\n${escapeHtml(guide.youtubeUrl)}`,
             context.messageThreadId,
         );
 

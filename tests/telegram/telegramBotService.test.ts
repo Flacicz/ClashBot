@@ -1727,6 +1727,99 @@ describe('TelegramBotService', () => {
             expect(transport.editedMessages()).toHaveLength(1);
             expect(String(transport.editedMessages()[0]?.text)).toContain('Помощь');
         });
+
+        it('escapes HTML special characters in guide title and youtubeUrl before sending', async () => {
+            const { db, clansRepo, subscriptionRepo, domainEventsRepo, transactionManager } =
+                createHarness();
+            const transport = createFakeTelegramTransport(db);
+            const htmlCatalog = AttackGuideCatalog.fromJson({
+                guides: [
+                    {
+                        id: 'html_special_guide',
+                        army_id: 'zap_dragons',
+                        army_title: 'Zap & Dragons',
+                        variant_id: 'classic',
+                        variant_title: 'Classic',
+                        title: 'TH14 <Zap> & Dragons',
+                        town_halls: [14],
+                        youtube_url: 'https://www.youtube.com/watch?v=abc123&t=42',
+                        sort_order: 1,
+                        enabled: true,
+                    },
+                ],
+            });
+            const service = new TelegramBotService({
+                telegramToken: 'test-bot-token',
+                attackGuideCatalog: htmlCatalog,
+                clansRepo,
+                subscriptionRepo,
+                domainEventsRepo,
+                transactionManager,
+                logger: createLogger({ level: 'silent' }),
+                botConfig: { botInfo: TEST_BOT_INFO },
+            });
+            transport.install(service);
+
+            // Repeat twice to verify deterministic, idempotent escaping
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'html-guide-1',
+                    data: 'guides:guide:14:html_special_guide',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'html-guide-2',
+                    data: 'guides:guide:14:html_special_guide',
+                }),
+            );
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(4);
+            expect(sent[0]?.parse_mode).toBe('HTML');
+            expect(sent[0]?.text).toBe(
+                'TH14 &lt;Zap&gt; &amp; Dragons\nhttps://www.youtube.com/watch?v=abc123&amp;t=42',
+            );
+            expect(sent[2]?.text).toBe(sent[0]?.text);
+        });
+
+        it('ignores guide callback when guide is incompatible with callback townHall and allows universal guides', async () => {
+            const { service, transport } = createHarness();
+
+            // zap_dragons_th14 is only for TH14; requesting it under TH15 must be ignored
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'mismatch-1',
+                    data: 'guides:guide:15:zap_dragons_th14',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'mismatch-2',
+                    data: 'guides:guide:15:zap_dragons_th14',
+                }),
+            );
+
+            expect(transport.answeredCallbackQueries()).toHaveLength(2);
+            expect(transport.sentMessages()).toHaveLength(0);
+            expect(transport.editedMessages()).toHaveLength(0);
+
+            // Universal guide (empty town_halls) is compatible with any valid TH (e.g. TH15)
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'universal-th15',
+                    data: 'guides:guide:15:universal_funnel',
+                }),
+            );
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(2);
+            expect(sent[0]?.text).toBe(
+                'Универсальный гайд по фаннелингу\nhttps://youtube.example/funnel',
+            );
+            const navKeyboard = getInlineKeyboard(sent[1]);
+            expect(navKeyboard[0]?.[0]?.callback_data).toBe('guides:strategy:15:fundamentals');
+        });
     });
 
     describe('long polling, transient API errors and AbortSignal shutdown', () => {

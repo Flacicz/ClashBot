@@ -137,25 +137,30 @@ Telegram-слой разделён на два независимых компо
 | `guides:townhalls`                    | без аргументов                           | `editMessageText` → сетка ратуш `MIN_TOWN_HALL..MAX_TOWN_HALL` (`7..18`, по 3 в ряд)                           |
 | `guides:townhall:<townHall>`          | `parseTownHall` (`7..18`)                | `editMessageText` → уникальные стратегии для выбранной ратуши                                                  |
 | `guides:strategy:<townHall>:<armyId>` | `townHall` (`7..18`), `armyId`           | `editMessageText` → список гайдов стратегии (если пусто — игнорируется)                                        |
-| `guides:guide:<townHall>:<guideId>`   | `townHall` (`7..18`), `guideId`          | `sendMessage` (2 HTML-сообщения с сохранением `message_thread_id`): `<title>\n<youtubeUrl>` и кнопки навигации |
+| `guides:guide:<townHall>:<guideId>`   | `townHall` (`7..18`), `guideId`          | Проверка совместимости гайда с `townHall` (`findById(guideId, townHall)`); `sendMessage` (2 HTML-сообщения с сохранением `message_thread_id`): `escapeHtml(title)\nescapeHtml(youtubeUrl)` и кнопки навигации |
 
 ## Каталог видео-гайдов (`resources/telegram/attack_guides.json`)
 
 Файл содержит JSON-объект (в актуальном файле есть `"version": 1`) с обязательным массивом `guides`. Поля элемента
-(`rawAttackGuideSchema` в `src/telegram/attackGuideCatalog.ts`):
+(`rawAttackGuideSchema` / `attackGuideCatalogSchema` в `src/telegram/attackGuideCatalog.ts`):
 
 | Поле            | Обязательность               | Значение по умолчанию | Назначение                                                                    |
 | --------------- | ---------------------------- | --------------------- | ----------------------------------------------------------------------------- |
-| `id`            | обязательно (`string`)       | —                     | Уникальный идентификатор гайда                                                |
-| `army_id`       | обязательно (`string`)       | —                     | Идентификатор стратегии                                                       |
+| `id`            | обязательно (`string`)       | —                     | Уникальный непустой идентификатор гайда без `:`                               |
+| `army_id`       | обязательно (`string`)       | —                     | Непустой идентификатор стратегии без `:`                                      |
 | `army_title`    | опционально (`string`)       | `army_id`             | Отображаемое название стратегии                                               |
 | `variant_id`    | обязательно (`string`)       | —                     | Идентификатор варианта                                                        |
 | `variant_title` | обязательно (`string`)       | —                     | Название варианта                                                             |
 | `title`         | обязательно (`string`)       | —                     | Заголовок кнопки и сообщения                                                  |
-| `town_halls`    | обязательно (`number[]` int) | —                     | Допустимые ратуши; пустой массив `[]` = любая поддерживаемая ратуша (`7..18`) |
-| `youtube_url`   | обязательно (`string`)       | —                     | Ссылка на YouTube (видео не скачивается и не проксируется)                    |
+| `town_halls`    | обязательно (`number[]` int) | —                     | Допустимые ратуши в диапазоне `7..18`; пустой массив `[]` = любая поддерживаемая ратуша (`7..18`) |
+| `youtube_url`   | обязательно (`string`)       | —                     | Валидный `http(s)` URL на видео (видео не скачивается и не проксируется)      |
 | `sort_order`    | опционально (`number` int)   | `0`                   | Порядок стабильной сортировки каталога                                        |
 | `enabled`       | опционально (`boolean`)      | `true`                | При `false` гайд исключается из всех выборок                                  |
+
+При загрузке каталога дополнительно проверяется контракт Telegram Bot API: уникальность `id` среди всех записей
+каталога (включая отключённые) и ограничение длины формируемых `callback_data` (`guides:guide:<townHall>:<id>` и
+`guides:strategy:<townHall>:<army_id>`) не более `64` байт в UTF-8 (`MAX_CALLBACK_DATA_BYTES`). Нарушение любого
+правила прерывает запуск с `ConfigError`.
 
 Каталог хранится только в памяти (`AttackGuideCatalog`) и не записывается в SQLite.
 
