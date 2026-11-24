@@ -1,339 +1,197 @@
 # Архитектура ClashBot
 
-## Назначение
+## Назначение и стек
 
-ClashBot — автономное TypeScript-приложение на Node.js 24 LTS, которое периодически синхронизирует данные одного или нескольких кланов Clash
-of Clans, сохраняет их в SQLite и публикует сообщения в Telegram.
+ClashBot — автономный сервис мониторинга кланов Clash of Clans. Он периодически забирает данные из официального Clash of Clans API, хранит состояние и историю в SQLite и доставляет уведомления в Telegram.
 
-Внешние источники данных:
+- **Среда выполнения**: Node.js 24 LTS (`engines.node >= 24.0.0`), TypeScript (`strict`, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), ESM (`"type": "module"`), пакетный менеджер `pnpm`.
+- **Ключевые библиотеки**: `better-sqlite3` (SQLite), `grammY` (Telegram Bot API), `undici` (HTTP-клиент CoC API), `zod` (валидация конфигов, API-ответов и payload событий), `pino` / `pino-pretty` (логирование), `Vitest` (тестирование).
+- **Модель исполнения**: один процесс Node.js с одним event loop и одним общим соединением SQLite ([ADR-0001](adr/0001-typescript-nodejs-stack.md), [ADR-0002](adr/0002-single-loop-better-sqlite3.md)).
 
-- официальный Clash of Clans API — информация о клане, текущей войне, CWL и последнем рейдовом выходном;
-- Telegram Bot API — отправка сообщений, inline-клавиатуры, callback-запросы и long polling входящих обновлений.
+## Границы модулей `src/`
 
-Доменное событие сначала сохраняется в SQLite вместе с payload и снимком Telegram-назначений. После commit отдельный
-DomainEventWorker преобразует событие в готовые сообщения в outbox `notifications`; NotificationWorker доставляет их в
-Telegram. Так событие и получатели переживают перезапуск приложения.
+Точки входа и модули в `src/` разделены по слоям:
 
-## Конфигурация и секреты
-
-### config.json
-
-Файл содержит только несекретные настройки:
-
-| Путь | Тип | Назначение |
+| Путь | Назначение | Границы и зависимости |
 | --- | --- | --- |
-| api.use_tunnel | bool | использовать ли tunnel_base_url вместо base_url |
-| api.tunnel_base_url | string | URL локального SSH-туннеля, например https://localhost:8080/v1 |
-| api.base_url | string | прямой URL Clash of Clans API |
-| database.path | string | путь к SQLite-файлу |
-| database.migrations_path | string | каталог SQL-миграций |
-| telegram.attack_guides_path | string | путь к JSON-каталогу гайдов |
+| `src/cli.ts`, `src/main.ts`, `src/index.ts` | CLI-вход `dist/cli.js`, оркестрация `main()`, публичный barrel-экспорт | Инициализирует логгер, `ShutdownCoordinator`, конфиг и `Application`; завершает процесс с кодом `0` или `1` |
+| `src/app/` | Composition root (`application.ts`) и остановка (`shutdownCoordinator.ts`) | Собирает зависимости, запускает 4 цикла, управляет `AbortSignal` и общим бюджетом остановки |
+| `src/config/` | Схема (`configSchema.ts`) и загрузка конфига/секретов (`loadConfig.ts`) | Валидирует `config.json`, `.env` и обязательные переменные окружения через `zod` |
+| `src/api/` | HTTP-клиент CoC API (`cocApiClient.ts`), ошибки, схемы `zod`, мапперы и парсер времени | Не знает о SQLite и Telegram; преобразует ответы API в доменные модели |
+| `src/models/` | Типы предметной области (`clan.ts`, `raid.ts`) | Чистые структуры данных; реэкспортирует базовые модели из `src/api/models.ts` |
+| `src/services/` | Оркестрация синхронизации (`ClanManager`, `SyncService`, 4 сервиса, `reminders.ts`) | Вызывает API вне транзакций, пишет в БД через репозитории и `DomainEventRecorder` внутри транзакции |
+| `src/database/` | `Database`, `TransactionManager`, `MigratorManager`, `ForeignKeysGuard`, `RetryPolicy` | Инкапсулирует соединение `better-sqlite3`, `PRAGMA`, транзакции и миграции |
+| `src/database/repos/` | 8 предметных репозиториев, `BaseRepository`, `repoHelpers.ts` | Единственный слой с SQL-запросами; преобразует ошибки SQLite в `DatabaseError` |
+| `src/events/` | Дискриминируемое объединение `ApplicationEvent` и стабильные ключи `getApplicationEventKey` | Чистые типы и функции ключей дедупликации; не зависят от БД и форматтеров |
+| `src/domainEvents/` | Сериализация/десериализация payload, `eventNotificationPolicy`, `DomainEventRecorder`, `DomainEventWorker` | Записывает доменные события в одной транзакции с источником; материализует их в outbox |
+| `src/analytics/` | Сравнительные и ростерные анализаторы (`clanwar*`, `raid*`) | Чистые вычисления поверх данных из репозиториев и моделей |
+| `src/reports/` | HTML-форматтеры отчётов, нарушений, напоминаний и системных алертов | Формируют текст уведомлений; не отправляют сообщения и не управляют транзакциями |
+| `src/notifications/` | `NotificationService`, `NotificationWorker`, `TelegramGateway` (`GrammyTelegramGateway`) | Материализует события в таблицу `notifications` и доставляет outbox через `TelegramGateway` |
+| `src/telegram/` | `TelegramBotService`, парсер команд/callback, клавиатуры, `AttackGuideCatalog` | Обрабатывает входящие команды/кнопки через `grammY`; управляет подписками в транзакциях |
+| `src/logging/` | Конфигурация `pino` (`logger.ts`) | Единая точка создания логгера и санитизации секретов |
+| `src/common/` | Иерархия `AppError`, `Clock` (`SystemClock`/`FakeClock`), `formatUtils.ts` | Общие утилиты без зависимостей от слоёв приложения |
 
-Значения по умолчанию задаются в `src/config/configSchema.ts`, но для запуска рекомендуется явно указать все пути.
-Пути разрешаются относительно текущего рабочего каталога процесса, а не относительно каталога конфигурационного файла.
+## Композиция и жизненный цикл
 
-### Секреты
+### Запуск (`src/cli.ts` → `src/main.ts` → `src/app/application.ts`)
 
-Обязательные переменные окружения:
+1. `src/cli.ts` передаёт `process.argv.slice(2)` в `main()` и завершает процесс с возвращённым кодом (`EXIT_OK = 0`, `EXIT_FAILURE = 1`).
+2. `main()` создаёт корневой логгер (`createLogger()`), `ShutdownCoordinator` и подписывается на сигналы `SIGINT` и `SIGTERM`.
+3. `loadConfigFromArgs()` читает `config.json` (или путь из `argv[0]`) и `.env`.
+4. `createApplication()` инициализирует компоненты в строгом порядке (при ошибке уже открытые ресурсы закрываются в обратном порядке через `cleanups`):
+   - открывает единственное соединение `Database` и применяет миграции `MigratorManager.migrate()`;
+   - загружает каталог видео-гайдов `loadAttackGuideCatalog()`;
+   - создаёт `CocApiClient` с привязкой к `coordinator.signal`;
+   - создаёт 8 репозиториев (`ClansRepo`, `ClanwarRepo`, `ClanwarsLeagueRepo`, `RaidRepo`, `SubscriptionRepo`, `DomainEventsRepo`, `NotificationRepo`, `SyncOutageRepo`);
+   - собирает `NotificationWorker`, `NotificationService`, `DomainEventWorker` и `DomainEventRecorder`;
+   - создаёт сервисы синхронизации в фиксированном порядке: `ClanInfoService`, `ClanwarService`, `RaidService`, `ClanwarLeagueService`;
+   - создаёт `ClanManager` и `TelegramBotService`;
+   - регистрирует `closers` (`sqlite`, `cocHttpPool`) и `stopActions` (`domainEventWorker`, `telegramBotService`, `notificationWorker`).
+5. `app.start()` запускает 4 асинхронных цикла через `coordinator.startLoop()`:
+   - `syncLoop` → `clanManager.syncAll(signal)`
+   - `notificationWorker` → `notificationWorker.run(signal)`
+   - `telegramBotService` → `telegramBotService.start(signal)`
+   - `domainEventWorker` → `domainEventWorker.run(signal)`
 
-- SUPERCELL_TOKEN — токен Clash of Clans API;
-- TELEGRAM_TOKEN — токен Telegram-бота.
+### Остановка (`src/app/shutdownCoordinator.ts`)
 
-Загрузчик конфигурации ищет `.env` рядом с переданным `config.json`. Файл необязателен. Загрузчик устанавливает только те
-переменные, которых ещё нет в окружении, поэтому переменные процесса, Docker или CI/CD имеют приоритет.
+`ShutdownCoordinator` использует единый `AbortController` и бюджет остановки `DEFAULT_SHUTDOWN_BUDGET_MS = 15_000` (15 секунд; при деплое в Compose `stop_grace_period: 30s`).
 
-Значения .env должны иметь простой формат KEY=value; пустые строки и строки, начинающиеся с #, пропускаются. Загрузчик
-не поддерживает произвольное экранирование или многострочные значения.
+1. При `SIGINT`, `SIGTERM`, вызове `shutdown()` или необработанной ошибке любого цикла (`crashed = true`) отменяется общий `AbortSignal`.
+2. Одновременно запускаются зарегистрированные `stopActions` (`domainEventWorker.requestStop()`, `telegramBotService.stop()`, `notificationWorker.requestStop()`) и ожидание завершения всех 4 циклов.
+3. После завершения циклов последовательно вызываются `closers` в обратном порядке регистрации: сначала `cocHttpPool` (`cocApiClient.close()`), затем `sqlite` (`db.close()`).
+4. При превышении 15-секундного бюджета координатор пишет запись уровня `fatal`, сбрасывает буфер логгера (`logger.flush()`) и принудительно завершает процесс с кодом `1`.
 
-### Подключение к Clash of Clans API
+## Конфигурация и секреты (`src/config/`)
 
-`CocApiClient` нормализует базовый URL и добавляет путь запроса и отправляет:
+### `config.json` (`src/config/configSchema.ts`)
 
+Конфигурационный файл содержит только несекретные параметры и валидируется схемой `jsonConfigSchema` (`zod`):
+
+| Ключ JSON | Поле `AppConfig` | Тип | Значение по умолчанию | Назначение |
+| --- | --- | --- | --- | --- |
+| `api.use_tunnel` | `useTunnel` | `boolean` | `false` | Использовать `tunnel_base_url` вместо `base_url` |
+| `api.tunnel_base_url` | `tunnelBaseUrl` | `string` | `'https://localhost:8080/v1'` | URL локального SSH-туннеля (обязательно непустой при `use_tunnel: true`) |
+| `api.base_url` | `baseUrl` | `string` | `'https://api.clashofclans.com/v1/'` | Прямой базовый URL Clash of Clans API (непустой) |
+| `database.path` | `databasePath` | `string` | `'data/database.sqlite'` | Путь к файлу SQLite (непустой) |
+| `database.migrations_path` | `migrationPath` | `string` | `'migrations'` | Каталог `.sql`-миграций (непустой) |
+| `telegram.attack_guides_path` | `attackGuidesPath` | `string` | `'resources/telegram/attack_guides.json'` | Путь к JSON-каталогу видео-гайдов (непустой) |
+
+Относительные пути внутри `config.json` разрешаются относительно текущего рабочего каталога процесса (`process.cwd()`), а не каталога `config.json`. Шаблон файла — [`config.example.json`](../config.example.json).
+
+### Переменные окружения и `.env` (`src/config/loadConfig.ts`)
+
+`loadConfigFromArgs()` берёт путь к конфигу из `argv[0]` или `DEFAULT_CONFIG_PATH = 'config.json'`. Файл `.env` ищется в одном каталоге с `config.json` (`path.dirname(path.resolve(configPath))`) и не является обязательным:
+
+- `parseDotEnv` принимает строки вида `KEY=value` (пустые строки и `#` пропускаются, `\r` обрезается; экранирование и многострочные значения не поддерживаются).
+- `loadDotEnv` записывает в окружение только те ключи, которые ещё не заданы (переменные процесса/контейнера имеют приоритет над `.env`).
+
+Обязательные секреты (`envSecretsSchema`):
+- `SUPERCELL_TOKEN` — Bearer-токен Clash of Clans API (непустая строка);
+- `TELEGRAM_TOKEN` — токен бота Telegram (непустая строка).
+
+Опциональные переменные окружения логгера (`src/logging/logger.ts`):
+- `LOG_LEVEL` — `fatal | error | warn | info | debug | trace | silent` (по умолчанию `info`);
+- `LOG_FORMAT` — значение `pretty` включает `pino-pretty` (по умолчанию JSON в `stdout`).
+
+## Клиент Clash of Clans API (`src/api/`)
+
+`CocApiClient` (`src/api/cocApiClient.ts`) использует `undici` (`fetch` + `Agent`) с таймаутом `DEFAULT_COC_API_TIMEOUT_MS = 20_000` (20 секунд) на запрос и двойным связыванием `AbortSignal` (общего сигнала остановки и сигнала вызова).
+
+- **Заголовки**: `Authorization: Bearer <SUPERCELL_TOKEN>`, `Accept: Application/json`.
+- **TLS и туннель**: при `useTunnel: false` используется стандартный `Agent` с проверкой TLS; при `useTunnel: true` создаётся изолированный `Agent({ connect: { rejectUnauthorized: false } })` только для клиента туннеля.
+- **Теги и URL**: `encodeClanTag` гарантирует префикс `#` и URL-кодирование; `buildEndpointUrl` нормализует слэши на стыке `baseUrl` и пути.
+
+Используемые endpoint'ы (`ClashOfClansApi`):
+
+| Метод клиента | Endpoint | Поведение при `404` / отсутствии данных |
+| --- | --- | --- |
+| `getCompleteClanData` | `GET /clans/{tag}` | `404` → `null` |
+| `getCompleteRaidData` | `GET /clans/{tag}/capitalraidseasons?limit=1` | `404` или пустой/неполный сезон → `null` |
+| `getCompleteClanwarData` | `GET /clans/{tag}/currentwar` | `state === 'notInWar'` → `null`; `403` пробрасывается как `CocApiError` |
+| `getCompleteClanwarsLeagueData` | `GET /clans/{tag}/currentwar/leaguegroup` + раунды `GET /clanwarleagues/wars/{warTag}` | `404` на группе или неактивном сезоне → `null`; пропускает `warTag === '#0'` и выбирает первый найденный раунд с участием целевого клана |
+
+Все ответы `200 OK` валидируются схемами `zod` (`src/api/schemas.ts`). Ошибки классифицируются в `CocApiError` (`src/api/errors.ts`) со следующими `kind`:
+- **Повторяемые (`retryable: true`)**: `network`, `timeout`, `rate_limit` (HTTP `429` с разбором заголовка `Retry-After`), `server_error` (`5xx`).
+- **Неповторяемые (`retryable: false`)**: `forbidden` (`403`), `not_found` (`404`), `unexpected_status`, `invalid_json`, `invalid_schema`.
+
+Временные метки API в формате `YYYYMMDDTHHMMSS[.fff]Z` преобразуются в Unix timestamp в секундах (`src/api/timeParser.ts`). Форматирование дат для сообщений Telegram выполняется в `UTC+3` (`formatUnixToMoscowDateTime` в `src/common/formatUtils.ts`).
+
+## Цикл синхронизации (`ClanManager` и `SyncService`)
+
+### Сервисы синхронизации
+
+Все фоновые синхронизаторы реализуют интерфейс `SyncService` (`getServiceName()`, `updateData(clanTag, signal)`):
+
+1. `ClanInfoService` — запрашивает состав и параметры клана; в одной транзакции сохраняет клан, игроков и снимки (`clans`, `players`, `clan_snapshots`, `player_snapshots`), обновляет `clan_memberships` и порождает события входа, выхода и смены игровой роли. При самой первой синхронизации клана (`activeMemberships.length === 0 && latestPlayerStates.length === 0`) события не генерируются (`isInitialSync`), чтобы не рассылать весь стартовый состав. Пустой ответ `null` трактуется как ошибка синхронизации.
+2. `ClanwarService` — синхронизирует текущую обычную войну (`wars`, `war_clans`, `war_members`, `attacks`). Ответ `notInWar` и закрытый журнал войн (`403`, если это не `accessDenied.invalidIp` и не `invalid authorization`) считаются штатным успешным результатом без записи сбоя.
+3. `RaidService` — запрашивает последний доступный рейдовый уикенд. Перед сохранением `player_raid_snapshots` гарантирует наличие записей игроков через `clansRepo.insertMinimal()` в той же транзакции. Отсутствие данных (`null`) считается ошибкой синхронизации (для срабатывания ретраев и отслеживания сбоев).
+4. `ClanwarLeagueService` — синхронизирует сезон CWL, состав и все найденные раунды. Отсутствие активного сезона (`null`) считается штатным успешным результатом.
+
+### Оркестрация в `ClanManager` (`src/services/clanManager.ts`)
+
+| Параметр | Значение по умолчанию | Назначение |
+| --- | --- | --- |
+| `cycleIntervalMs` | `15 * 60 * 1000` (15 мин) | Пауза между полными циклами синхронизации |
+| `clanLoadRetryDelayMs` | `30 * 1000` (30 с) | Пауза при `DatabaseError` во время чтения списка отслеживаемых кланов |
+| `retryPolicy` | `maxAttempts = 3`, `initialDelayMs = 2000`, `linear` | Повторы отдельного сервиса (задержка `2 с` перед 2-й и `2 с` перед 3-й попыткой) |
+
+На каждой итерации `syncAll()`:
+1. Загружает активные теги кланов через `clansRepo.getTrackedClans()` (`tracking_enabled = 1`).
+2. Последовательно обходит пары `(clanTag, service)`.
+3. Прерывание по `AbortSignal` выбрасывает `AbortError` и завершает цикл без инкремента сбоев.
+4. Если сервис исчерпал попытки (`!result.successFlag`), `ClanManager` в отдельной транзакции регистрирует/инкрементирует открытый эпизод в `sync_outages` и записывает `SyncFailureEvent`.
+5. При успешном результате (`result.successFlag`) проверяется открытый эпизод `sync_outages`; если он был открыт, эпизод закрывается (`recovered_at`) и в той же транзакции записывается `SyncRecoveryEvent`.
+
+## Кросс-слойные инварианты и поток событий
+
+Сквозная цепочка доставки работает поверх двух SQLite-очередей без внешнего брокера сообщений ([ADR-0005](adr/0005-transactional-outbox-and-subscription-generations.md)):
+
+```text
+SyncService / ClanManager
+  └─► TransactionManager.retryInTransaction()
+        ├─ запись доменного состояния (wars / raids / players / sync_outages)
+        └─ DomainEventRecorder.recordAll() ──► domain_events + domain_event_destinations (с subscription_id)
+                                                     │
+                                                     ▼ (commit; worker опрашивает раз в 1 с или по notify)
+DomainEventWorker
+  └─► TransactionManager.retryInTransaction()
+        ├─ перепроверка pending-статуса destination
+        ├─ десериализация payload (zod) → NotificationService.materialize() (форматтеры + аналитика)
+        ├─ запись в outbox notifications (ON CONFLICT DO NOTHING)
+        └─ markMaterialized(destinationId) ──► пробуждение NotificationWorker.notify()
+                                                     │
+                                                     ▼ (commit; вне транзакции)
+NotificationWorker
+  ├─ перепроверка pending-статуса уведомления
+  ├─ HTTP sendMessage через TelegramGateway (grammY Api)
+  └─ markAsSent / reschedule (exponential + retry_after) / markAsFailed
 ```
-Authorization: Bearer <SUPERCELL_TOKEN>
-Accept: Application/json
-```
 
-Таймаут HTTP-запроса — 20 секунд. Для прямого соединения TLS проверяется; для выбранного туннельного URL проверка TLS
-отключена, поскольку туннель использует локальный HTTPS endpoint.
-
-Используемые endpoint'ы:
-
-| Метод | Endpoint | Результат |
-| --- | --- | --- |
-| GET | /clans/{tag} | CompleteClanData |
-| GET | /clans/{tag}/capitalraidseasons?limit=1 | последнее доступное событие рейдов |
-| GET | /clans/{tag}/currentwar | текущая обычная война |
-| GET | /clans/{tag}/currentwar/leaguegroup | текущий сезон и раунды CWL |
-| GET | /clanwarleagues/wars/{tag} | детали отдельного раунда CWL |
-
-`CocApiClient` классифицирует ошибки в `CocApiError`: сеть, 404, rate limit 429, доступ 403, некорректный JSON и
-неожиданный ответ. Сервисы отдельно обрабатывают отсутствие активной войны или лиги.
-
-## Запуск приложения
-
-`src/cli.ts` передаёт аргументы в `src/main.ts`. По умолчанию используется `config.json` из текущего каталога.
-Приложение инициализирует Pino, загружает конфигурацию, открывает SQLite, применяет миграции и загружает каталог гайдов.
-`src/app/application.ts` создаёт репозитории, клиенты и четыре асинхронных цикла в одном процессе Node.js:
-
-- синхронизация кланов через `ClanManager`;
-- материализация событий через `DomainEventWorker`;
-- доставка outbox через `NotificationWorker`;
-- получение команд и callback-запросов через `TelegramBotService`.
-
-`ShutdownCoordinator` обрабатывает SIGINT и SIGTERM и отменяет общий `AbortSignal`, чтобы прервать ожидания и HTTP-запросы.
-После завершения циклов он закрывает HTTP-пул CoC и SQLite. На остановку отведено 15 секунд при `stop_grace_period: 30s`
-в Compose. Превышение бюджета приводит к записи уровня `fatal` и завершению процесса с кодом 1.
-
-## Слои проекта
-
-### Domain models
-
-Доменные модели находятся в `src/models` и `src/api`. Они преобразуют JSON API в типизированные структуры:
-
-- Clan, Player, ClanSnapshot, PlayerSnapshot;
-- Clanwar, ClanwarClan, ClanwarMember, ClanwarAttack;
-- ClanwarsLeagueSeason, ClanwarsLeagueMember;
-- ClanRaid, PlayerRaidSnapshot;
-- агрегаты CompleteClanData, CompleteClanwarData, CompleteClanwarsLeagueData, CompleteRaidData;
-- структуры отчётов и результатов сравнительной аналитики.
-
-Время API приводится к Unix timestamp. При выводе в Telegram `formatUnixToMoscowDateTime` отображает время в
-московском часовом поясе UTC+3.
-
-### API layer
-
-`CocApiClient` использует undici для Clash of Clans API и проверяет ответы схемами zod. `TelegramBotService` использует
-grammY для входящих обновлений и ответов на команды. `TelegramGateway` отправляет уведомления через grammY, а
-`NotificationWorker` хранит расписание повторов в SQLite. Параметры запросов и доставки описаны в [telegram.md](telegram.md).
-
-### Service layer
-
-Все фоновые сервисы реализуют `SyncService`:
-
-| Сервис | Данные | События |
-| --- | --- | --- |
-| ClanInfoService | клан, игроки, snapshots, членство | вход, выход, изменение роли |
-| ClanwarService | текущая обычная война, стороны, участники, атаки | reminders, завершение войны |
-| RaidService | последний рейд и snapshots участников | reminders, завершение рейда |
-| ClanwarLeagueService | сезон CWL, участники и найденные раунды | reminders, завершение раунда |
-
-Каждый сервис делает одну транзакцию записи. ClanwarService и ClanwarLeagueService возвращают успешный пустой
-результат, если для обработки пока нет активной войны или раунда. RaidService считает отсутствие доступного рейда
-ошибкой синхронизации, чтобы сработал retry. Ошибка получения данных или записи возвращается как ошибка в `SyncResult`.
-
-### ClanManager
-
-ClanManager координирует сервисы и не содержит SQL-запросов конкретных предметных областей:
-
-1. перед каждым циклом вызывает `clansRepo.getTrackedClans()`;
-2. для каждого тега запускает сервисы в порядке, заданном в `src/app/application.ts`;
-3. выполняет до трёх попыток сервиса; перед второй и третьей попыткой ждёт по 2 секунды (прерывается по `AbortSignal` без
-   записи ложного `sync_outage`);
-4. события и их destinations сохраняются DomainEventRecorder внутри транзакции синхронизации; ClanManager не запускает
-   вторую, неустойчивую отправку из `SyncResult.events`;
-5. после каждой пары «клан + сервис» переходит к следующей;
-6. после полного цикла ждёт 15 минут.
-
-Открытый эпизод сбоя хранится в таблице sync_outages по паре serviceName + clanTag. При каждом неудачном цикле
-счётчик failure_count увеличивается, но одинаковое предупреждение повторно не ставится в outbox благодаря outage ID.
-После успешного результата отправляется событие восстановления, а эпизод закрывается recovered_at. Если не удалось
-загрузить список кланов из БД, менеджер пишет ошибку и повторяет попытку через 30 секунд.
-
-### Repository layer
-
-Репозитории скрывают SQL и преобразование строк SQLite в доменные структуры:
-
-- ClansRepo — кланы, игроки, snapshots и история членства;
-- ClanwarRepo — войны, стороны, участники, атаки и выборки для отчётов;
-- ClanwarsLeagueRepo — сезоны CWL и зарегистрированные участники;
-- RaidRepo — рейды, snapshots участников и сравнительные выборки;
-- SubscriptionRepo — Telegram-назначения и подписки;
-- DomainEventsRepo — сохранённые события, снимки destinations, retry материализации и отмена по подписке;
-- NotificationRepo — outbox сообщений, дедупликация и переходы состояний доставки;
-- SyncOutageRepo — открытые эпизоды сбоев синхронизации, счётчики ошибок и восстановление.
-
-Сервисы и Telegram-бот получают репозитории через ссылки и не формируют SQL самостоятельно.
-
-### Database layer
-
-Одна инстанция `Database` открывает соединение `better-sqlite3` для синхронизации, Telegram-команд и обоих обработчиков
-очередей. SQLite использует WAL, `foreign_keys = ON`, `synchronous = NORMAL` и `busy_timeout = 5000`.
-
-`TransactionManager` выполняет синхронный callback между `BEGIN IMMEDIATE` и `COMMIT`. При ошибке транзакция
-откатывается. Временная блокировка допускает до трёх попыток с линейной задержкой от 100 мс. HTTP выполняется за пределами
-транзакций.
-
-## Миграции
-
-MigratorManager:
-
-1. создаёт таблицу schema_migrations до цикла применения файлов;
-2. находит все файлы с расширением .sql в каталоге конфигурации;
-3. сортирует их лексикографически по имени;
-4. внутри транзакции пропускает версии, уже записанные в schema_migrations;
-5. выполняет каждый новый файл, проверяет внешние ключи и записывает имя файла как version в той же транзакции;
-6. откатывает транзакцию при ошибке до commit и выбрасывает исключение, после чего запуск приложения прекращается.
-
-Мигратор получает TransactionManager для того же SQLite-соединения и проверяет это при создании. Для каждого файла он
-выбирает режим внешних ключей до начала транзакции. По умолчанию ключи включены; историческая миграция 003 временно
-отключает их для пересборки `clans`, затем проверяемо восстанавливает режим после транзакции. Неудачное восстановление
-после commit также приводит к исключению, хотя SQL и версия к этому моменту уже сохранены.
-
-Текущая последовательность:
-
-| Версия | Назначение |
-| --- | --- |
-| 001_initial_schema.sql | первоначальная схема |
-| 002_war_schema_v1_to_v2.sql | новая схема войн и CWL |
-| 003_clan_info_schema_v1_to_v2.sql | кланы, игроки, членство и snapshots |
-| 004_raid_schema_v1_to_v2.sql | рейды и snapshots участников |
-| 005_notifications_schema_v1_to_v2.sql | Telegram-чаты, подписки и уведомления |
-| 006_telegram_topics.sql | message_thread_id для forum topics |
-| 007_subscription_audience.sql | аудитории players и management |
-| 008_clan_tracking.sql | флаг clans.tracking_enabled |
-| 009_notification_outbox.sql | outbox, статусы доставки, retry-поля и атомарная дедупликация |
-| 010_sync_outages.sql | устойчивые эпизоды сбоев синхронизации и их восстановление |
-| 011_domain_events.sql | durable domain events, destinations подписок и связь с notifications |
-| 012_legacy_notification_idempotency.sql | восстановление уникального ключа исторического пути notifications |
-
-Миграции не переписываются после применения. Изменение схемы добавляется новым SQL-файлом с большим префиксом.
-
-Миграция 009 переносит старые записи из прежней таблицы notifications как уже отправленные записи outbox с пустым
-текстом. Поэтому исторические отметки доставки не отправляются заново после обновления приложения.
-
-## Domain events
-
-Тип ApplicationEvent — это дискриминируемое объединение десяти типов:
-
-| Событие | Кто создаёт | Назначение |
-| --- | --- | --- |
-| PlayerJoinedClanEvent | ClanInfoService | уведомление о входе |
-| PlayerLeftClanEvent | ClanInfoService | уведомление о выходе |
-| PlayerRoleChangedEvent | ClanInfoService | уведомление об изменении роли |
-| WarEndedEvent | ClanwarService | итоговые отчёты войны |
-| ClanwarsLeagueRoundEndedEvent | ClanwarLeagueService | отчёты раунда CWL |
-| RaidsEndedEvent | RaidService | итоговые отчёты рейда |
-| WarReminderEvent | ClanwarService, ClanwarLeagueService | три контрольные точки войны |
-| RaidReminderEvent | RaidService | пять контрольных точек рейда |
-| SyncFailureEvent | ClanManager | системная ошибка синхронизации |
-| SyncRecoveryEvent | ClanManager | восстановление после ошибки |
-
-Сервисы формируют application events и через DomainEventRecorder в той же транзакции сохраняют событие, payload и
-активные destinations с `subscription_id`. Если транзакция синхронизации откатывается, событие также не сохраняется.
-DomainEventWorker читает pending destinations, десериализует payload, формирует сообщения и в одной транзакции создаёт
-строки `notifications` и помечает destination материализованным. Повторная обработка безопасна: enqueue и смена статуса
-атомарны, а уникальный ключ outbox не допускает повторной строки. Получатели фиксируются в момент события; новые
-подписчики старые destinations не получают. После commit DomainEventWorker будит NotificationWorker, который только
-отправляет готовые сообщения и обновляет статус доставки. DomainEventWorker проверяет SQLite примерно раз в секунду,
-обрабатывает пачки до 100 destinations и отдельно повторяет ошибочные назначения. После пяти ошибок материализации
-destination остаётся `pending`: порог вызывает alert в логе, но повторы продолжаются с backoff. Внешнего брокера нет:
-обе очереди находятся в SQLite.
-
-## Контрольные точки
-
-Для обычной войны и каждого раунда CWL:
-
-- начало, когда now >= startTime и now < endTime;
-- шесть часов до окончания;
-- один час до окончания.
-
-Для рейдового выходного:
-
-- начало;
-- 48 часов до окончания;
-- 24 часа до окончания;
-- шесть часов до окончания;
-- один час до окончания.
-
-Проверка выполняется на каждом цикле. Пока контрольное окно открыто, одно и то же событие может генерироваться снова,
-но дедупликация перед отправкой не даёт повторить его одному назначению.
-
-## Reporting and notification layer
-
-Слой отчётов разделён на сохранение события, материализацию, постановку в очередь и доставку:
-
-- форматтер получает событие, при необходимости читает дополнительные данные из репозиториев и возвращает HTML-текст;
-- DomainEventRecorder выбирает аудиторию и сохраняет событие вместе с получателями в транзакции источника;
-- DomainEventWorker десериализует payload, вызывает NotificationService для построения и постановки сообщения и атомарно
-  помечает destination материализованным;
-- NotificationWorker выбирает записи со статусом `pending`, готовые к следующей попытке;
-- `TelegramGateway` отправляет готовый HTML через grammY;
-- после успеха worker вызывает `markAsSent`, при временной ошибке — `reschedule`, при окончательной — `markAsFailed`;
-- TelegramBotService работает параллельно и обрабатывает пользовательские команды, не участвуя в фоновой синхронизации.
-
-`/unlink` в транзакции отменяет pending destinations и связанные pending notifications для текущего `subscription_id`,
-затем удаляет подписку. Повторный `/link` получает новый `subscription_id`; старые destinations не переходят на него.
-`DomainEventWorker` перед материализацией повторно проверяет статус назначения внутри транзакции.
-`NotificationWorker` проверяет статус сообщения перед HTTP-вызовом. Если запрос уже ушёл, Telegram может доставить
-сообщение после отмены. `markAsSent` обновляет только строки в статусе `pending`.
-
-Отображение аудиторий:
-
-- players — изменения состава и ролей, итоговые отчёты, сравнения и напоминания;
-- management — нарушения, надёжность состава, сбои и восстановление синхронизации.
-
-Подробная матрица событий и форматов находится в [reports.md](reports.md).
-
-## TelegramBotService
-
-`TelegramBotService` запускает long polling grammY с таймаутом 2 секунды и получает только `message` и `callback_query`.
-
-Поддерживаются:
-
-- /start без аргументов;
-- /link и /unlink с одним тегом клана;
-- callback-навигация меню гайдов;
-- просмотр подписанных кланов;
-- отключение текущей подписки через кнопку.
-
-Команда подключения в одной транзакции создаёт минимальную запись клана, сохраняет Telegram-назначение и подписку.
-После удаления последней подписки назначения оно удаляется; после удаления последней подписки клана его
-tracking_enabled устанавливается в 0. История клана при этом остаётся.
-
-Каталог AttackGuideCatalog загружается один раз при старте. Обязательные поля записи описаны в [telegram.md](telegram.md).
-
-## Идемпотентность
-
-DomainEventWorker вызывает NotificationService и NotificationRepo для атомарной постановки в очередь, а
-NotificationWorker — для доставки и переходов статусов:
-
-- завершённых войн, CWL-раундов и рейдов;
-- сравнительных и управленческих отчётов, создаваемых из этих событий;
-- всех временных напоминаний.
-
-Для durable events уникальный ключ outbox состоит из `domain_event_destination_id`, `event_type`, `event_id` и
-`part_index`. Destination уже определяет chat, topic, audience и поколение подписки; разные отчёты используют разные
-`event_type`. Повторная материализация не создаёт повторную строку outbox.
-
-Для отчётов, reminders, событий членства и ролей повторная постановка атомарно отбрасывается по ID конкретного события.
-SyncFailureEvent и SyncRecoveryEvent используют ID одного постоянного эпизода сбоя. Поэтому повторная генерация события
-после перезапуска сохраняет тот же ключ дедупликации.
-
-## Логирование и ошибки
-
-Pino пишет структурированные логи в stdout. Уровень по умолчанию — `info`, его можно изменить через `LOG_LEVEL`.
-В производственном контейнере логи имеют формат JSON. Ошибка отдельного сервиса фиксируется в результате синхронизации.
-Необработанный сбой фонового цикла инициирует остановку приложения.
-
-## Сборка и контейнер
-
-`pnpm build` компилирует `src/` в `dist/`. Dockerfile собирает проект и нативные зависимости на базе `node:24-slim`.
-Runtime-слой содержит `dist/`, production-зависимости, `/app/migrations` и `/app/resources/telegram/attack_guides.json`.
-CI запускает тесты Vitest и smoke-тест контейнера перед публикацией того же образа в GHCR.
-
-Развёртывание, откат и бэкап описаны в [deployment.md](deployment.md).
-
-## Ограничения архитектуры
-
-- события сохраняются в outbox до отправки, но после успешного ответа Telegram и падения до markAsSent возможна повторная
-  доставка; гарантия exactly-once не заявляется;
-- запрос отправки, начатый до отмены подписки через `/unlink`, может завершиться после неё;
-- для нескольких экземпляров приложения нет lease/claim-механизма, поэтому одновременно должен работать один
-  NotificationWorker на базу; DomainEventWorker также рассчитан на один активный экземпляр для базы;
-- разбиение сообщений длиннее лимита Telegram пока не реализовано;
-- расписание синхронизации и контрольные точки заданы в коде;
-- настройки уведомлений не разделяются по отдельным типам отчётов;
-- Telegram-интерфейс не показывает произвольную аналитику и не является REST API;
-- длительные внешние операции внутри транзакций по-прежнему запрещены: outbox записывается до HTTP-вызова, а Telegram
-  отправляется уже после commit.
+Ключевые системные инварианты:
+- **Атомарность событий и снимка получателей**: `domain_events` и `domain_event_destinations` (включая `subscription_id` поколения подписки) сохраняются в той же транзакции, что и изменение состояния клана/войны/рейда/сбоя.
+- **Чистые транзакции**: транзакции в `TransactionManager` строго синхронны (`better-sqlite3`, проверка на `PromiseLike` на уровне типов и в runtime); сетевые вызовы CoC API и Telegram выполняются только за пределами транзакций.
+- **Один активный процесс на файл БД**: ни `DomainEventWorker`, ни `NotificationWorker` не имеют распределённого `lease/claim` механизма. Одновременно должен запускаться только один процесс ClashBot на один файл SQLite.
+- **Семантика доставки `at-least-once`**: при падении процесса после успешного `sendMessage`, но до `markAsSent`, уведомление может быть отправлено повторно; отмена подписки через `/unlink` отменяет `pending` записи по `subscription_id`, но не отзывает уже отправленный HTTP-запрос.
+
+Детальные контракты слоёв вынесены в SSOT-документы:
+- схема SQLite, миграции `001`–`012`, `PRAGMA` и контракты репозиториев → [`docs/database.md`](database.md);
+- каталог `ApplicationEvent`, payload, матрица доставки по аудиториям, контрольные точки, форматтеры и дедупликация → [`docs/reports.md`](reports.md);
+- входящий бот `TelegramBotService`, команды `/start`, `/link`, `/unlink`, права, форумные темы и `TelegramGateway` → [`docs/telegram.md`](telegram.md).
+
+## Логирование и обработка ошибок
+
+- **Логирование (`src/logging/logger.ts`)**: `pino` пишет структурированные логи в `stdout` (JSON по умолчанию для контейнера, `pino-pretty` при `LOG_FORMAT=pretty`). Настроено редактирование полей (`supercellToken`, `telegramToken`, `authorization`, `headers.authorization` и вложенных вариантов) и санитизация секретов (`Bearer ...`, `bot<id>:<token>`, актуальных значений `SUPERCELL_TOKEN` / `TELEGRAM_TOKEN`) в сериализаторах `err` / `error`.
+- **Иерархия ошибок (`src/common/errors.ts`)**: базовый `AppError` (`code`, `context`, `cause`) и специализированные `ConfigError`, `ValidationError`, `AbortError`, `DatabaseError` (с `sqliteCode` и `isBusy()`), `DomainError`, `ExternalApiError` (`statusCode`, `retryable`).
+- **Реакция на сбои**: ошибка отдельного сервиса синхронизации не валит приложение — она фиксируется в `SyncResult` и `sync_outages`. Неперехваченное исключение в любом из 4 фоновых циклов (`syncLoop`, `domainEventWorker`, `notificationWorker`, `telegramBotService`) логируется с уровнем `fatal` и инициирует остановку процесса с кодом возврата `1`.
+- **Восстановление в воркерах**: `DomainEventWorker` (пачки до 100, опрос раз в 1 с) при ошибке материализации переносит destination экспоненциальным backoff (от 1 с до 3600 с), на 5-й ошибке пишет алерт уровня `error`, но оставляет строку `pending` для дальнейших повторов. Политика доставки `NotificationWorker` описана в [`docs/reports.md`](reports.md) и [`docs/telegram.md`](telegram.md).
+
+## Смежные документы
+
+- [`GLOSSARY.md`](../GLOSSARY.md) — канонические термины предметной области.
+- [`docs/database.md`](database.md) — SQLite, транзакции, миграции и репозитории.
+- [`docs/reports.md`](reports.md) — события, отчёты, напоминания и outbox-политика.
+- [`docs/telegram.md`](telegram.md) — `TelegramBotService`, права, форумные темы и `TelegramGateway`.
+- [`docs/deployment.md`](deployment.md) — Docker, GHCR, деплой, SSH-туннель и бэкапы SQLite.
+- [`docs/roadmap.md`](roadmap.md) — подтверждённое состояние AS-IS и известные ограничения.
+- [`docs/adr/`](adr/0001-typescript-nodejs-stack.md) — зафиксированные архитектурные решения (`0001`–`0005`).
