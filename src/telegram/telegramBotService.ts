@@ -271,7 +271,7 @@ export class TelegramBotService {
             if (this.activeSignal?.aborted) {
                 return;
             }
-            await this.handleMessage(ctx.api, ctx.message);
+            await this.handleMessage(ctx.api, ctx.message, ctx.me.username);
         });
 
         this.bot.on('callback_query', async (ctx) => {
@@ -353,10 +353,21 @@ export class TelegramBotService {
         }
     }
 
-    private async handleMessage(api: Context['api'], message: Message): Promise<void> {
+    private async handleMessage(
+        api: Context['api'],
+        message: Message,
+        ownBotUsername: string,
+    ): Promise<void> {
         const text = 'text' in message && typeof message.text === 'string' ? message.text : '';
         const command = parseBotCommand(text);
         if (command === null) {
+            return;
+        }
+
+        if (
+            command.botUsername !== undefined &&
+            command.botUsername.toLowerCase() !== ownBotUsername.toLowerCase()
+        ) {
             return;
         }
 

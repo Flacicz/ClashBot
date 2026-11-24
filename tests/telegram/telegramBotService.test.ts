@@ -502,6 +502,137 @@ describe('TelegramBotService', () => {
             expect(sent).toHaveLength(1);
             expect(sent[0]?.message_thread_id).toBeUndefined();
         });
+
+        it('ignores /start, /link, and /unlink addressed to another bot without side effects', async () => {
+            const { service, transport, subscriptionRepo } = createHarness();
+            const chatId = -1001;
+            const userId = 42;
+            transport.chatMembers.set(memberKey(chatId, userId), 'administrator');
+
+            // Seed an existing subscription so /unlink@OtherBot proves it does not remove it.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 1,
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Clan chat',
+                    userId,
+                    text: '/link #2PPLQ',
+                }),
+            );
+            const subscriptionIdBefore = subscriptionRepo.getSubscriptionId(
+                chatId,
+                0,
+                '#2PPLQ',
+                'players',
+            );
+            expect(subscriptionIdBefore).not.toBeNull();
+
+            const callsBefore = transport.calls.length;
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 2,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/start@OtherBot',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 3,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/link@OtherBot #2PP',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 4,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/link@OtherBot',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 5,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/link@OtherBot #INVALID',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 6,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/unlink@OtherBot #2PPLQ',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 7,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/unlink@OtherBot #2PPLQ',
+                }),
+            );
+
+            expect(transport.calls).toHaveLength(callsBefore);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PP', 'players')).toBe(false);
+            expect(subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ', 'players')).toBe(
+                subscriptionIdBefore,
+            );
+        });
+
+        it('executes /start, /link, and /unlink addressed to own bot username case-insensitively', async () => {
+            const { service, transport, subscriptionRepo } = createHarness();
+            const chatId = -1002;
+            const userId = 43;
+            transport.chatMembers.set(memberKey(chatId, userId), 'administrator');
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 10,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/start@clashtestbot',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 11,
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Clan chat',
+                    userId,
+                    text: '/link@CLASHTESTBOT #2PPLQ',
+                }),
+            );
+
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ', 'players')).toBe(true);
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 12,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/unlink@cLaShTeStBoT #2PPLQ',
+                }),
+            );
+
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ', 'players')).toBe(false);
+            expect(transport.sentMessages()).toHaveLength(3);
+        });
     });
 
     describe('command: /link', () => {

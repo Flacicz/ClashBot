@@ -1,16 +1,27 @@
 export interface ParsedCommand {
     readonly name: string;
     readonly arguments: readonly string[];
+    readonly botUsername?: string;
 }
 
 export type BotCommand =
-    | { readonly kind: 'start' }
-    | { readonly kind: 'link' | 'unlink'; readonly status: 'ok'; readonly clanTag: string }
-    | { readonly kind: 'link' | 'unlink'; readonly status: 'invalid_arguments' }
+    | { readonly kind: 'start'; readonly botUsername?: string }
+    | {
+          readonly kind: 'link' | 'unlink';
+          readonly status: 'ok';
+          readonly clanTag: string;
+          readonly botUsername?: string;
+      }
+    | {
+          readonly kind: 'link' | 'unlink';
+          readonly status: 'invalid_arguments';
+          readonly botUsername?: string;
+      }
     | {
           readonly kind: 'link' | 'unlink';
           readonly status: 'invalid_clan_tag';
           readonly rawTag: string;
+          readonly botUsername?: string;
       };
 
 const CLAN_TAG_PATTERN = /^[0289PYLQGRJCUV]{3,15}$/;
@@ -28,8 +39,14 @@ export function parseCommand(text: string): ParsedCommand | null {
     }
 
     let commandToken = firstToken.slice(1);
+    let botUsername: string | undefined;
     const botSuffixPosition = commandToken.indexOf('@');
     if (botSuffixPosition !== -1) {
+        const rawBotUsername = commandToken.slice(botSuffixPosition + 1);
+        if (rawBotUsername.length === 0) {
+            return null;
+        }
+        botUsername = rawBotUsername;
         commandToken = commandToken.slice(0, botSuffixPosition);
     }
 
@@ -40,6 +57,7 @@ export function parseCommand(text: string): ParsedCommand | null {
     return {
         name: commandToken.toLowerCase(),
         arguments: tokens.slice(1),
+        ...(botUsername !== undefined ? { botUsername } : {}),
     };
 }
 
@@ -60,26 +78,29 @@ export function parseBotCommand(text: string): BotCommand | null {
         return null;
     }
 
+    const botUsernameField =
+        command.botUsername !== undefined ? { botUsername: command.botUsername } : {};
+
     if (command.name === 'start') {
-        return command.arguments.length === 0 ? { kind: 'start' } : null;
+        return command.arguments.length === 0 ? { kind: 'start', ...botUsernameField } : null;
     }
 
     if (command.name === 'link' || command.name === 'unlink') {
         if (command.arguments.length !== 1) {
-            return { kind: command.name, status: 'invalid_arguments' };
+            return { kind: command.name, status: 'invalid_arguments', ...botUsernameField };
         }
 
         const rawTag = command.arguments[0];
         if (rawTag === undefined) {
-            return { kind: command.name, status: 'invalid_arguments' };
+            return { kind: command.name, status: 'invalid_arguments', ...botUsernameField };
         }
 
         const clanTag = parseClanTag(rawTag);
         if (clanTag === null) {
-            return { kind: command.name, status: 'invalid_clan_tag', rawTag };
+            return { kind: command.name, status: 'invalid_clan_tag', rawTag, ...botUsernameField };
         }
 
-        return { kind: command.name, status: 'ok', clanTag };
+        return { kind: command.name, status: 'ok', clanTag, ...botUsernameField };
     }
 
     return null;

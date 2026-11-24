@@ -38,23 +38,27 @@ describe('parseCommand', () => {
         });
     });
 
-    it('strips @bot_username suffix and lowercases command name', () => {
+    it('preserves @bot_username suffix and lowercases command name', () => {
         expect(parseCommand('/LINK@clash_bot 2PPLQ')).toEqual({
             name: 'link',
             arguments: ['2PPLQ'],
+            botUsername: 'clash_bot',
         });
         expect(parseCommand('  /Start@MyBot   ')).toEqual({
             name: 'start',
             arguments: [],
+            botUsername: 'MyBot',
         });
     });
 
-    it('rejects non-command text and empty slash commands', () => {
+    it('rejects non-command text, empty slash commands, and empty @bot_username suffix', () => {
         expect(parseCommand('hello')).toBeNull();
         expect(parseCommand('')).toBeNull();
         expect(parseCommand('   ')).toBeNull();
         expect(parseCommand('/')).toBeNull();
         expect(parseCommand('/@clash_bot')).toBeNull();
+        expect(parseCommand('/start@')).toBeNull();
+        expect(parseCommand('/link@ #2PPLQ')).toBeNull();
     });
 });
 
@@ -92,7 +96,10 @@ describe('parseClanTag', () => {
 describe('parseBotCommand', () => {
     it('parses /start without arguments and ignores /start with extra arguments', () => {
         expect(parseBotCommand('/start')).toEqual({ kind: 'start' });
-        expect(parseBotCommand('/START@clash_bot')).toEqual({ kind: 'start' });
+        expect(parseBotCommand('/START@clash_bot')).toEqual({
+            kind: 'start',
+            botUsername: 'clash_bot',
+        });
         expect(parseBotCommand('/start extra')).toBeNull();
     });
 
@@ -106,6 +113,7 @@ describe('parseBotCommand', () => {
             kind: 'unlink',
             status: 'ok',
             clanTag: '#2PPLQ',
+            botUsername: 'clash_bot',
         });
     });
 
@@ -113,6 +121,11 @@ describe('parseBotCommand', () => {
         expect(parseBotCommand('/link')).toEqual({
             kind: 'link',
             status: 'invalid_arguments',
+        });
+        expect(parseBotCommand('/link@OtherBot')).toEqual({
+            kind: 'link',
+            status: 'invalid_arguments',
+            botUsername: 'OtherBot',
         });
         expect(parseBotCommand('/link #2PPLQ extra')).toEqual({
             kind: 'link',
@@ -133,6 +146,12 @@ describe('parseBotCommand', () => {
             kind: 'link',
             status: 'invalid_clan_tag',
             rawTag: '#INVALID',
+        });
+        expect(parseBotCommand('/link@OtherBot #INVALID')).toEqual({
+            kind: 'link',
+            status: 'invalid_clan_tag',
+            rawTag: '#INVALID',
+            botUsername: 'OtherBot',
         });
         expect(parseBotCommand('/unlink #2P')).toEqual({
             kind: 'unlink',
