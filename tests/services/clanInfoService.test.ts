@@ -13,6 +13,12 @@ import {
     TransactionManager,
 } from '../../src/database/index.js';
 import { DomainEventPayloadSerializer, DomainEventRecorder } from '../../src/domainEvents/index.js';
+import type {
+    ActiveMembership,
+    LatestPlayerState,
+    PlayerSnapshot,
+} from '../../src/models/index.js';
+import { detectRoleChanges } from '../../src/services/clanInfoService.js';
 import { ClanInfoService, type ClanInfoApiClient } from '../../src/services/index.js';
 
 const REAL_MIGRATIONS_PATH = path.resolve(import.meta.dirname, '../../migrations');
@@ -509,4 +515,294 @@ describe('ClanInfoService', () => {
             expect(moverRowAfterRepeat.clan_tag).toBe(clanB);
         },
     );
+
+    it('does not emit PlayerRoleChangedEvent when a player leaves as coLeader and rejoins as member, but detects subsequent role changes within the new membership', async () => {
+        const { db, clansRepo, subscriptionRepo, domainEventsRepo, apiClient, service } = setup();
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+        subscriptionRepo.saveTelegramChat(-1001, 0, 'Players');
+        subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+
+        // 1. Initial sync: Alice joins baseline as coLeader
+        apiClient.clanData = makeClanData(CLAN_TAG, [
+            { tag: '#P1', name: 'Alice', role: 'coLeader' },
+            { tag: '#P2', name: 'Bob', role: 'leader' },
+        ]);
+        const initial = await service.updateData(CLAN_TAG);
+        expect(initial.successFlag).toBe(true);
+        expect(initial.events).toHaveLength(0);
+
+        // 2. Alice leaves the clan
+        apiClient.clanData = makeClanData(CLAN_TAG, [{ tag: '#P2', name: 'Bob', role: 'leader' }]);
+        const left = await service.updateData(CLAN_TAG);
+        expect(left.successFlag).toBe(true);
+        expect(left.events).toEqual([
+            expect.objectContaining({
+                type: 'PlayerLeftClanEvent',
+                clanTag: CLAN_TAG,
+                playerTag: '#P1',
+                playerName: 'Alice',
+            }),
+        ]);
+        const leftEvent = left.events[0];
+        const firstMembershipId =
+            leftEvent?.type === 'PlayerLeftClanEvent' ? leftEvent.membershipId : 0;
+
+        // 3. Alice rejoins as member: only PlayerJoinedClanEvent, no false PlayerRoleChangedEvent
+        apiClient.clanData = makeClanData(CLAN_TAG, [
+            { tag: '#P1', name: 'Alice', role: 'member' },
+            { tag: '#P2', name: 'Bob', role: 'leader' },
+        ]);
+        const rejoined = await service.updateData(CLAN_TAG);
+        expect(rejoined.successFlag).toBe(true);
+        expect(rejoined.events).toEqual([
+            expect.objectContaining({
+                type: 'PlayerJoinedClanEvent',
+                clanTag: CLAN_TAG,
+                playerTag: '#P1',
+                playerName: 'Alice',
+            }),
+        ]);
+        const joinedEvent = rejoined.events[0];
+        expect(joinedEvent?.type).toBe('PlayerJoinedClanEvent');
+        if (joinedEvent?.type === 'PlayerJoinedClanEvent') {
+            expect(joinedEvent.membershipId).toBeGreaterThan(firstMembershipId);
+        }
+
+        const recordedTypesAfterRejoin = db.connection
+            .prepare<[], { event_type: string }>(
+                'SELECT event_type FROM domain_events ORDER BY id ASC;',
+            )
+            .all()
+            .map((row) => row.event_type);
+        expect(recordedTypesAfterRejoin).toEqual(['PlayerLeftClanEvent', 'PlayerJoinedClanEvent']);
+        expect(domainEventsRepo.getPendingDestinations(50)).toHaveLength(2);
+
+        // 4. Repeated sync with same roster is idempotent (0 new events)
+        const repeatedAfterRejoin = await service.updateData(CLAN_TAG);
+        expect(repeatedAfterRejoin.successFlag).toBe(true);
+        expect(repeatedAfterRejoin.events).toHaveLength(0);
+        expect(domainEventsRepo.getPendingDestinations(50)).toHaveLength(2);
+
+        // 5. Subsequent promotion within the new continuous membership IS detected
+        apiClient.clanData = makeClanData(CLAN_TAG, [
+            { tag: '#P1', name: 'Alice', role: 'admin' },
+            { tag: '#P2', name: 'Bob', role: 'leader' },
+        ]);
+        const promoted = await service.updateData(CLAN_TAG);
+        expect(promoted.successFlag).toBe(true);
+        expect(promoted.events).toEqual([
+            expect.objectContaining({
+                type: 'PlayerRoleChangedEvent',
+                clanTag: CLAN_TAG,
+                playerTag: '#P1',
+                playerName: 'Alice',
+                oldRole: 'member',
+                newRole: 'admin',
+            }),
+        ]);
+
+        // 6. Second leave and rejoin with another role also produces no false role change
+        apiClient.clanData = makeClanData(CLAN_TAG, [{ tag: '#P2', name: 'Bob', role: 'leader' }]);
+        const leftAgain = await service.updateData(CLAN_TAG);
+        expect(leftAgain.successFlag).toBe(true);
+        expect(leftAgain.events.map((e) => e.type)).toEqual(['PlayerLeftClanEvent']);
+
+        apiClient.clanData = makeClanData(CLAN_TAG, [
+            { tag: '#P1', name: 'Alice', role: 'member' },
+            { tag: '#P2', name: 'Bob', role: 'leader' },
+        ]);
+        const rejoinedAgain = await service.updateData(CLAN_TAG);
+        expect(rejoinedAgain.successFlag).toBe(true);
+        expect(rejoinedAgain.events.map((e) => e.type)).toEqual(['PlayerJoinedClanEvent']);
+    });
+
+    it('simultaneously suppresses role change for rejoining member while detecting role change for continuing active member', async () => {
+        const { clansRepo, apiClient, service } = setup();
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+
+        // 1. Initial sync
+        apiClient.clanData = makeClanData(CLAN_TAG, [
+            { tag: '#P1', name: 'Alice', role: 'coLeader' },
+            { tag: '#P2', name: 'Bob', role: 'member' },
+            { tag: '#P3', name: 'Charlie', role: 'leader' },
+        ]);
+        expect((await service.updateData(CLAN_TAG)).successFlag).toBe(true);
+
+        // 2. Alice leaves
+        apiClient.clanData = makeClanData(CLAN_TAG, [
+            { tag: '#P2', name: 'Bob', role: 'member' },
+            { tag: '#P3', name: 'Charlie', role: 'leader' },
+        ]);
+        const leaveResult = await service.updateData(CLAN_TAG);
+        expect(leaveResult.events.map((e) => e.type)).toEqual(['PlayerLeftClanEvent']);
+
+        // 3. In one sync: Alice rejoins as member, Bob is promoted member -> admin, Charlie leaves
+        apiClient.clanData = makeClanData(CLAN_TAG, [
+            { tag: '#P1', name: 'Alice', role: 'member' },
+            { tag: '#P2', name: 'Bob', role: 'admin' },
+        ]);
+        const mixed = await service.updateData(CLAN_TAG);
+        expect(mixed.successFlag).toBe(true);
+        expect(mixed.events).toHaveLength(3);
+        expect(mixed.events).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    type: 'PlayerLeftClanEvent',
+                    playerTag: '#P3',
+                }),
+                expect.objectContaining({
+                    type: 'PlayerJoinedClanEvent',
+                    playerTag: '#P1',
+                }),
+                expect.objectContaining({
+                    type: 'PlayerRoleChangedEvent',
+                    playerTag: '#P2',
+                    oldRole: 'member',
+                    newRole: 'admin',
+                }),
+            ]),
+        );
+    });
+
+    it('emits only PlayerJoinedClanEvent when the sole member leaves and rejoins with a different role', async () => {
+        const { clansRepo, apiClient, service } = setup();
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+
+        // 1. Initial sync with a single member
+        apiClient.clanData = makeClanData(CLAN_TAG, [
+            { tag: '#P1', name: 'Solo', role: 'coLeader' },
+        ]);
+        expect((await service.updateData(CLAN_TAG)).events).toHaveLength(0);
+
+        // 2. Sole member leaves (activeMemberships becomes empty, latestPlayerStates stays non-empty)
+        apiClient.clanData = makeClanData(CLAN_TAG, []);
+        const left = await service.updateData(CLAN_TAG);
+        expect(left.successFlag).toBe(true);
+        expect(left.events.map((e) => e.type)).toEqual(['PlayerLeftClanEvent']);
+
+        // 3. Sole member returns as member: must not be treated as initial sync and must not emit role change
+        apiClient.clanData = makeClanData(CLAN_TAG, [{ tag: '#P1', name: 'Solo', role: 'member' }]);
+        const rejoined = await service.updateData(CLAN_TAG);
+        expect(rejoined.successFlag).toBe(true);
+        expect(rejoined.events).toEqual([
+            expect.objectContaining({
+                type: 'PlayerJoinedClanEvent',
+                clanTag: CLAN_TAG,
+                playerTag: '#P1',
+                playerName: 'Solo',
+            }),
+        ]);
+    });
+});
+
+describe('detectRoleChanges', () => {
+    function makeSnapshot(playerTag: string, role: string): PlayerSnapshot {
+        return {
+            playerTag,
+            clanTag: CLAN_TAG,
+            role,
+            townHallLevel: 14,
+            expLevel: 200,
+            clanRank: 1,
+            leagueId: 1,
+            builderBaseLeagueId: 1,
+            trophies: 5000,
+            builderBaseTrophies: 3000,
+            donations: 100,
+            donationsReceived: 80,
+        };
+    }
+
+    function makeLatestState(
+        playerTag: string,
+        playerName: string,
+        role: string,
+    ): LatestPlayerState {
+        return {
+            clanTag: CLAN_TAG,
+            playerTag,
+            playerName,
+            role,
+            townHallLevel: 14,
+            expLevel: 200,
+            clanRank: 1,
+            leagueId: 1,
+            builderBaseLeagueId: 1,
+            trophies: 5000,
+            builderBaseTrophies: 3000,
+            donations: 100,
+            donationsReceived: 80,
+        };
+    }
+
+    function makeActiveMembership(
+        membershipId: number,
+        playerTag: string,
+        playerName: string,
+    ): ActiveMembership {
+        return {
+            membershipId,
+            player: {
+                tag: playerTag,
+                name: playerName,
+                clanTag: CLAN_TAG,
+            },
+        };
+    }
+
+    it('detects role changes only for players with an active continuous membership', () => {
+        const result = detectRoleChanges(
+            CLAN_TAG,
+            [
+                makeSnapshot('#P_ACTIVE_CHANGED', 'admin'),
+                makeSnapshot('#P_ACTIVE_SAME', 'coLeader'),
+                makeSnapshot('#P_REJOINED', 'member'),
+                makeSnapshot('#P_NEW', 'member'),
+            ],
+            [
+                makeLatestState('#P_ACTIVE_CHANGED', 'ActiveChanged', 'member'),
+                makeLatestState('#P_ACTIVE_SAME', 'ActiveSame', 'coLeader'),
+                makeLatestState('#P_REJOINED', 'Rejoined', 'coLeader'),
+            ],
+            [
+                makeActiveMembership(1, '#P_ACTIVE_CHANGED', 'ActiveChanged'),
+                makeActiveMembership(2, '#P_ACTIVE_SAME', 'ActiveSame'),
+            ],
+        );
+
+        expect(result.changes).toEqual([
+            {
+                clanTag: CLAN_TAG,
+                playerTag: '#P_ACTIVE_CHANGED',
+                playerName: 'ActiveChanged',
+                oldRole: 'member',
+                newRole: 'admin',
+            },
+        ]);
+    });
+
+    it('returns empty changes when activeMemberships is empty even if historical snapshots exist', () => {
+        const result = detectRoleChanges(
+            CLAN_TAG,
+            [makeSnapshot('#P1', 'member')],
+            [makeLatestState('#P1', 'Alice', 'coLeader')],
+            [],
+        );
+
+        expect(result.changes).toEqual([]);
+    });
+
+    it('ignores active members who have no previous snapshot', () => {
+        const result = detectRoleChanges(
+            CLAN_TAG,
+            [makeSnapshot('#P1', 'coLeader')],
+            [],
+            [makeActiveMembership(1, '#P1', 'Alice')],
+        );
+
+        expect(result.changes).toEqual([]);
+    });
 });
