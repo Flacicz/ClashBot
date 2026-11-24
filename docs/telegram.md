@@ -117,9 +117,12 @@ Telegram-слой разделён на два независимых компо
 ## Интерактивное меню и схема `callback_data`
 
 Команда `/start` отправляет главное меню с inline-клавиатурой (`src/telegram/keyboards.ts`). При каждом `callback_query`
-сервис сначала вызывает `safeAnswerCallbackQuery` (ошибка ответа логируется, не прерывая обработку), затем валидирует
-`CallbackContext` (`parseCallbackContext`: обязательны `id`, `from.id`, `message.message_id`, `message.chat.id`; `data`
-по умолчанию `''`, `message_thread_id` по умолчанию `0`, `chat.type` по умолчанию `''`).
+сервис сначала валидирует `CallbackContext` (`parseCallbackContext`: обязательны `id`, `from.id`, `message.message_id`,
+`message.chat.id`; `data` по умолчанию `''`, `message_thread_id` по умолчанию `0`, `chat.type` по умолчанию `''`), затем
+отвечает на callback через `safeAnswerCallbackQuery` (ошибка ответа логируется, не прерывая обработку). Для
+`clans:unlink` ответ отправляется после проверки прав: при отказе в правах или ошибке `getChatMember` пользователь
+получает персональное уведомление через `answerCallbackQuery` (`show_alert: true`), а общее inline-меню в чате не
+перезаписывается.
 
 Формат `callback_data` (`src/telegram/callbackData.ts`): части разделяются `:`, минимум 2 части (`prefix:action[:args...]`),
 пустые сегменты, неизвестные команды и невалидные аргументы игнорируются.
