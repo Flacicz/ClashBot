@@ -145,14 +145,12 @@ export class ClanwarLeagueService implements SyncService {
                 );
                 const nowEpochSeconds = this.clock.nowEpochSeconds();
 
-                let roundNumber = 1;
-                for (const { clanwar, clans, attacks, members } of warDetails) {
+                for (const { roundNumber, clanwar, clans, attacks, members } of warDetails) {
                     const warToSave: Clanwar = {
                         ...clanwar,
                         seasonId: cwlSeasonId,
                         roundNumber,
                     };
-                    roundNumber += 1;
 
                     const warReference = this.clanwarRepo.saveCompleteClanwarData(
                         warToSave,

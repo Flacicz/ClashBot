@@ -164,10 +164,14 @@ export interface ClanwarsLeagueMember {
     readonly seasonId: string;
 }
 
+export interface CompleteClanwarsLeagueRoundData extends CompleteClanwarData {
+    readonly roundNumber: number;
+}
+
 export interface CompleteClanwarsLeagueData {
     readonly clanwarsLeagueSeason: ClanwarsLeagueSeason;
     readonly clanwarsLeagueMembers: readonly ClanwarsLeagueMember[];
-    readonly warDetails: readonly CompleteClanwarData[];
+    readonly warDetails: readonly CompleteClanwarsLeagueRoundData[];
 }
 
 export interface ClashOfClansApi {

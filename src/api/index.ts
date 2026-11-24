@@ -34,6 +34,7 @@ export {
     type CompleteClanData,
     type CompleteClanwarData,
     type CompleteClanwarsLeagueData,
+    type CompleteClanwarsLeagueRoundData,
     type CompleteRaidData,
     type Player,
     type PlayerRaidSnapshot,

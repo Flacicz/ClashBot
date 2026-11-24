@@ -338,6 +338,8 @@ describe('CocApiClient integration with loopback HTTP/HTTPS server', () => {
         });
         expect(cwlData?.clanwarsLeagueMembers).toHaveLength(1);
         expect(cwlData?.warDetails).toHaveLength(1);
+        expect(cwlData?.warDetails[0]?.roundNumber).toBe(1);
+        expect(cwlData?.warDetails[0]?.clanwar.roundNumber).toBe(1);
         expect(cwlData?.warDetails[0]?.clanwar.warType).toBe('cwl');
         expect(cwlData?.warDetails[0]?.clans[0].clanTag).toBe('#2PPLQ');
         expect(cwlData?.warDetails[0]?.clans[0].side).toBe('home');
@@ -727,6 +729,134 @@ describe('CocApiClient integration with loopback HTTP/HTTPS server', () => {
             '/clans/%23CWL/currentwar/leaguegroup',
             '/clanwarleagues/wars/%23MISSING_WAR',
             '/clanwarleagues/wars/%23FOUND_WAR',
+        ]);
+    });
+
+    it('preserves original 1-based CWL round numbers when earlier rounds have #0 placeholders, 404s, or omit the target clan', async () => {
+        let round2Available = false;
+
+        const server = trackServer(
+            await startLoopbackServer((req, res) => {
+                switch (req.url) {
+                    case '/clans/%232PPLQ/currentwar/leaguegroup':
+                        jsonResponse(res, 200, {
+                            state: 'inWar',
+                            season: '2026-08',
+                            clans: [
+                                {
+                                    tag: '#2PPLQ',
+                                    members: [
+                                        { tag: '#PLAYER1', name: 'Leader', townHallLevel: 16 },
+                                    ],
+                                },
+                            ],
+                            rounds: [
+                                { warTags: ['#0', '#0'] },
+                                { warTags: ['#WAR_R2_404'] },
+                                { warTags: ['#WAR_R3_OTHER'] },
+                                { warTags: ['#WAR_R4_404', '#WAR_R4_OURS'] },
+                                { warTags: ['#0', '#WAR_R5_OURS'] },
+                            ],
+                        });
+                        return;
+
+                    case '/clanwarleagues/wars/%23WAR_R2_404':
+                        if (!round2Available) {
+                            jsonResponse(res, 404, { reason: 'notFound' });
+                            return;
+                        }
+                        jsonResponse(res, 200, {
+                            state: 'warEnded',
+                            teamSize: 15,
+                            preparationStartTime: '20260802T000000.000Z',
+                            startTime: '20260803T000000.000Z',
+                            endTime: '20260804T000000.000Z',
+                            clan: { tag: '#2PPLQ', name: 'Clash Clan', members: [] },
+                            opponent: { tag: '#OPP2', name: 'Opp 2', members: [] },
+                        });
+                        return;
+
+                    case '/clanwarleagues/wars/%23WAR_R3_OTHER':
+                        jsonResponse(res, 200, {
+                            state: 'warEnded',
+                            teamSize: 15,
+                            preparationStartTime: '20260803T000000.000Z',
+                            startTime: '20260804T000000.000Z',
+                            endTime: '20260805T000000.000Z',
+                            clan: { tag: '#OTHER1', name: 'Other 1', members: [] },
+                            opponent: { tag: '#OTHER2', name: 'Other 2', members: [] },
+                        });
+                        return;
+
+                    case '/clanwarleagues/wars/%23WAR_R4_404':
+                        jsonResponse(res, 404, { reason: 'notFound' });
+                        return;
+
+                    case '/clanwarleagues/wars/%23WAR_R4_OURS':
+                        jsonResponse(res, 200, {
+                            state: 'warEnded',
+                            teamSize: 15,
+                            preparationStartTime: '20260804T000000.000Z',
+                            startTime: '20260805T000000.000Z',
+                            endTime: '20260806T000000.000Z',
+                            clan: { tag: '#OPP4', name: 'Opp 4', members: [] },
+                            opponent: { tag: '#2PPLQ', name: 'Clash Clan', members: [] },
+                        });
+                        return;
+
+                    case '/clanwarleagues/wars/%23WAR_R5_OURS':
+                        jsonResponse(res, 200, {
+                            state: 'inWar',
+                            teamSize: 15,
+                            preparationStartTime: '20260805T000000.000Z',
+                            startTime: '20260806T000000.000Z',
+                            endTime: '20260807T000000.000Z',
+                            clan: { tag: '#2PPLQ', name: 'Clash Clan', members: [] },
+                            opponent: { tag: '#OPP5', name: 'Opp 5', members: [] },
+                        });
+                        return;
+
+                    default:
+                        jsonResponse(res, 404, { reason: 'notFound' });
+                }
+            }),
+        );
+
+        const client = trackClient(
+            new CocApiClient({
+                token: 'tok',
+                baseUrl: server.baseUrl,
+            }),
+        );
+
+        // Initial fetch: round 1 (#0), round 2 (404), round 3 (other clans) skipped
+        const firstFetch = await client.getCompleteClanwarsLeagueData('#2PPLQ');
+        expect(firstFetch?.warDetails).toHaveLength(2);
+        expect(
+            firstFetch?.warDetails.map((w) => ({
+                roundNumber: w.roundNumber,
+                clanwarRoundNumber: w.clanwar.roundNumber,
+                opponentTag: w.clans[1].clanTag,
+            })),
+        ).toEqual([
+            { roundNumber: 4, clanwarRoundNumber: 4, opponentTag: '#OPP4' },
+            { roundNumber: 5, clanwarRoundNumber: 5, opponentTag: '#OPP5' },
+        ]);
+
+        // Repeat fetch after temporary 404 on round 2 resolves
+        round2Available = true;
+        const secondFetch = await client.getCompleteClanwarsLeagueData('#2PPLQ');
+        expect(secondFetch?.warDetails).toHaveLength(3);
+        expect(
+            secondFetch?.warDetails.map((w) => ({
+                roundNumber: w.roundNumber,
+                clanwarRoundNumber: w.clanwar.roundNumber,
+                opponentTag: w.clans[1].clanTag,
+            })),
+        ).toEqual([
+            { roundNumber: 2, clanwarRoundNumber: 2, opponentTag: '#OPP2' },
+            { roundNumber: 4, clanwarRoundNumber: 4, opponentTag: '#OPP4' },
+            { roundNumber: 5, clanwarRoundNumber: 5, opponentTag: '#OPP5' },
         ]);
     });
 

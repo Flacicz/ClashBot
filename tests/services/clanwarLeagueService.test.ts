@@ -1,11 +1,15 @@
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+    CocApiClient,
     CocApiError,
     type CompleteClanwarData,
     type CompleteClanwarsLeagueData,
+    type CompleteClanwarsLeagueRoundData,
     WAR_TYPES,
 } from '../../src/api/index.js';
 import { FakeClock } from '../../src/common/clock.js';
@@ -40,6 +44,7 @@ interface CwlWarSpec {
     readonly opponentTag: string;
     readonly warUID: string;
     readonly state: string;
+    readonly roundNumber?: number;
     readonly warType?: CompleteClanwarData['clanwar']['warType'];
     readonly preparationStartTime: number;
     readonly startTime: number;
@@ -47,11 +52,13 @@ interface CwlWarSpec {
     readonly withDetails?: boolean;
 }
 
-function makeCwlWar(spec: CwlWarSpec): CompleteClanwarData {
+function makeCwlWar(spec: CwlWarSpec): CompleteClanwarsLeagueRoundData {
     const clanTag = spec.clanTag ?? CLAN_TAG;
     const withDetails = spec.withDetails ?? true;
+    const roundNumber = spec.roundNumber ?? 1;
 
     return {
+        roundNumber,
         clanwar: {
             warUID: spec.warUID,
             clanTag,
@@ -63,7 +70,7 @@ function makeCwlWar(spec: CwlWarSpec): CompleteClanwarData {
             startTime: spec.startTime,
             endTime: spec.endTime,
             seasonId: null,
-            roundNumber: null,
+            roundNumber,
         },
         clans: [
             {
@@ -260,6 +267,7 @@ describe('ClanwarLeagueService', () => {
                     opponentTag: '#OPP1',
                     warUID: 'cwl-war-1',
                     state: 'warEnded',
+                    roundNumber: 1,
                     preparationStartTime: 1_000,
                     startTime: 1_100,
                     endTime: 2_000,
@@ -269,6 +277,7 @@ describe('ClanwarLeagueService', () => {
                     opponentTag: '#OPP2',
                     warUID: 'cwl-war-2',
                     state: 'warEnded',
+                    roundNumber: 2,
                     preparationStartTime: 3_000,
                     startTime: 3_100,
                     endTime: 4_000,
@@ -412,6 +421,7 @@ describe('ClanwarLeagueService', () => {
                     opponentTag: '#OPP1',
                     warUID: 'cwl-round-1',
                     state: 'inWar',
+                    roundNumber: 1,
                     preparationStartTime: round1Start - 24 * SECONDS_PER_HOUR,
                     startTime: round1Start,
                     endTime: round1End,
@@ -421,6 +431,7 @@ describe('ClanwarLeagueService', () => {
                     opponentTag: '#OPP2',
                     warUID: 'cwl-round-2',
                     state: 'preparation',
+                    roundNumber: 2,
                     preparationStartTime: round1Start,
                     startTime: round2Start,
                     endTime: round2End,
@@ -471,6 +482,7 @@ describe('ClanwarLeagueService', () => {
                     opponentTag: '#OPP1',
                     warUID: 'cwl-round-1',
                     state: 'warEnded',
+                    roundNumber: 1,
                     preparationStartTime: round1Start - 24 * SECONDS_PER_HOUR,
                     startTime: round1Start,
                     endTime: round1End,
@@ -480,6 +492,7 @@ describe('ClanwarLeagueService', () => {
                     opponentTag: '#OPP2',
                     warUID: 'cwl-round-2',
                     state: 'inWar',
+                    roundNumber: 2,
                     preparationStartTime: round1Start,
                     startTime: round2Start,
                     endTime: round2End,
@@ -618,5 +631,249 @@ describe('ClanwarLeagueService', () => {
         expect(tableRowCount(db, 'cwl_seasons')).toBe(1);
         expect(tableRowCount(db, 'wars')).toBe(1);
         expect(tableRowCount(db, 'domain_events')).toBe(1);
+    });
+
+    it('persists original non-contiguous CWL round_number values and stays idempotent when earlier rounds appear later', async () => {
+        const { db, clansRepo, leagueRepo, apiClient, service } = setup(10_000);
+        clansRepo.insertMinimalClan(CLAN_TAG);
+
+        apiClient.leagueData = {
+            clanwarsLeagueSeason: { clanTag: CLAN_TAG, seasonId: '2026-09' },
+            clanwarsLeagueMembers: [],
+            warDetails: [
+                makeCwlWar({
+                    opponentTag: '#OPP3',
+                    warUID: 'cwl-round-3',
+                    state: 'warEnded',
+                    roundNumber: 3,
+                    preparationStartTime: 3_000,
+                    startTime: 3_100,
+                    endTime: 4_000,
+                    withDetails: false,
+                }),
+                makeCwlWar({
+                    opponentTag: '#OPP5',
+                    warUID: 'cwl-round-5',
+                    state: 'warEnded',
+                    roundNumber: 5,
+                    preparationStartTime: 5_000,
+                    startTime: 5_100,
+                    endTime: 6_000,
+                    withDetails: false,
+                }),
+            ],
+        };
+
+        const firstResult = await service.updateData(CLAN_TAG);
+        expect(firstResult.successFlag).toBe(true);
+
+        const savedRoundsAfterFirst = db.connection
+            .prepare<[], { war_uid: string; round_number: number }>(
+                'SELECT war_uid, round_number FROM wars ORDER BY round_number ASC;',
+            )
+            .all();
+        expect(savedRoundsAfterFirst).toEqual([
+            { war_uid: 'cwl-round-3', round_number: 3 },
+            { war_uid: 'cwl-round-5', round_number: 5 },
+        ]);
+
+        // Repeat sync when round 2 becomes available later
+        apiClient.leagueData = {
+            ...apiClient.leagueData,
+            warDetails: [
+                makeCwlWar({
+                    opponentTag: '#OPP2',
+                    warUID: 'cwl-round-2',
+                    state: 'warEnded',
+                    roundNumber: 2,
+                    preparationStartTime: 2_000,
+                    startTime: 2_100,
+                    endTime: 3_000,
+                    withDetails: false,
+                }),
+                ...apiClient.leagueData.warDetails,
+            ],
+        };
+
+        const secondResult = await service.updateData(CLAN_TAG);
+        expect(secondResult.successFlag).toBe(true);
+
+        const savedRoundsAfterSecond = db.connection
+            .prepare<[], { war_uid: string; round_number: number }>(
+                'SELECT war_uid, round_number FROM wars ORDER BY round_number ASC;',
+            )
+            .all();
+        expect(savedRoundsAfterSecond).toEqual([
+            { war_uid: 'cwl-round-2', round_number: 2 },
+            { war_uid: 'cwl-round-3', round_number: 3 },
+            { war_uid: 'cwl-round-5', round_number: 5 },
+        ]);
+
+        for (const event of secondResult.events) {
+            if (event.type !== APPLICATION_EVENT_TYPES.cwlRoundEnded) {
+                continue;
+            }
+            const row = db.connection
+                .prepare<[number], { war_uid: string; round_number: number }>(
+                    'SELECT war_uid, round_number FROM wars WHERE war_id = ?;',
+                )
+                .get(event.warReference.warId);
+            expect(leagueRepo.getRoundInfo(event.warReference)).toEqual({
+                season: String(event.cwlSeasonId),
+                roundNumber: row?.round_number,
+            });
+        }
+    });
+
+    it('preserves wars.round_number end-to-end with CocApiClient across #0 placeholders and temporary 404 responses', async () => {
+        const {
+            db,
+            clock,
+            clansRepo,
+            clanwarRepo,
+            leagueRepo,
+            subscriptionRepo,
+            domainEventsRepo,
+        } = setup(1_790_000_000);
+        const txManager = new TransactionManager(db);
+        const serializer = new DomainEventPayloadSerializer();
+        const recorder = new DomainEventRecorder(serializer, subscriptionRepo, domainEventsRepo);
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+
+        let round2Available = false;
+        const server = http.createServer((req, res) => {
+            const sendJson = (status: number, body: unknown): void => {
+                res.statusCode = status;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify(body));
+            };
+
+            switch (req.url) {
+                case '/clans/%232PPLQ/currentwar/leaguegroup':
+                    sendJson(200, {
+                        state: 'inWar',
+                        season: '2026-09',
+                        clans: [
+                            {
+                                tag: CLAN_TAG,
+                                members: [{ tag: '#P1', name: 'Alice', townHallLevel: 14 }],
+                            },
+                        ],
+                        rounds: [
+                            { warTags: ['#0', '#0'] },
+                            { warTags: ['#WAR_R2_TEMP_404'] },
+                            { warTags: ['#WAR_R3_OURS'] },
+                            { warTags: ['#0'] },
+                            { warTags: ['#WAR_R5_OURS'] },
+                        ],
+                    });
+                    return;
+
+                case '/clanwarleagues/wars/%23WAR_R2_TEMP_404':
+                    if (!round2Available) {
+                        sendJson(404, { reason: 'notFound' });
+                        return;
+                    }
+                    sendJson(200, {
+                        state: 'warEnded',
+                        teamSize: 15,
+                        preparationStartTime: '20260902T000000.000Z',
+                        startTime: '20260903T000000.000Z',
+                        endTime: '20260904T000000.000Z',
+                        clan: { tag: CLAN_TAG, name: 'Home Clan', members: [] },
+                        opponent: { tag: '#OPP2', name: 'Opponent 2', members: [] },
+                    });
+                    return;
+
+                case '/clanwarleagues/wars/%23WAR_R3_OURS':
+                    sendJson(200, {
+                        state: 'warEnded',
+                        teamSize: 15,
+                        preparationStartTime: '20260903T000000.000Z',
+                        startTime: '20260904T000000.000Z',
+                        endTime: '20260905T000000.000Z',
+                        clan: { tag: CLAN_TAG, name: 'Home Clan', members: [] },
+                        opponent: { tag: '#OPP3', name: 'Opponent 3', members: [] },
+                    });
+                    return;
+
+                case '/clanwarleagues/wars/%23WAR_R5_OURS':
+                    sendJson(200, {
+                        state: 'inWar',
+                        teamSize: 15,
+                        preparationStartTime: '20260905T000000.000Z',
+                        startTime: '20260906T000000.000Z',
+                        endTime: '20260907T000000.000Z',
+                        clan: { tag: '#OPP5', name: 'Opponent 5', members: [] },
+                        opponent: { tag: CLAN_TAG, name: 'Home Clan', members: [] },
+                    });
+                    return;
+
+                default:
+                    sendJson(404, { reason: 'notFound' });
+            }
+        });
+
+        await new Promise<void>((resolve) => {
+            server.listen(0, '127.0.0.1', resolve);
+        });
+        const address = server.address() as AddressInfo;
+        const apiClient = new CocApiClient({
+            token: 'test-token',
+            baseUrl: `http://127.0.0.1:${String(address.port)}`,
+        });
+
+        try {
+            const service = new ClanwarLeagueService(
+                clanwarRepo,
+                leagueRepo,
+                apiClient,
+                txManager,
+                recorder,
+                clock,
+            );
+
+            // Sync 1: round 1 is #0, round 2 is 404, round 4 is #0 -> only rounds 3 and 5 saved
+            const firstSync = await service.updateData(CLAN_TAG);
+            expect(firstSync.successFlag).toBe(true);
+
+            const rowsAfterFirst = db.connection
+                .prepare<[], { war_uid: string; round_number: number }>(
+                    'SELECT war_uid, round_number FROM wars ORDER BY round_number ASC;',
+                )
+                .all();
+            expect(rowsAfterFirst).toEqual([
+                { war_uid: '#2PPLQ_#OPP3_20260903T000000', round_number: 3 },
+                { war_uid: '#2PPLQ_#OPP5_20260905T000000', round_number: 5 },
+            ]);
+
+            // Sync 2: temporary 404 on round 2 resolves -> round 2 saved with round_number = 2, 3 and 5 unchanged
+            round2Available = true;
+            const secondSync = await service.updateData(CLAN_TAG);
+            expect(secondSync.successFlag).toBe(true);
+
+            const rowsAfterSecond = db.connection
+                .prepare<[], { war_uid: string; round_number: number }>(
+                    'SELECT war_uid, round_number FROM wars ORDER BY round_number ASC;',
+                )
+                .all();
+            expect(rowsAfterSecond).toEqual([
+                { war_uid: '#2PPLQ_#OPP2_20260902T000000', round_number: 2 },
+                { war_uid: '#2PPLQ_#OPP3_20260903T000000', round_number: 3 },
+                { war_uid: '#2PPLQ_#OPP5_20260905T000000', round_number: 5 },
+            ]);
+        } finally {
+            await apiClient.close();
+            await new Promise<void>((resolve, reject) => {
+                server.close((err) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
+            });
+        }
     });
 });
