@@ -2,24 +2,38 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { CocApiError, type CompleteClanwarData, WAR_TYPES } from '../../src/api/index.js';
+import {
+    CocApiError,
+    type CompleteClanwarData,
+    WAR_TYPES,
+    parseCurrentWarResponse,
+} from '../../src/api/index.js';
 import { FakeClock } from '../../src/common/clock.js';
 import { AbortError } from '../../src/common/errors.js';
 import {
     ClansRepo,
     ClanwarRepo,
+    ClanwarsLeagueRepo,
     Database,
     DomainEventsRepo,
     MigratorManager,
+    NotificationRepo,
+    RaidRepo,
     SubscriptionRepo,
     TransactionManager,
 } from '../../src/database/index.js';
-import { DomainEventPayloadSerializer, DomainEventRecorder } from '../../src/domainEvents/index.js';
+import {
+    DomainEventPayloadDeserializer,
+    DomainEventPayloadSerializer,
+    DomainEventRecorder,
+    DomainEventWorker,
+} from '../../src/domainEvents/index.js';
 import {
     APPLICATION_EVENT_TYPES,
     WAR_REMINDER_KINDS,
     WAR_REMINDER_WAR_KINDS,
 } from '../../src/events/applicationEvents.js';
+import { NotificationService } from '../../src/notifications/index.js';
 import {
     ClanwarService,
     SECONDS_PER_HOUR,
@@ -557,4 +571,366 @@ describe('ClanwarService', () => {
         expect(tableRowCount(db, 'domain_events')).toBe(1);
         expect(domainEventsRepo.getPendingDestinations(50)).toHaveLength(1);
     });
+
+    it.each([
+        { label: 'A then B', order: ['#CLAN_A', '#CLAN_B'] as const },
+        { label: 'B then A', order: ['#CLAN_B', '#CLAN_A'] as const },
+    ])(
+        'isolates war results, rosters, attacks, history, and shared-chat reports for two tracked opponents ($label)',
+        async ({ order }) => {
+            const { db, clock, clansRepo, clanwarRepo, subscriptionRepo, domainEventsRepo } =
+                setup(1_800_000_000);
+            const txManager = new TransactionManager(db);
+            const serializer = new DomainEventPayloadSerializer();
+            const recorder = new DomainEventRecorder(
+                serializer,
+                subscriptionRepo,
+                domainEventsRepo,
+            );
+            const notificationRepo = new NotificationRepo(db);
+            const leagueRepo = new ClanwarsLeagueRepo(db);
+            const raidRepo = new RaidRepo(db);
+            const notificationService = new NotificationService({
+                notificationRepo,
+                clansRepo,
+                clanwarRepo,
+                clanwarsLeagueRepo: leagueRepo,
+                raidRepo,
+            });
+            const domainEventWorker = new DomainEventWorker({
+                domainEventsRepo,
+                transactionManager: txManager,
+                deserializer: new DomainEventPayloadDeserializer(),
+                materializer: notificationService,
+                clock,
+            });
+
+            const CLAN_A = '#CLAN_A';
+            const CLAN_B = '#CLAN_B';
+            const SHARED_PLAYERS_CHAT = -100999;
+            const SHARED_MANAGEMENT_CHAT = 500999;
+
+            clansRepo.insertMinimalClan(CLAN_A);
+            clansRepo.insertMinimalClan(CLAN_B);
+            subscriptionRepo.saveTelegramChat(SHARED_PLAYERS_CHAT, 0, 'Shared Players');
+            subscriptionRepo.saveTelegramChat(SHARED_MANAGEMENT_CHAT, 0, 'Shared Management');
+            subscriptionRepo.subscribeToChat(SHARED_PLAYERS_CHAT, 0, CLAN_A, 'players');
+            subscriptionRepo.subscribeToChat(SHARED_PLAYERS_CHAT, 0, CLAN_B, 'players');
+            subscriptionRepo.subscribeToChat(SHARED_MANAGEMENT_CHAT, 0, CLAN_A, 'management');
+            subscriptionRepo.subscribeToChat(SHARED_MANAGEMENT_CHAT, 0, CLAN_B, 'management');
+
+            const clanARaw = {
+                tag: CLAN_A,
+                name: 'Clan Alpha',
+                clanLevel: 20,
+                attacks: 1,
+                stars: 3,
+                destructionPercentage: 100.0,
+                members: [
+                    {
+                        tag: '#A1',
+                        name: 'Alice',
+                        townhallLevel: 16,
+                        mapPosition: 1,
+                        attacks: [
+                            {
+                                defenderTag: '#B1',
+                                stars: 3,
+                                destructionPercentage: 100.0,
+                                order: 1,
+                                duration: 110,
+                            },
+                        ],
+                    },
+                    {
+                        tag: '#A2',
+                        name: 'Anton',
+                        townhallLevel: 15,
+                        mapPosition: 2,
+                    },
+                ],
+            };
+
+            const clanBRaw = {
+                tag: CLAN_B,
+                name: 'Clan Beta',
+                clanLevel: 18,
+                attacks: 1,
+                stars: 1,
+                destructionPercentage: 55.0,
+                members: [
+                    {
+                        tag: '#B1',
+                        name: 'Boris',
+                        townhallLevel: 16,
+                        mapPosition: 1,
+                        attacks: [
+                            {
+                                defenderTag: '#A2',
+                                stars: 1,
+                                destructionPercentage: 55.0,
+                                order: 2,
+                                duration: 140,
+                            },
+                        ],
+                    },
+                    {
+                        tag: '#B2',
+                        name: 'Bella',
+                        townhallLevel: 15,
+                        mapPosition: 2,
+                    },
+                ],
+            };
+
+            const war1PayloadFor = (clanTag: string): unknown => ({
+                state: 'warEnded',
+                teamSize: 2,
+                attacksPerMember: 2,
+                preparationStartTime: '20260910T100000.000Z',
+                startTime: '20260911T100000.000Z',
+                endTime: '20260912T100000.000Z',
+                clan: clanTag === CLAN_A ? clanARaw : clanBRaw,
+                opponent: clanTag === CLAN_A ? clanBRaw : clanARaw,
+            });
+
+            const war2PayloadFor = (clanTag: string): unknown => {
+                if (clanTag === CLAN_A) {
+                    return {
+                        state: 'warEnded',
+                        teamSize: 2,
+                        attacksPerMember: 2,
+                        preparationStartTime: '20260915T100000.000Z',
+                        startTime: '20260916T100000.000Z',
+                        endTime: '20260917T100000.000Z',
+                        clan: { ...clanARaw, stars: 6, destructionPercentage: 100.0, members: [] },
+                        opponent: {
+                            tag: '#OPP_A2',
+                            name: 'Enemy A2',
+                            clanLevel: 15,
+                            attacks: 1,
+                            stars: 2,
+                            destructionPercentage: 60.0,
+                            members: [],
+                        },
+                    };
+                }
+                return {
+                    state: 'warEnded',
+                    teamSize: 2,
+                    attacksPerMember: 2,
+                    preparationStartTime: '20260915T100000.000Z',
+                    startTime: '20260916T100000.000Z',
+                    endTime: '20260917T100000.000Z',
+                    clan: { ...clanBRaw, stars: 5, destructionPercentage: 92.0, members: [] },
+                    opponent: {
+                        tag: '#OPP_B2',
+                        name: 'Enemy B2',
+                        clanLevel: 15,
+                        attacks: 2,
+                        stars: 4,
+                        destructionPercentage: 80.0,
+                        members: [],
+                    },
+                };
+            };
+
+            let currentPayloadFor = war1PayloadFor;
+            const perClanApiClient: ClanwarApiClient = {
+                getCompleteClanwarData: (clanTag) =>
+                    Promise.resolve(
+                        parseCurrentWarResponse(
+                            currentPayloadFor(clanTag),
+                            clanTag,
+                            `/clans/${encodeURIComponent(clanTag)}/currentwar`,
+                        ),
+                    ),
+            };
+            const service = new ClanwarService(
+                clanwarRepo,
+                perClanApiClient,
+                txManager,
+                recorder,
+                clock,
+            );
+
+            // Sync War 1 in the parameterized order, then repeat for idempotency
+            const war1Results = new Map<
+                string,
+                Awaited<ReturnType<ClanwarService['updateData']>>
+            >();
+            for (const tag of order) {
+                war1Results.set(tag, await service.updateData(tag));
+            }
+            for (const tag of order) {
+                const repeated = await service.updateData(tag);
+                expect(repeated.successFlag).toBe(true);
+            }
+
+            const eventA = war1Results.get(CLAN_A)?.events[0];
+            const eventB = war1Results.get(CLAN_B)?.events[0];
+            expect(eventA?.type).toBe(APPLICATION_EVENT_TYPES.warEnded);
+            expect(eventB?.type).toBe(APPLICATION_EVENT_TYPES.warEnded);
+            if (
+                eventA?.type !== APPLICATION_EVENT_TYPES.warEnded ||
+                eventB?.type !== APPLICATION_EVENT_TYPES.warEnded
+            ) {
+                throw new Error('Expected WarEndedEvent for both clans');
+            }
+
+            const refA = eventA.warReference;
+            const refB = eventB.warReference;
+            expect(refA.warId).not.toBe(refB.warId);
+
+            const warRows = db.connection
+                .prepare<[], { war_uid: string; clan_tag: string }>(
+                    'SELECT war_uid, clan_tag FROM wars ORDER BY clan_tag ASC;',
+                )
+                .all();
+            expect(warRows).toEqual([
+                { war_uid: '#CLAN_A_#CLAN_A_#CLAN_B_20260910T100000', clan_tag: CLAN_A },
+                { war_uid: '#CLAN_B_#CLAN_A_#CLAN_B_20260910T100000', clan_tag: CLAN_B },
+            ]);
+
+            // Overviews remain isolated and accurate for both clans
+            const overviewA = clanwarRepo.getClanwarOverviews(refA);
+            expect(overviewA.home).toMatchObject({
+                clanTag: CLAN_A,
+                clanName: 'Clan Alpha',
+                stars: 3,
+                destructionPercentage: 100.0,
+            });
+            expect(overviewA.opponent).toMatchObject({
+                clanTag: CLAN_B,
+                clanName: 'Clan Beta',
+                stars: 1,
+                destructionPercentage: 55.0,
+            });
+
+            const overviewB = clanwarRepo.getClanwarOverviews(refB);
+            expect(overviewB.home).toMatchObject({
+                clanTag: CLAN_B,
+                clanName: 'Clan Beta',
+                stars: 1,
+                destructionPercentage: 55.0,
+            });
+            expect(overviewB.opponent).toMatchObject({
+                clanTag: CLAN_A,
+                clanName: 'Clan Alpha',
+                stars: 3,
+                destructionPercentage: 100.0,
+            });
+
+            // Rosters, attacks, slackers, and mirror discipline remain isolated
+            expect(clanwarRepo.getHomeMemberTags(refA).sort()).toEqual(['#A1', '#A2']);
+            expect(clanwarRepo.getHomeMemberTags(refB).sort()).toEqual(['#B1', '#B2']);
+
+            expect(clanwarRepo.getClanwarAttackStats(refA)).toMatchObject({
+                attacksUsed: 1,
+                totalAttackStars: 3,
+                threeStarAttacks: 1,
+                oneStarAttacks: 0,
+            });
+            expect(clanwarRepo.getClanwarAttackStats(refB)).toMatchObject({
+                attacksUsed: 1,
+                totalAttackStars: 1,
+                threeStarAttacks: 0,
+                oneStarAttacks: 1,
+            });
+
+            expect(clanwarRepo.getSlackersWithNoAttacks(refA)).toEqual([
+                { playerTag: '#A2', playerName: 'Anton' },
+            ]);
+            expect(clanwarRepo.getSlackersWithNoAttacks(refB)).toEqual([
+                { playerTag: '#B2', playerName: 'Bella' },
+            ]);
+
+            expect(clanwarRepo.getPlayersWithFirstAttackNotOnMirror(refA)).toEqual([]);
+            expect(clanwarRepo.getPlayersWithFirstAttackNotOnMirror(refB)).toEqual([
+                {
+                    attackerTag: '#B1',
+                    attackerName: 'Boris',
+                    attackerPosition: 1,
+                    defenderPosition: 2,
+                },
+            ]);
+
+            // Materialize domain events into notifications and check shared Telegram chats
+            domainEventWorker.processPending();
+
+            const war1Notifications = notificationRepo.getPending(50);
+            const sharedPlayersWarEnded = war1Notifications.filter(
+                (n) => n.chatId === SHARED_PLAYERS_CHAT && n.eventType === 'war_ended',
+            );
+            expect(sharedPlayersWarEnded).toHaveLength(2);
+            expect(
+                sharedPlayersWarEnded.some(
+                    (n) =>
+                        n.messageText.includes('Clan Alpha') &&
+                        n.messageText.includes('3 - 1') &&
+                        n.messageText.includes('Итог: Победа'),
+                ),
+            ).toBe(true);
+            expect(
+                sharedPlayersWarEnded.some(
+                    (n) =>
+                        n.messageText.includes('Clan Beta') &&
+                        n.messageText.includes('1 - 3') &&
+                        n.messageText.includes('Итог: Поражение'),
+                ),
+            ).toBe(true);
+
+            const sharedManagementViolations = war1Notifications.filter(
+                (n) => n.chatId === SHARED_MANAGEMENT_CHAT && n.eventType === 'war_violations',
+            );
+            expect(sharedManagementViolations).toHaveLength(2);
+            expect(
+                sharedManagementViolations.some(
+                    (n) => n.messageText.includes('Anton') && !n.messageText.includes('Bella'),
+                ),
+            ).toBe(true);
+            expect(
+                sharedManagementViolations.some(
+                    (n) =>
+                        n.messageText.includes('Bella') &&
+                        n.messageText.includes('Boris') &&
+                        !n.messageText.includes('Anton'),
+                ),
+            ).toBe(true);
+
+            // Sync War 2 for both clans to verify getPreviousClanwars & war_comparison for both
+            currentPayloadFor = war2PayloadFor;
+            const war2Results = new Map<
+                string,
+                Awaited<ReturnType<ClanwarService['updateData']>>
+            >();
+            for (const tag of order) {
+                war2Results.set(tag, await service.updateData(tag));
+            }
+
+            const eventA2 = war2Results.get(CLAN_A)?.events[0];
+            const eventB2 = war2Results.get(CLAN_B)?.events[0];
+            if (
+                eventA2?.type !== APPLICATION_EVENT_TYPES.warEnded ||
+                eventB2?.type !== APPLICATION_EVENT_TYPES.warEnded
+            ) {
+                throw new Error('Expected WarEndedEvent for both clans in War 2');
+            }
+
+            const prevA = clanwarRepo.getPreviousClanwars(eventA2.warReference, 4);
+            expect(prevA).toEqual([refA]);
+            const prevB = clanwarRepo.getPreviousClanwars(eventB2.warReference, 4);
+            expect(prevB).toEqual([refB]);
+
+            domainEventWorker.processPending();
+
+            const allNotifications = notificationRepo.getPending(50);
+            const sharedComparisons = allNotifications.filter(
+                (n) => n.chatId === SHARED_PLAYERS_CHAT && n.eventType === 'war_comparison',
+            );
+            expect(sharedComparisons).toHaveLength(2);
+            expect(sharedComparisons.some((n) => n.messageText.includes('Clan Alpha'))).toBe(true);
+            expect(sharedComparisons.some((n) => n.messageText.includes('Clan Beta'))).toBe(true);
+        },
+    );
 });
