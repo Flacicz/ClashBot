@@ -320,7 +320,7 @@ describe('CocApiClient integration with loopback HTTP/HTTPS server', () => {
         // 2. Current war endpoint
         const warData = await client.getCompleteClanwarData('#2PPLQ');
         expect(warData?.clanwar.warType).toBe('regular');
-        expect(warData?.clanwar.warUID).toBe('#2PPLQ_#ENEMY_20260820T080000');
+        expect(warData?.clanwar.warUID).toBe('#2PPLQ_#2PPLQ_#ENEMY_20260820T080000');
         expect(warData?.clanwar.startTime).toBe(Date.UTC(2026, 7, 21, 8, 0, 0) / 1000);
         expect(warData?.attacks).toHaveLength(1);
 
@@ -341,6 +341,7 @@ describe('CocApiClient integration with loopback HTTP/HTTPS server', () => {
         expect(cwlData?.warDetails[0]?.roundNumber).toBe(1);
         expect(cwlData?.warDetails[0]?.clanwar.roundNumber).toBe(1);
         expect(cwlData?.warDetails[0]?.clanwar.warType).toBe('cwl');
+        expect(cwlData?.warDetails[0]?.clanwar.warUID).toBe('#2PPLQ_#2PPLQ_#RIVAL_20260801T000000');
         expect(cwlData?.warDetails[0]?.clans[0].clanTag).toBe('#2PPLQ');
         expect(cwlData?.warDetails[0]?.clans[0].side).toBe('home');
 
