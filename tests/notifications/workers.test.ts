@@ -50,6 +50,7 @@ interface NotificationRowState {
     readonly status: string;
     readonly attempts: number;
     readonly next_attempt_at: number | null;
+    readonly claimed_at: number | null;
     readonly last_error: string | null;
     readonly chat_id: number;
     readonly message_thread_id: number;
@@ -88,7 +89,7 @@ function getDestinationStateById(db: Database, destinationId: number): Destinati
 function getNotificationState(db: Database, notificationId: number): NotificationRowState {
     const row = db.connection
         .prepare<[number], NotificationRowState>(
-            `SELECT id, status, attempts, next_attempt_at, last_error, chat_id, message_thread_id, message_text
+            `SELECT id, status, attempts, next_attempt_at, claimed_at, last_error, chat_id, message_thread_id, message_text
              FROM notifications
              WHERE id = ?;`,
         )
@@ -708,7 +709,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         expect(state500.last_error).toContain('Internal Server Error');
     });
 
-    it('retries delivery after restart when markAsSent fails after a successful Telegram send (crash gap)', async () => {
+    it('retries delivery after claim TTL when markAsSent fails after a successful Telegram send (at-least-once crash gap)', async () => {
         const h = createHarness();
         h.notificationRepo.enqueueIfAbsent('Crash gap msg', 'war_ended', 'crash-1', -1001, 7);
         const notifId = h.notificationRepo.getPending(10, h.clock.nowEpochSeconds())[0]?.id ?? 0;
@@ -724,12 +725,25 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
 
         await h.notificationWorker.processPending();
         expect(h.sentMessages).toHaveLength(1);
-        expect(getNotificationState(h.db, notifId).status).toBe('pending');
+        const stuckState = getNotificationState(h.db, notifId);
+        expect(stuckState.status).toBe('sending');
+        expect(stuckState.claimed_at).toBe(h.clock.nowEpochSeconds());
 
         h.db.exec('DROP TRIGGER reject_sent;');
+
+        // Before default 60s TTL elapses, the in-flight 'sending' record is not picked up again
+        h.clock.advance(59_000);
+        await h.notificationWorker.processPending();
+        expect(h.sentMessages).toHaveLength(1);
+        expect(getNotificationState(h.db, notifId).status).toBe('sending');
+
+        // Once 60s TTL elapses, TTL recovery returns it to 'pending' and re-delivers (at-least-once)
+        h.clock.advance(1_000);
         await h.notificationWorker.processPending();
         expect(h.sentMessages).toHaveLength(2);
-        expect(getNotificationState(h.db, notifId).status).toBe('sent');
+        const sentState = getNotificationState(h.db, notifId);
+        expect(sentState.status).toBe('sent');
+        expect(sentState.claimed_at).toBeNull();
     });
 
     it('stops NotificationWorker mid-batch on AbortSignal during an active loopback HTTP request without burning attempts, and delivers remaining items after restart', async () => {
@@ -921,6 +935,14 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
                     batchSize: -1,
                 }),
         ).toThrow(RangeError);
+        expect(
+            () =>
+                new NotificationWorker({
+                    notificationRepo: h.notificationRepo,
+                    telegramGateway: h.fakeGateway,
+                    claimTtlSeconds: 0,
+                }),
+        ).toThrow(RangeError);
 
         // Verify max(backoff, now + retry_after) when backoff > retry_after vs retry_after > backoff
         // On attempt 3, backoff is 2000ms (2s). With retry_after = 1s, max(2s, 1s) = 2s.
@@ -975,5 +997,360 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         expect(h.domainEventWorker.isStopRequested()).toBe(true);
         expect(h.notificationWorker.isStopRequested()).toBe(true);
         await Promise.all([domainRun, notificationRun]);
+    });
+
+    it('handles deterministic /unlink race before and after claim in DomainEventWorker and rolls back claim if materialize fails', async () => {
+        const h = createHarness();
+        h.subscriptionRepo.saveTelegramChat(-1001, 0, 'Chat 1');
+        h.subscriptionRepo.saveTelegramChat(-1002, 0, 'Chat 2');
+        h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+        h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'players');
+
+        const sub1Id = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'players');
+        const sub2Id = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'players');
+        expect(sub1Id).not.toBeNull();
+        expect(sub2Id).not.toBeNull();
+
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P1',
+                    playerName: 'Alice',
+                    membershipId: 201,
+                },
+            ]);
+        });
+
+        // Case 1: materialize fails AFTER conditional markMaterialized claim inside the same transaction -> rollback!
+        let failOnce = true;
+        const failingWorker = new DomainEventWorker({
+            domainEventsRepo: h.domainEventsRepo,
+            deserializer: h.deserializer,
+            materializer: {
+                materialize(event, destination) {
+                    if (failOnce && destination.chatId === -1001) {
+                        failOnce = false;
+                        throw new Error('transient formatter failure after claim');
+                    }
+                    h.notificationService.materialize(event, destination);
+                },
+            },
+            notificationWorker: h.notificationWorker,
+            transactionManager: h.tx,
+            clock: h.clock,
+        });
+
+        failingWorker.processPending();
+
+        const destRowsAfterFail = h.db.connection
+            .prepare<[], { id: number; chat_id: number; status: string; attempts: number }>(
+                'SELECT id, chat_id, status, attempts FROM domain_event_destinations ORDER BY chat_id;',
+            )
+            .all();
+        const destChat1 = destRowsAfterFail.find((r) => r.chat_id === -1001);
+        const destChat2 = destRowsAfterFail.find((r) => r.chat_id === -1002);
+        // Chat 1 rolled back to 'pending' and rescheduled; Chat 2 materialized cleanly
+        expect(destChat1?.status).toBe('pending');
+        expect(destChat1?.attempts).toBe(1);
+        expect(destChat2?.status).toBe('materialized');
+
+        // Case 2: DomainEventWorker already materialized Chat 2, then /unlink runs BEFORE NotificationWorker claims -> cancelled, never sent!
+        h.tx.retryInTransaction(() => {
+            h.domainEventsRepo.cancelForSubscription(sub2Id ?? 0);
+            h.subscriptionRepo.unsubscribeFromChat(-1002, 0, CLAN_TAG, 'players');
+        });
+
+        await h.notificationWorker.processPending();
+        expect(h.sentMessages).toHaveLength(0);
+
+        const chat2Notif = h.db.connection
+            .prepare<[], { status: string; last_error: string | null }>(
+                'SELECT status, last_error FROM notifications WHERE chat_id = -1002;',
+            )
+            .get();
+        expect(chat2Notif).toEqual({ status: 'cancelled', last_error: 'subscription cancelled' });
+
+        // Case 3: Retry Chat 1 succeeds after backoff and delivers to active subscription
+        h.clock.advance(1_000);
+        failingWorker.processPending();
+        await h.notificationWorker.processPending();
+        expect(h.sentMessages).toHaveLength(1);
+        expect(h.sentMessages[0]?.chatId).toBe(-1001);
+    });
+
+    it('allows in-flight claimed notification to finish on success after /unlink, but cancels retry on transient failure and blocks unclaimed pending notifications', async () => {
+        const h = createHarness();
+        h.subscriptionRepo.saveTelegramChat(-1001, 0, 'In-flight Success');
+        h.subscriptionRepo.saveTelegramChat(-1002, 0, 'In-flight Transient Fail');
+        h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+        h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'players');
+
+        const sub1Id = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'players') ?? 0;
+        const sub2Id = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'players') ?? 0;
+
+        // Two events for sub1 (first will be claimed in-flight, second stays pending until /unlink cancels it)
+        // and one event for sub2 (claimed in-flight, /unlink runs during HTTP, then HTTP fails transiently)
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P1',
+                    playerName: 'First',
+                    membershipId: 301,
+                },
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P2',
+                    playerName: 'Second',
+                    membershipId: 302,
+                },
+            ]);
+        });
+
+        h.domainEventWorker.processPending();
+        const queued = h.notificationRepo.getPending(10, h.clock.nowEpochSeconds());
+        expect(queued).toHaveLength(4);
+
+        const sub1First = queued.find((n) => n.chatId === -1001 && n.eventId === '301');
+        const sub1Second = queued.find((n) => n.chatId === -1001 && n.eventId === '302');
+        const sub2First = queued.find((n) => n.chatId === -1002 && n.eventId === '301');
+        const sub2Second = queued.find((n) => n.chatId === -1002 && n.eventId === '302');
+        expect(sub1First).toBeDefined();
+        expect(sub1Second).toBeDefined();
+        expect(sub2First).toBeDefined();
+        expect(sub2Second).toBeDefined();
+
+        h.setSendResponder(async (chatId, text, messageThreadId) => {
+            expect(h.db.connection.inTransaction).toBe(false);
+            if (chatId === -1001) {
+                // Verify notification was already atomically claimed as 'sending' before HTTP started
+                const state = getNotificationState(h.db, sub1First?.id ?? 0);
+                expect(state.status).toBe('sending');
+                expect(state.claimed_at).toBe(h.clock.nowEpochSeconds());
+
+                // /unlink wins while sub1First is in-flight -> cancels sub1Second (pending), leaves sub1First ('sending')
+                h.tx.retryInTransaction(() => {
+                    h.domainEventsRepo.cancelForSubscription(sub1Id);
+                    h.subscriptionRepo.unsubscribeFromChat(-1001, 0, CLAN_TAG, 'players');
+                });
+                h.sentMessages.push({ chatId, text, messageThreadId });
+                await Promise.resolve();
+                return;
+            }
+
+            if (chatId === -1002) {
+                // /unlink wins while sub2First is in-flight, THEN Telegram responds with transient 500
+                h.tx.retryInTransaction(() => {
+                    h.domainEventsRepo.cancelForSubscription(sub2Id);
+                    h.subscriptionRepo.unsubscribeFromChat(-1002, 0, CLAN_TAG, 'players');
+                });
+                await Promise.resolve();
+                throw new TelegramDeliveryError('Internal Server Error', {
+                    kind: 'transient',
+                    statusCode: 500,
+                    retryable: true,
+                });
+            }
+        });
+
+        await h.notificationWorker.processPending();
+
+        // sub1First was in-flight and succeeded -> 'sent'; sub1Second was cancelled before claim -> never sent
+        expect(h.sentMessages).toHaveLength(1);
+        expect(h.sentMessages[0]?.chatId).toBe(-1001);
+        expect(getNotificationState(h.db, sub1First?.id ?? 0).status).toBe('sent');
+        expect(getNotificationState(h.db, sub1First?.id ?? 0).claimed_at).toBeNull();
+        expect(getNotificationState(h.db, sub1Second?.id ?? 0).status).toBe('cancelled');
+
+        // sub2First failed transiently after /unlink -> MUST be cancelled (no new retry attempt scheduled!)
+        expect(getNotificationState(h.db, sub2First?.id ?? 0).status).toBe('cancelled');
+        expect(getNotificationState(h.db, sub2First?.id ?? 0).claimed_at).toBeNull();
+        expect(getNotificationState(h.db, sub2Second?.id ?? 0).status).toBe('cancelled');
+
+        // Advancing clock and running worker again MUST NOT send any new requests
+        h.clock.advance(120_000);
+        await h.notificationWorker.processPending();
+        expect(h.sentMessages).toHaveLength(1);
+    });
+
+    it('recovers stuck sending notifications on worker startup (active -> pending & delivered, cancelled -> cancelled) before TTL expires', async () => {
+        const h = createHarness();
+        h.subscriptionRepo.saveTelegramChat(-1001, 0, 'Active Chat');
+        h.subscriptionRepo.saveTelegramChat(-1002, 0, 'Unlinked Chat');
+        h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+        h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'players');
+
+        const unlinkedSubId =
+            h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'players') ?? 0;
+
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P1',
+                    playerName: 'CrashVictim',
+                    membershipId: 401,
+                },
+            ]);
+        });
+        h.domainEventWorker.processPending();
+
+        const queued = h.notificationRepo.getPending(10, h.clock.nowEpochSeconds());
+        const activeNotif = queued.find((n) => n.chatId === -1001);
+        const unlinkedNotif = queued.find((n) => n.chatId === -1002);
+        expect(activeNotif).toBeDefined();
+        expect(unlinkedNotif).toBeDefined();
+
+        // Simulate crash mid-flight: both notifications are claimed as 'sending' right now (0s elapsed, well under 60s TTL)
+        const now = h.clock.nowEpochSeconds();
+        expect(h.notificationRepo.claimForSending(activeNotif?.id ?? 0, now)).toBe(true);
+        expect(h.notificationRepo.claimForSending(unlinkedNotif?.id ?? 0, now)).toBe(true);
+
+        // Chat -1002 unlinked before restart
+        h.tx.retryInTransaction(() => {
+            h.domainEventsRepo.cancelForSubscription(unlinkedSubId);
+            h.subscriptionRepo.unsubscribeFromChat(-1002, 0, CLAN_TAG, 'players');
+        });
+
+        // Start a brand-new NotificationWorker only 5 seconds later (before 60s TTL!)
+        h.clock.advance(5_000);
+        const restartedWorker = new NotificationWorker({
+            notificationRepo: h.notificationRepo,
+            telegramGateway: h.fakeGateway,
+            clock: h.clock,
+        });
+
+        const controller = new AbortController();
+        const runPromise = restartedWorker.run(controller.signal);
+        await flushMicrotasks();
+        controller.abort();
+        await runPromise;
+
+        // Active notification was recovered on startup and delivered; unlinked notification was cancelled and never sent
+        expect(h.sentMessages).toHaveLength(1);
+        expect(h.sentMessages[0]?.chatId).toBe(-1001);
+        expect(getNotificationState(h.db, activeNotif?.id ?? 0).status).toBe('sent');
+        expect(getNotificationState(h.db, activeNotif?.id ?? 0).claimed_at).toBeNull();
+        expect(getNotificationState(h.db, unlinkedNotif?.id ?? 0).status).toBe('cancelled');
+        expect(getNotificationState(h.db, unlinkedNotif?.id ?? 0).claimed_at).toBeNull();
+        expect(getNotificationState(h.db, unlinkedNotif?.id ?? 0).last_error).toBe(
+            'subscription cancelled',
+        );
+    });
+
+    it('recovers stuck sending notifications by 60s TTL (and custom claimTtlSeconds) while enforcing subscription generation isolation', async () => {
+        const h = createHarness();
+        h.subscriptionRepo.saveTelegramChat(-1001, 0, 'Active Chat');
+        h.subscriptionRepo.saveTelegramChat(-1002, 0, 'Relinked Chat');
+        h.subscriptionRepo.saveTelegramChat(-1003, 5, 'Other Topic');
+        h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+        h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'players');
+        h.subscriptionRepo.subscribeToChat(-1003, 5, CLAN_TAG, 'players');
+
+        const relinkedOldSubId =
+            h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'players') ?? 0;
+
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P1',
+                    playerName: 'GenOne',
+                    membershipId: 501,
+                },
+            ]);
+        });
+        h.domainEventWorker.processPending();
+
+        const queued = h.notificationRepo.getPending(10, h.clock.nowEpochSeconds());
+        const activeNotif = queued.find((n) => n.chatId === -1001);
+        const relinkedOldNotif = queued.find((n) => n.chatId === -1002);
+        const otherTopicNotif = queued.find((n) => n.chatId === -1003);
+        expect(activeNotif).toBeDefined();
+        expect(relinkedOldNotif).toBeDefined();
+        expect(otherTopicNotif).toBeDefined();
+
+        // Mark all three as stuck 'sending' at T0
+        const claimedAt = h.clock.nowEpochSeconds();
+        expect(h.notificationRepo.claimForSending(activeNotif?.id ?? 0, claimedAt)).toBe(true);
+        expect(h.notificationRepo.claimForSending(relinkedOldNotif?.id ?? 0, claimedAt)).toBe(true);
+        expect(h.notificationRepo.claimForSending(otherTopicNotif?.id ?? 0, claimedAt)).toBe(true);
+
+        // /unlink -> /link on chat -1002 creates a NEW subscription generation (sub2 != relinkedOldSubId)
+        h.tx.retryInTransaction(() => {
+            h.domainEventsRepo.cancelForSubscription(relinkedOldSubId);
+            h.subscriptionRepo.unsubscribeFromChat(-1002, 0, CLAN_TAG, 'players');
+            h.subscriptionRepo.saveTelegramChat(-1002, 0, 'Relinked Chat');
+            h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'players');
+        });
+        const relinkedNewSubId =
+            h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'players') ?? 0;
+        expect(relinkedNewSubId).not.toBe(relinkedOldSubId);
+
+        // Record a new event for the NEW subscription generation
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P2',
+                    playerName: 'GenTwo',
+                    membershipId: 502,
+                },
+            ]);
+        });
+        h.domainEventWorker.processPending();
+
+        // At T0 + 59s (1s before default 60s TTL): GenTwo delivers immediately, while GenOne stuck rows remain 'sending'
+        h.clock.advance(59_000);
+        await h.notificationWorker.processPending();
+        expect(h.sentMessages.filter((m) => m.text.includes('GenTwo'))).toHaveLength(3);
+        expect(h.sentMessages.filter((m) => m.text.includes('GenOne'))).toHaveLength(0);
+        expect(getNotificationState(h.db, activeNotif?.id ?? 0).status).toBe('sending');
+        expect(getNotificationState(h.db, relinkedOldNotif?.id ?? 0).status).toBe('sending');
+        expect(getNotificationState(h.db, otherTopicNotif?.id ?? 0).status).toBe('sending');
+
+        // At T0 + 60s (exact TTL boundary): active & otherTopic recover and deliver; relinkedOldNotif cancels despite new generation!
+        h.clock.advance(1_000);
+        await h.notificationWorker.processPending();
+
+        const genOneSent = h.sentMessages.filter((m) => m.text.includes('GenOne'));
+        expect(genOneSent.map((m) => m.chatId).sort((a, b) => a - b)).toEqual([-1003, -1001]);
+        expect(getNotificationState(h.db, activeNotif?.id ?? 0).status).toBe('sent');
+        expect(getNotificationState(h.db, otherTopicNotif?.id ?? 0).status).toBe('sent');
+        expect(getNotificationState(h.db, relinkedOldNotif?.id ?? 0).status).toBe('cancelled');
+        expect(getNotificationState(h.db, relinkedOldNotif?.id ?? 0).claimed_at).toBeNull();
+        expect(getNotificationState(h.db, relinkedOldNotif?.id ?? 0).last_error).toBe(
+            'subscription cancelled',
+        );
+
+        // Verify custom claimTtlSeconds option (e.g., 15s) works independently of default 60s
+        h.notificationRepo.enqueueIfAbsent('Custom TTL msg', 'war_ended', 'custom-ttl-1', -1001, 0);
+        const customNotifId =
+            h.notificationRepo.getPending(10, h.clock.nowEpochSeconds())[0]?.id ?? 0;
+        expect(h.notificationRepo.claimForSending(customNotifId, h.clock.nowEpochSeconds())).toBe(
+            true,
+        );
+
+        const customTtlWorker = new NotificationWorker({
+            notificationRepo: h.notificationRepo,
+            telegramGateway: h.fakeGateway,
+            clock: h.clock,
+            claimTtlSeconds: 15,
+        });
+
+        h.clock.advance(14_000);
+        await customTtlWorker.processPending();
+        expect(getNotificationState(h.db, customNotifId).status).toBe('sending');
+
+        h.clock.advance(1_000);
+        await customTtlWorker.processPending();
+        expect(getNotificationState(h.db, customNotifId).status).toBe('sent');
     });
 });

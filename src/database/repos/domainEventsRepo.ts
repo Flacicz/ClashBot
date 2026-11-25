@@ -247,7 +247,7 @@ export class DomainEventsRepo {
                            AND status = 'pending';`,
                     )
                     .run(destinationId);
-                return result.changes > 0;
+                return result.changes === 1;
             },
         );
     }

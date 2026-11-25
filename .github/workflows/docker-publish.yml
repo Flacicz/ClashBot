@@ -232,8 +232,8 @@ jobs:
               if (integrity !== "ok") {
                 throw new Error(`Unexpected PRAGMA integrity_check: ${String(integrity)}`);
               }
-              if (!row || row.count !== 12 || typeof row.latest !== "string" || !row.latest.startsWith("012_")) {
-                throw new Error(`Expected 12 SQLite migrations ending at 012_*, got: ${JSON.stringify(row)}`);
+              if (!row || row.count !== 13 || typeof row.latest !== "string" || !row.latest.startsWith("013_")) {
+                throw new Error(`Expected 13 SQLite migrations ending at 013_*, got: ${JSON.stringify(row)}`);
               }
               console.log(`Verified SQLite integrity=ok, migrations=${row.count}, latest=${row.latest}`);
             '
