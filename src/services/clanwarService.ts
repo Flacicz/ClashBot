@@ -171,19 +171,16 @@ export class ClanwarService implements SyncService {
 
         try {
             const syncResult = this.transactionManager.retryInTransaction(() => {
+                const nowEpochSeconds = this.clock.nowEpochSeconds();
                 const warReference = this.clanwarRepo.saveCompleteClanwarData(
                     clanwar,
                     clans,
                     attacks,
                     members,
+                    nowEpochSeconds,
                 );
 
-                const events = generateEvents(
-                    clanTag,
-                    clanwar,
-                    warReference,
-                    this.clock.nowEpochSeconds(),
-                );
+                const events = generateEvents(clanTag, clanwar, warReference, nowEpochSeconds);
 
                 if (events.length > 0) {
                     this.domainEventRecorder.recordAll(events);

@@ -585,11 +585,17 @@ describe('ClanwarRepo', () => {
             .get();
         const seasonId = seasonRow?.cwl_season_id ?? 0;
 
-        const saveRegular = (uid: string, prepTime: number, clanTag = '#HOME') =>
+        const saveRegular = (
+            uid: string,
+            prepTime: number,
+            clanTag = '#HOME',
+            state = 'warEnded',
+        ) =>
             repo.saveCompleteClanwarData(
                 makeWar({
                     warUID: uid,
                     clanTag,
+                    state,
                     warType: WarTypes.Regular,
                     preparationStartTime: prepTime,
                     startTime: prepTime + 100,
@@ -651,6 +657,160 @@ describe('ClanwarRepo', () => {
 
         // CWL war does not match current_war (war_type = 'regular')
         expect(repo.getPreviousClanwars(cwlRound, 3)).toEqual([]);
+    });
+
+    it('tracks is_complete monotonically and updates last_observed_at on every save', () => {
+        const { db, repo } = setup();
+
+        const baseWar = makeWar({ warUID: 'war-completeness', state: 'preparation' });
+        const warId1 = repo.saveClanwar(baseWar, 1_700_000_100);
+        const prepRow = db.connection
+            .prepare<[number], { state: string; is_complete: number; last_observed_at: number }>(
+                'SELECT state, is_complete, last_observed_at FROM wars WHERE war_id = ?;',
+            )
+            .get(warId1);
+        expect(prepRow).toEqual({
+            state: 'preparation',
+            is_complete: 0,
+            last_observed_at: 1_700_000_100,
+        });
+
+        const warId2 = repo.saveClanwar({ ...baseWar, state: 'inWar' }, 1_700_000_200);
+        expect(warId2).toBe(warId1);
+        const inWarRow = db.connection
+            .prepare<[number], { state: string; is_complete: number; last_observed_at: number }>(
+                'SELECT state, is_complete, last_observed_at FROM wars WHERE war_id = ?;',
+            )
+            .get(warId1);
+        expect(inWarRow).toEqual({
+            state: 'inWar',
+            is_complete: 0,
+            last_observed_at: 1_700_000_200,
+        });
+
+        const warId3 = repo.saveClanwar({ ...baseWar, state: 'warEnded' }, 1_700_000_300);
+        expect(warId3).toBe(warId1);
+        const endedRow = db.connection
+            .prepare<[number], { state: string; is_complete: number; last_observed_at: number }>(
+                'SELECT state, is_complete, last_observed_at FROM wars WHERE war_id = ?;',
+            )
+            .get(warId1);
+        expect(endedRow).toEqual({
+            state: 'warEnded',
+            is_complete: 1,
+            last_observed_at: 1_700_000_300,
+        });
+
+        // Stale non-final save must NOT regress is_complete or state, while updating last_observed_at
+        const warId4 = repo.saveClanwar({ ...baseWar, state: 'inWar' }, 1_700_000_400);
+        expect(warId4).toBe(warId1);
+        const afterStaleRow = db.connection
+            .prepare<[number], { state: string; is_complete: number; last_observed_at: number }>(
+                'SELECT state, is_complete, last_observed_at FROM wars WHERE war_id = ?;',
+            )
+            .get(warId1);
+        expect(afterStaleRow).toEqual({
+            state: 'warEnded',
+            is_complete: 1,
+            last_observed_at: 1_700_000_400,
+        });
+    });
+
+    it('excludes unfinished/incomplete wars from getPreviousClanwars and counts skipped incomplete wars in window', () => {
+        const { db, repo } = setup();
+
+        const saveWar = (
+            uid: string,
+            prepTime: number,
+            state: string,
+            warType: (typeof WarTypes)[keyof typeof WarTypes] = WarTypes.Regular,
+            clanTag = '#HOME',
+        ) =>
+            repo.saveCompleteClanwarData(
+                makeWar({
+                    warUID: uid,
+                    clanTag,
+                    state,
+                    warType,
+                    preparationStartTime: prepTime,
+                    startTime: prepTime + 100,
+                    endTime: prepTime + 200,
+                }),
+                {
+                    home: makeHomeClan({ clanTag }),
+                    opponent: makeOpponentClan({ clanTag: `#OPP-${uid}` }),
+                },
+                [],
+                { home: [], opponent: [] },
+            );
+
+        // History for #HOME:
+        // T=1000: incomplete (inWar) -> older than 4th complete war when limit=4
+        saveWar('w-old-inwar', 1_000, 'inWar');
+        // T=2000: complete
+        const c1 = saveWar('w-c1', 2_000, 'warEnded');
+        // T=3000: complete
+        const c2 = saveWar('w-c2', 3_000, 'warEnded');
+        // T=3500: incomplete (preparation) inside window
+        saveWar('w-prep-gap', 3_500, 'preparation');
+        // T=4000: state=warEnded but forced is_complete=0 (corrupted/incomplete)
+        const incompleteEnded = saveWar('w-incomplete-ended', 4_000, 'warEnded');
+        db.connection
+            .prepare('UPDATE wars SET is_complete = 0 WHERE war_id = ?;')
+            .run(incompleteEnded.warId);
+        // T=4500: CWL inWar and other clan inWar must NOT be counted
+        saveWar('cwl-inwar', 4_500, 'inWar', WarTypes.CWL, '#HOME');
+        saveWar('other-inwar', 4_600, 'inWar', WarTypes.Regular, '#OTHER');
+        // T=5000: complete
+        const c3 = saveWar('w-c3', 5_000, 'warEnded');
+        // T=6000: incomplete (inWar) inside window
+        saveWar('w-recent-inwar', 6_000, 'inWar');
+        // T=7000: complete
+        const c4 = saveWar('w-c4', 7_000, 'warEnded');
+        // T=8000: current war (complete)
+        const current = saveWar('w-current', 8_000, 'warEnded');
+        // T=9000: future incomplete war must NOT be counted
+        saveWar('w-future-inwar', 9_000, 'inWar');
+
+        // Limit 4 reaches 4 complete wars [c4, c3, c2, c1] (oldest included T=2000).
+        // Incomplete regular wars in [2000, 8000): w-recent-inwar (6000), w-incomplete-ended (4000), w-prep-gap (3500) => 3.
+        // w-old-inwar (1000) is outside the [2000, 8000) window!
+        expect(repo.getPreviousClanwars(current, 4).map((r) => r.warId)).toEqual([
+            c4.warId,
+            c3.warId,
+            c2.warId,
+            c1.warId,
+        ]);
+        expect(repo.countSkippedIncompleteClanwars(current, 4)).toBe(3);
+
+        // Limit 2 reaches [c4, c3] (oldest included T=5000) => only w-recent-inwar (6000) is in window.
+        expect(repo.getPreviousClanwars(current, 2).map((r) => r.warId)).toEqual([
+            c4.warId,
+            c3.warId,
+        ]);
+        expect(repo.countSkippedIncompleteClanwars(current, 2)).toBe(1);
+
+        // Limit 5 has fewer complete wars than limit (4 < 5) => spans all available history before current,
+        // so w-old-inwar (1000) is ALSO counted => 4 skipped incomplete wars.
+        expect(repo.getPreviousClanwars(current, 5).map((r) => r.warId)).toEqual([
+            c4.warId,
+            c3.warId,
+            c2.warId,
+            c1.warId,
+        ]);
+        expect(repo.countSkippedIncompleteClanwars(current, 5)).toBe(4);
+
+        // Non-positive limit returns 0
+        expect(repo.countSkippedIncompleteClanwars(current, 0)).toBe(0);
+        expect(repo.countSkippedIncompleteClanwars(current, -1)).toBe(0);
+
+        // New clan with fewer than 4 complete wars and NO incomplete wars => 0 skipped
+        const newClanPrev = saveWar('new-1', 1_000, 'warEnded', WarTypes.Regular, '#NEWCLAN');
+        const newClanCurr = saveWar('new-2', 2_000, 'warEnded', WarTypes.Regular, '#NEWCLAN');
+        expect(repo.getPreviousClanwars(newClanCurr, 4).map((r) => r.warId)).toEqual([
+            newClanPrev.warId,
+        ]);
+        expect(repo.countSkippedIncompleteClanwars(newClanCurr, 4)).toBe(0);
     });
 
     it('enforces SQLite CHECK constraints on attack stars and order_num and throws DatabaseError on missing rows', () => {

@@ -474,4 +474,113 @@ describe('RaidRepo', () => {
         // Unknown raidId returns []
         expect(raidRepo.getPreviousRaids({ raidId: 9999 }, 3)).toEqual([]);
     });
+
+    it('tracks is_complete monotonically and updates last_observed_at on every raid save', () => {
+        const { db, clansRepo, raidRepo } = createMigratedDb();
+
+        clansRepo.insertMinimalClan('#CLAN1');
+
+        const startTime = 1_700_000_000;
+        const firstRef = raidRepo.saveRaid(
+            makeRaid({ clanTag: '#CLAN1', startTime, state: 'ongoing' }),
+            1_700_000_100,
+        );
+        const ongoingRow = db.connection
+            .prepare<[number], { state: string; is_complete: number; last_observed_at: number }>(
+                'SELECT state, is_complete, last_observed_at FROM clan_raids WHERE id = ?;',
+            )
+            .get(firstRef.raidId);
+        expect(ongoingRow).toEqual({
+            state: 'ongoing',
+            is_complete: 0,
+            last_observed_at: 1_700_000_100,
+        });
+
+        const endedRef = raidRepo.saveRaid(
+            makeRaid({ clanTag: '#CLAN1', startTime, state: 'ended' }),
+            1_700_000_200,
+        );
+        expect(endedRef).toEqual(firstRef);
+        const endedRow = db.connection
+            .prepare<[number], { state: string; is_complete: number; last_observed_at: number }>(
+                'SELECT state, is_complete, last_observed_at FROM clan_raids WHERE id = ?;',
+            )
+            .get(firstRef.raidId);
+        expect(endedRow).toEqual({
+            state: 'ended',
+            is_complete: 1,
+            last_observed_at: 1_700_000_200,
+        });
+
+        // Stale ongoing save must preserve is_complete = 1 and state = 'ended' while updating last_observed_at
+        const staleRef = raidRepo.saveRaid(
+            makeRaid({ clanTag: '#CLAN1', startTime, state: 'ongoing' }),
+            1_700_000_300,
+        );
+        expect(staleRef).toEqual(firstRef);
+        const afterStaleRow = db.connection
+            .prepare<[number], { state: string; is_complete: number; last_observed_at: number }>(
+                'SELECT state, is_complete, last_observed_at FROM clan_raids WHERE id = ?;',
+            )
+            .get(firstRef.raidId);
+        expect(afterStaleRow).toEqual({
+            state: 'ended',
+            is_complete: 1,
+            last_observed_at: 1_700_000_300,
+        });
+    });
+
+    it('excludes ongoing/scheduled and is_complete = 0 raids from getPreviousRaids and counts skipped incomplete raids', () => {
+        const { db, clansRepo, raidRepo } = createMigratedDb();
+
+        clansRepo.insertMinimalClan('#CLAN1');
+        clansRepo.insertMinimalClan('#CLAN2');
+
+        // T=1000: ongoing (outside window once limit=3 complete raids are found)
+        raidRepo.saveRaid(makeRaid({ clanTag: '#CLAN1', startTime: 1000, state: 'ongoing' }));
+        // T=2000: ended complete
+        const r1 = raidRepo.saveRaid(
+            makeRaid({ clanTag: '#CLAN1', startTime: 2000, state: 'ended' }),
+        );
+        // T=2500: scheduled incomplete inside window
+        raidRepo.saveRaid(makeRaid({ clanTag: '#CLAN1', startTime: 2500, state: 'scheduled' }));
+        // T=3000: ended complete
+        const r2 = raidRepo.saveRaid(
+            makeRaid({ clanTag: '#CLAN1', startTime: 3000, state: 'ended' }),
+        );
+        // T=3500: ended but forced is_complete = 0 inside window
+        const incompleteEnded = raidRepo.saveRaid(
+            makeRaid({ clanTag: '#CLAN1', startTime: 3500, state: 'ended' }),
+        );
+        db.connection
+            .prepare('UPDATE clan_raids SET is_complete = 0 WHERE id = ?;')
+            .run(incompleteEnded.raidId);
+        // T=4000: ended complete
+        const r3 = raidRepo.saveRaid(
+            makeRaid({ clanTag: '#CLAN1', startTime: 4000, state: 'ended' }),
+        );
+        // T=4500: ongoing inside window + another clan's ongoing raid
+        raidRepo.saveRaid(makeRaid({ clanTag: '#CLAN1', startTime: 4500, state: 'ongoing' }));
+        raidRepo.saveRaid(makeRaid({ clanTag: '#CLAN2', startTime: 4600, state: 'ongoing' }));
+        // T=5000: current ended raid
+        const current = raidRepo.saveRaid(
+            makeRaid({ clanTag: '#CLAN1', startTime: 5000, state: 'ended' }),
+        );
+        // T=6000: future ongoing raid
+        raidRepo.saveRaid(makeRaid({ clanTag: '#CLAN1', startTime: 6000, state: 'ongoing' }));
+
+        // Limit 3 finds [r3, r2, r1] (oldest included T=2000); skips 2500, 3500, 4500 => 3 skipped (excludes T=1000)
+        expect(raidRepo.getPreviousRaids(current, 3)).toEqual([r3, r2, r1]);
+        expect(raidRepo.countSkippedIncompleteRaids(current, 3)).toBe(3);
+
+        // Limit 4 has fewer complete raids than limit (3 < 4) => spans all history before current, includes T=1000 => 4 skipped
+        expect(raidRepo.getPreviousRaids(current, 4)).toEqual([r3, r2, r1]);
+        expect(raidRepo.countSkippedIncompleteRaids(current, 4)).toBe(4);
+
+        // Limit 1 finds [r3] (oldest included T=4000) => skips only T=4500 => 1 skipped
+        expect(raidRepo.getPreviousRaids(current, 1)).toEqual([r3]);
+        expect(raidRepo.countSkippedIncompleteRaids(current, 1)).toBe(1);
+
+        expect(raidRepo.countSkippedIncompleteRaids(current, 0)).toBe(0);
+    });
 });
