@@ -1,5 +1,15 @@
-import { escapeHtml, formatUnixToMoscowDateTime } from '../common/formatUtils.js';
+import {
+    escapeHtml,
+    formatRemainingTimePhrase,
+    formatUnixToMoscowDateTime,
+} from '../common/formatUtils.js';
 import { RAID_REMINDER_KINDS, type RaidReminderEvent } from '../events/applicationEvents.js';
+
+const SECONDS_PER_HOUR = 60 * 60;
+const NOMINAL_FORTY_EIGHT_HOURS_SECONDS = 48 * SECONDS_PER_HOUR;
+const NOMINAL_TWENTY_FOUR_HOURS_SECONDS = 24 * SECONDS_PER_HOUR;
+const NOMINAL_SIX_HOURS_SECONDS = 6 * SECONDS_PER_HOUR;
+const NOMINAL_ONE_HOUR_SECONDS = 1 * SECONDS_PER_HOUR;
 
 function formatRaidDetails(event: RaidReminderEvent): string {
     return (
@@ -40,32 +50,44 @@ export class RaidReminderFormatter {
     }
 
     static formatFortyEightHoursLeftReminder(event: RaidReminderEvent): string {
+        const remaining = formatRemainingTimePhrase(
+            event.remainingSeconds ?? NOMINAL_FORTY_EIGHT_HOURS_SECONDS,
+        );
         return (
-            '⏳ <b>До окончания рейдовых выходных осталось 48 часов</b>\n\n' +
+            `⏳ <b>До окончания рейдовых выходных ${remaining}</b>\n\n` +
             formatRaidDetails(event) +
             '📢 Участники рейда, проверьте, что вы начали использовать свои атаки.'
         );
     }
 
     static formatTwentyFourHoursLeftReminder(event: RaidReminderEvent): string {
+        const remaining = formatRemainingTimePhrase(
+            event.remainingSeconds ?? NOMINAL_TWENTY_FOUR_HOURS_SECONDS,
+        );
         return (
-            '⏳ <b>До окончания рейдовых выходных осталось 24 часа</b>\n\n' +
+            `⏳ <b>До окончания рейдовых выходных ${remaining}</b>\n\n` +
             formatRaidDetails(event) +
             '📢 Участники рейда, не забудьте использовать оставшиеся атаки.'
         );
     }
 
     static formatSixHoursLeftReminder(event: RaidReminderEvent): string {
+        const remaining = formatRemainingTimePhrase(
+            event.remainingSeconds ?? NOMINAL_SIX_HOURS_SECONDS,
+        );
         return (
-            '🚨 <b>До окончания рейдовых выходных осталось 6 часов</b>\n\n' +
+            `🚨 <b>До окончания рейдовых выходных ${remaining}</b>\n\n` +
             formatRaidDetails(event) +
             '⚔️ Участники рейда, завершите оставшиеся атаки.'
         );
     }
 
     static formatOneHourLeftReminder(event: RaidReminderEvent): string {
+        const remaining = formatRemainingTimePhrase(
+            event.remainingSeconds ?? NOMINAL_ONE_HOUR_SECONDS,
+        );
         return (
-            '🚨 <b>До окончания рейдовых выходных остался 1 час</b>\n\n' +
+            `🚨 <b>До окончания рейдовых выходных ${remaining}</b>\n\n` +
             formatRaidDetails(event) +
             '⏰ Участники рейда, это последнее напоминание — завершите оставшиеся атаки!'
         );

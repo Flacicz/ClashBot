@@ -8,11 +8,12 @@ import type { TransactionManager } from '../database/transactionManager.js';
 import type { DomainEventRecorder } from '../domainEvents/domainEventRecorder.js';
 import {
     APPLICATION_EVENT_TYPES,
+    WAR_REMINDER_KINDS,
     WAR_REMINDER_WAR_KINDS,
     type ApplicationEvent,
 } from '../events/applicationEvents.js';
 import type { Logger } from '../logging/logger.js';
-import { getActiveWarReminderKinds } from './reminders.js';
+import { selectWarReminders } from './reminders.js';
 import { createSyncError, createSyncSuccess, type SyncResult } from './syncResult.js';
 import type { SyncService } from './syncService.js';
 
@@ -68,27 +69,47 @@ function isPrivateWarLogError(error: unknown): boolean {
     return true;
 }
 
+interface GeneratedWarEvents {
+    readonly events: ApplicationEvent[];
+    readonly skippedEvents: ApplicationEvent[];
+}
+
 function generateEvents(
     clanTag: string,
     clanwar: Clanwar,
     warReference: ClanwarReference,
     nowEpochSeconds: number,
-): ApplicationEvent[] {
+): GeneratedWarEvents {
     const events: ApplicationEvent[] = [];
+    const skippedEvents: ApplicationEvent[] = [];
 
-    for (const kind of getActiveWarReminderKinds(
-        clanwar.startTime,
-        clanwar.endTime,
-        nowEpochSeconds,
-    )) {
-        events.push({
-            type: APPLICATION_EVENT_TYPES.warReminder,
-            clanTag,
-            warId: warReference.warId,
-            endTime: clanwar.endTime,
-            warKind: WAR_REMINDER_WAR_KINDS.regular,
-            kind,
-        });
+    if (clanwar.state !== 'warEnded') {
+        const selection = selectWarReminders(clanwar.startTime, clanwar.endTime, nowEpochSeconds);
+
+        for (const kind of selection.skippedKinds) {
+            skippedEvents.push({
+                type: APPLICATION_EVENT_TYPES.warReminder,
+                clanTag,
+                warId: warReference.warId,
+                endTime: clanwar.endTime,
+                warKind: WAR_REMINDER_WAR_KINDS.regular,
+                kind,
+            });
+        }
+
+        if (selection.activeKind !== null) {
+            events.push({
+                type: APPLICATION_EVENT_TYPES.warReminder,
+                clanTag,
+                warId: warReference.warId,
+                endTime: clanwar.endTime,
+                warKind: WAR_REMINDER_WAR_KINDS.regular,
+                kind: selection.activeKind,
+                ...(selection.activeKind !== WAR_REMINDER_KINDS.started
+                    ? { remainingSeconds: selection.remainingSeconds }
+                    : {}),
+            });
+        }
     }
 
     if (clanwar.state === 'warEnded') {
@@ -99,7 +120,7 @@ function generateEvents(
         });
     }
 
-    return events;
+    return { events, skippedEvents };
 }
 
 export class ClanwarService implements SyncService {
@@ -180,7 +201,16 @@ export class ClanwarService implements SyncService {
                     nowEpochSeconds,
                 );
 
-                const events = generateEvents(clanTag, clanwar, warReference, nowEpochSeconds);
+                const { events, skippedEvents } = generateEvents(
+                    clanTag,
+                    clanwar,
+                    warReference,
+                    nowEpochSeconds,
+                );
+
+                if (skippedEvents.length > 0) {
+                    this.domainEventRecorder.recordSkipped(skippedEvents);
+                }
 
                 if (events.length > 0) {
                     this.domainEventRecorder.recordAll(events);

@@ -154,6 +154,31 @@ describe('DomainEventPayloadDeserializer', () => {
             const record = serializer.serialize(event);
             expect(deserializeDomainEventRecord(record)).toEqual(event);
         }
+
+        const warWithRemaining: ApplicationEvent = {
+            type: APPLICATION_EVENT_TYPES.warReminder,
+            clanTag: CLAN_TAG,
+            warId: 101,
+            endTime: 1704067200,
+            warKind: WAR_REMINDER_WAR_KINDS.regular,
+            kind: WAR_REMINDER_KINDS.oneHourLeft,
+            remainingSeconds: 1800,
+        };
+        expect(deserializeDomainEventRecord(serializer.serialize(warWithRemaining))).toEqual(
+            warWithRemaining,
+        );
+
+        const raidWithRemaining: ApplicationEvent = {
+            type: APPLICATION_EVENT_TYPES.raidReminder,
+            clanTag: CLAN_TAG,
+            raidReference: { raidId: 201 },
+            endTime: 1704067200,
+            kind: RAID_REMINDER_KINDS.sixHoursLeft,
+            remainingSeconds: 13500,
+        };
+        expect(deserializeDomainEventRecord(serializer.serialize(raidWithRemaining))).toEqual(
+            raidWithRemaining,
+        );
     });
 
     it('is deterministic across repeated deserializations of the same payload', () => {
@@ -300,5 +325,36 @@ describe('DomainEventPayloadDeserializer', () => {
                 CURRENT_DOMAIN_EVENT_PAYLOAD_VERSION,
             ),
         ).toThrow(ValidationError);
+
+        // Negative or non-integer remaining_seconds
+        for (const badRemaining of [-1, 12.5]) {
+            expect(() =>
+                deserializeDomainEvent(
+                    CLAN_TAG,
+                    APPLICATION_EVENT_TYPES.warReminder,
+                    JSON.stringify({
+                        war_id: 1,
+                        end_time: 1704067200,
+                        war_kind: 'regular',
+                        reminder_kind: 'one_hour_left',
+                        remaining_seconds: badRemaining,
+                    }),
+                    CURRENT_DOMAIN_EVENT_PAYLOAD_VERSION,
+                ),
+            ).toThrow(ValidationError);
+            expect(() =>
+                deserializeDomainEvent(
+                    CLAN_TAG,
+                    APPLICATION_EVENT_TYPES.raidReminder,
+                    JSON.stringify({
+                        raid_reference: { raid_id: 1 },
+                        end_time: 1704067200,
+                        reminder_kind: 'one_hour_left',
+                        remaining_seconds: badRemaining,
+                    }),
+                    CURRENT_DOMAIN_EVENT_PAYLOAD_VERSION,
+                ),
+            ).toThrow(ValidationError);
+        }
     });
 });

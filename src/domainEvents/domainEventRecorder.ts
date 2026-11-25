@@ -47,4 +47,16 @@ export class DomainEventRecorder {
             this.domainEventsRepo.appendEvent(serialized, destinationRecords);
         }
     }
+
+    /**
+     * Records skipped domain events (e.g. missed/superseded reminder checkpoints) in
+     * `domain_events` without any `domain_event_destinations` so they are never sent
+     * and cannot be re-emitted on subsequent sync cycles.
+     */
+    recordSkipped(events: readonly ApplicationEvent[]): void {
+        for (const event of events) {
+            const serialized = this.serializer.serialize(event);
+            this.domainEventsRepo.appendEvent(serialized, []);
+        }
+    }
 }

@@ -8,11 +8,12 @@ import type { TransactionManager } from '../database/transactionManager.js';
 import type { DomainEventRecorder } from '../domainEvents/domainEventRecorder.js';
 import {
     APPLICATION_EVENT_TYPES,
+    WAR_REMINDER_KINDS,
     WAR_REMINDER_WAR_KINDS,
     type ApplicationEvent,
 } from '../events/applicationEvents.js';
 import type { Logger } from '../logging/logger.js';
-import { getActiveWarReminderKinds } from './reminders.js';
+import { selectWarReminders } from './reminders.js';
 import { createSyncError, createSyncSuccess, type SyncResult } from './syncResult.js';
 import type { SyncService } from './syncService.js';
 
@@ -35,24 +36,48 @@ function throwIfAborted(signal: AbortSignal | undefined, serviceName: string): v
     throw new AbortError(`[Service: ${serviceName}] Operation aborted`, { cause: reason });
 }
 
+interface GeneratedRoundEvents {
+    readonly events: ApplicationEvent[];
+    readonly skippedEvents: ApplicationEvent[];
+}
+
 function generateRoundEvents(
     clanTag: string,
     cwlSeasonId: number,
     war: Clanwar,
     warReference: ClanwarReference,
     nowEpochSeconds: number,
-): ApplicationEvent[] {
+): GeneratedRoundEvents {
     const events: ApplicationEvent[] = [];
+    const skippedEvents: ApplicationEvent[] = [];
 
-    for (const kind of getActiveWarReminderKinds(war.startTime, war.endTime, nowEpochSeconds)) {
-        events.push({
-            type: APPLICATION_EVENT_TYPES.warReminder,
-            clanTag,
-            warId: warReference.warId,
-            endTime: war.endTime,
-            warKind: WAR_REMINDER_WAR_KINDS.cwl,
-            kind,
-        });
+    if (war.state !== 'warEnded') {
+        const selection = selectWarReminders(war.startTime, war.endTime, nowEpochSeconds);
+
+        for (const kind of selection.skippedKinds) {
+            skippedEvents.push({
+                type: APPLICATION_EVENT_TYPES.warReminder,
+                clanTag,
+                warId: warReference.warId,
+                endTime: war.endTime,
+                warKind: WAR_REMINDER_WAR_KINDS.cwl,
+                kind,
+            });
+        }
+
+        if (selection.activeKind !== null) {
+            events.push({
+                type: APPLICATION_EVENT_TYPES.warReminder,
+                clanTag,
+                warId: warReference.warId,
+                endTime: war.endTime,
+                warKind: WAR_REMINDER_WAR_KINDS.cwl,
+                kind: selection.activeKind,
+                ...(selection.activeKind !== WAR_REMINDER_KINDS.started
+                    ? { remainingSeconds: selection.remainingSeconds }
+                    : {}),
+            });
+        }
     }
 
     if (war.state === 'warEnded') {
@@ -64,7 +89,7 @@ function generateRoundEvents(
         });
     }
 
-    return events;
+    return { events, skippedEvents };
 }
 
 export class ClanwarLeagueService implements SyncService {
@@ -139,6 +164,7 @@ export class ClanwarLeagueService implements SyncService {
         try {
             const syncResult = this.transactionManager.retryInTransaction(() => {
                 const events: ApplicationEvent[] = [];
+                const skippedEvents: ApplicationEvent[] = [];
                 const cwlSeasonId = this.clanwarsLeagueRepo.saveCompleteCWLData(
                     clanwarsLeagueSeason,
                     clanwarsLeagueMembers,
@@ -160,14 +186,19 @@ export class ClanwarLeagueService implements SyncService {
                         nowEpochSeconds,
                     );
 
-                    const roundEvents = generateRoundEvents(
+                    const roundResult = generateRoundEvents(
                         clanTag,
                         cwlSeasonId,
                         warToSave,
                         warReference,
                         nowEpochSeconds,
                     );
-                    events.push(...roundEvents);
+                    events.push(...roundResult.events);
+                    skippedEvents.push(...roundResult.skippedEvents);
+                }
+
+                if (skippedEvents.length > 0) {
+                    this.domainEventRecorder.recordSkipped(skippedEvents);
                 }
 
                 if (events.length > 0) {
