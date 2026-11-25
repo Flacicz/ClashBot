@@ -18,6 +18,8 @@ export interface PendingNotification {
     readonly chatId: number;
     readonly messageThreadId: number;
     readonly messageText: string;
+    readonly partIndex: number;
+    readonly partCount: number;
     readonly attempts: number;
 }
 
@@ -40,7 +42,19 @@ interface PendingNotificationRow {
     readonly chat_id: number;
     readonly message_thread_id: number;
     readonly message_text: string;
+    readonly part_index: number;
+    readonly part_count: number;
     readonly attempts: number;
+}
+
+interface FailedNotificationIdentityRow {
+    readonly domain_event_destination_id: number | null;
+    readonly event_type: string;
+    readonly event_id: string;
+    readonly chat_id: number;
+    readonly message_thread_id: number;
+    readonly part_index: number;
+    readonly part_count: number;
 }
 
 const REPO_NAME = 'NotificationRepo';
@@ -58,22 +72,26 @@ export class NotificationRepo {
         eventId: string,
         chatId: number,
         messageThreadId: number,
+        partIndex = 1,
+        partCount = 1,
     ): boolean {
         return runRepoQuery(
             REPO_NAME,
             'enqueue notification',
-            { eventType, eventId, chatId, messageThreadId },
+            { eventType, eventId, chatId, messageThreadId, partIndex, partCount },
             () => {
                 const row = getConnection(this.source)
-                    .prepare<[string, string, number, number, string], IdRow>(
+                    .prepare<[string, string, number, number, string, number, number], IdRow>(
                         `INSERT INTO notifications (
                              event_type,
                              event_id,
                              chat_id,
                              message_thread_id,
-                             message_text
+                             message_text,
+                             part_index,
+                             part_count
                          )
-                         VALUES (?, ?, ?, ?, ?)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)
                          ON CONFLICT (
                              event_type,
                              event_id,
@@ -83,7 +101,15 @@ export class NotificationRepo {
                          ) WHERE domain_event_destination_id IS NULL DO NOTHING
                          RETURNING id;`,
                     )
-                    .get(eventType, eventId, chatId, messageThreadId, message);
+                    .get(
+                        eventType,
+                        eventId,
+                        chatId,
+                        messageThreadId,
+                        message,
+                        partIndex,
+                        partCount,
+                    );
                 return row !== undefined;
             },
         );
@@ -158,21 +184,45 @@ export class NotificationRepo {
             () => {
                 const rows = getConnection(this.source)
                     .prepare<[number | null, number | null, number], PendingNotificationRow>(
-                        `SELECT id,
-                                event_type,
-                                event_id,
-                                chat_id,
-                                message_thread_id,
-                                message_text,
-                                attempts
-                         FROM notifications
-                         WHERE status = 'pending'
-                           AND (next_attempt_at IS NULL
-                                OR (attempts = 0
-                                    AND next_attempt_at <= MAX(COALESCE(?, 0), CAST(strftime('%s', 'now') AS INTEGER)))
-                                OR (attempts > 0
-                                    AND next_attempt_at <= COALESCE(?, CAST(strftime('%s', 'now') AS INTEGER))))
-                         ORDER BY created_at, id
+                        `SELECT n.id,
+                                n.event_type,
+                                n.event_id,
+                                n.chat_id,
+                                n.message_thread_id,
+                                n.message_text,
+                                n.part_index,
+                                n.part_count,
+                                n.attempts
+                         FROM notifications n
+                         WHERE n.status = 'pending'
+                           AND (n.next_attempt_at IS NULL
+                                OR (n.attempts = 0
+                                    AND n.next_attempt_at <= MAX(COALESCE(?, 0), CAST(strftime('%s', 'now') AS INTEGER)))
+                                OR (n.attempts > 0
+                                    AND n.next_attempt_at <= COALESCE(?, CAST(strftime('%s', 'now') AS INTEGER))))
+                           AND (
+                               n.part_index = 1
+                               OR NOT EXISTS (
+                                   SELECT 1
+                                   FROM notifications prev
+                                   WHERE prev.part_index < n.part_index
+                                     AND prev.status != 'sent'
+                                     AND (
+                                         (n.domain_event_destination_id IS NOT NULL
+                                             AND prev.domain_event_destination_id = n.domain_event_destination_id
+                                             AND prev.event_type = n.event_type
+                                             AND prev.event_id = n.event_id)
+                                         OR
+                                         (n.domain_event_destination_id IS NULL
+                                             AND prev.domain_event_destination_id IS NULL
+                                             AND prev.event_type = n.event_type
+                                             AND prev.event_id = n.event_id
+                                             AND prev.chat_id = n.chat_id
+                                             AND prev.message_thread_id = n.message_thread_id)
+                                     )
+                               )
+                           )
+                         ORDER BY n.created_at, n.id
                          LIMIT ?;`,
                     )
                     .all(nowEpochSeconds ?? null, nowEpochSeconds ?? null, limit);
@@ -184,6 +234,8 @@ export class NotificationRepo {
                     chatId: row.chat_id,
                     messageThreadId: row.message_thread_id,
                     messageText: row.message_text,
+                    partIndex: row.part_index,
+                    partCount: row.part_count,
                     attempts: row.attempts,
                 }));
             },
@@ -274,20 +326,85 @@ export class NotificationRepo {
 
     markAsFailed(notificationId: number, error: string): boolean {
         return runRepoQuery(REPO_NAME, 'mark notification as failed', { notificationId }, () => {
-            const result = getConnection(this.source)
-                .prepare<[string, number]>(
-                    `UPDATE notifications
-                     SET status = 'failed',
-                         attempts = attempts + 1,
-                         next_attempt_at = NULL,
-                         claimed_at = NULL,
-                         last_error = ?,
-                         sent_at = NULL
-                     WHERE id = ?
-                       AND status = 'sending';`,
-                )
-                .run(error, notificationId);
-            return result.changes === 1;
+            const conn = getConnection(this.source);
+            const runAtomic = (): boolean => {
+                const updated = conn
+                    .prepare<[string, number], FailedNotificationIdentityRow>(
+                        `UPDATE notifications
+                         SET status = 'failed',
+                             attempts = attempts + 1,
+                             next_attempt_at = NULL,
+                             claimed_at = NULL,
+                             last_error = ?,
+                             sent_at = NULL
+                         WHERE id = ?
+                           AND status = 'sending'
+                         RETURNING domain_event_destination_id,
+                                   event_type,
+                                   event_id,
+                                   chat_id,
+                                   message_thread_id,
+                                   part_index,
+                                   part_count;`,
+                    )
+                    .get(error, notificationId);
+
+                if (updated === undefined) {
+                    return false;
+                }
+
+                if (updated.part_index < updated.part_count) {
+                    const cascadeError = `Previous part ${String(updated.part_index)}/${String(updated.part_count)} failed: ${error}`;
+                    if (updated.domain_event_destination_id !== null) {
+                        conn.prepare<[string, number, string, string, number]>(
+                            `UPDATE notifications
+                             SET status = 'failed',
+                                 next_attempt_at = NULL,
+                                 claimed_at = NULL,
+                                 last_error = ?,
+                                 sent_at = NULL
+                             WHERE status = 'pending'
+                               AND domain_event_destination_id = ?
+                               AND event_type = ?
+                               AND event_id = ?
+                               AND part_index > ?;`,
+                        ).run(
+                            cascadeError,
+                            updated.domain_event_destination_id,
+                            updated.event_type,
+                            updated.event_id,
+                            updated.part_index,
+                        );
+                    } else {
+                        conn.prepare<[string, string, string, number, number, number]>(
+                            `UPDATE notifications
+                             SET status = 'failed',
+                                 next_attempt_at = NULL,
+                                 claimed_at = NULL,
+                                 last_error = ?,
+                                 sent_at = NULL
+                             WHERE status = 'pending'
+                               AND domain_event_destination_id IS NULL
+                               AND event_type = ?
+                               AND event_id = ?
+                               AND chat_id = ?
+                               AND message_thread_id = ?
+                               AND part_index > ?;`,
+                        ).run(
+                            cascadeError,
+                            updated.event_type,
+                            updated.event_id,
+                            updated.chat_id,
+                            updated.message_thread_id,
+                            updated.part_index,
+                        );
+                    }
+                }
+
+                return true;
+            };
+
+            return conn.inTransaction ? runAtomic() : conn.transaction(runAtomic).immediate();
         });
     }
 

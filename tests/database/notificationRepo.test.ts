@@ -501,4 +501,298 @@ describe('NotificationRepo', () => {
             repo.enqueueDomainEventIfAbsent('Bad part', destId, 'war_ended', '80', -1001, 0, 2, 1);
         }).toThrow(DatabaseError);
     });
+
+    it('enforces strict 1..N ordering in getPending for multi-part durable and legacy notifications', () => {
+        const { domainEventsRepo, repo } = setup();
+        const destId = createDestination(domainEventsRepo, '90', 10);
+
+        // Durable 3-part report + independent 1-part report on the same destination
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Part 1',
+                destId,
+                'war_roster_reliability',
+                '90',
+                -1001,
+                0,
+                1,
+                3,
+            ),
+        ).toBe(true);
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Part 2',
+                destId,
+                'war_roster_reliability',
+                '90',
+                -1001,
+                0,
+                2,
+                3,
+            ),
+        ).toBe(true);
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Part 3',
+                destId,
+                'war_roster_reliability',
+                '90',
+                -1001,
+                0,
+                3,
+                3,
+            ),
+        ).toBe(true);
+        // Duplicate part_index=2 is ignored
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Part 2 dup',
+                destId,
+                'war_roster_reliability',
+                '90',
+                -1001,
+                0,
+                2,
+                3,
+            ),
+        ).toBe(false);
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Violations',
+                destId,
+                'war_violations',
+                '90',
+                -1001,
+                0,
+                1,
+                1,
+            ),
+        ).toBe(true);
+
+        // Legacy 2-part report
+        expect(repo.enqueueIfAbsent('Legacy 1', 'war_ended', 'legacy-90', -2002, 0, 1, 2)).toBe(
+            true,
+        );
+        expect(repo.enqueueIfAbsent('Legacy 2', 'war_ended', 'legacy-90', -2002, 0, 2, 2)).toBe(
+            true,
+        );
+        expect(repo.enqueueIfAbsent('Legacy 2 dup', 'war_ended', 'legacy-90', -2002, 0, 2, 2)).toBe(
+            false,
+        );
+
+        // Initially only part 1 of each notification is eligible
+        const batch1 = repo.getPending(20);
+        expect(batch1.map((n) => [n.eventType, n.partIndex, n.partCount])).toEqual([
+            ['war_roster_reliability', 1, 3],
+            ['war_violations', 1, 1],
+            ['war_ended', 1, 2],
+        ]);
+
+        const rosterPart1 = mustExist(batch1[0], 'rosterPart1');
+        const violations = mustExist(batch1[1], 'violations');
+        const legacyPart1 = mustExist(batch1[2], 'legacyPart1');
+
+        const nowTs = Math.floor(Date.now() / 1000);
+
+        // Claiming roster part 1 as 'sending' MUST keep part 2 and part 3 blocked while other notifications stay eligible
+        expect(repo.claimForSending(rosterPart1.id, nowTs)).toBe(true);
+        expect(repo.getPending(20).map((n) => n.id)).toEqual([violations.id, legacyPart1.id]);
+
+        // Rescheduling roster part 1 keeps part 2 and part 3 blocked while other notifications remain eligible
+        const futureTs = nowTs + 600;
+        expect(repo.reschedule(rosterPart1.id, futureTs, 'HTTP 500')).toBe(true);
+        expect(repo.getPending(20).map((n) => n.id)).toEqual([violations.id, legacyPart1.id]);
+
+        // Claiming and marking part 1 sent unlocks ONLY part 2 (part 3 remains blocked)
+        expect(repo.claimForSending(rosterPart1.id, futureTs)).toBe(true);
+        expect(repo.claimForSending(violations.id, nowTs)).toBe(true);
+        expect(repo.claimForSending(legacyPart1.id, nowTs)).toBe(true);
+        expect(repo.markAsSent(rosterPart1.id)).toBe(true);
+        expect(repo.markAsSent(violations.id)).toBe(true);
+        expect(repo.markAsSent(legacyPart1.id)).toBe(true);
+
+        const batch2 = repo.getPending(20);
+        expect(batch2.map((n) => [n.eventType, n.partIndex, n.partCount])).toEqual([
+            ['war_roster_reliability', 2, 3],
+            ['war_ended', 2, 2],
+        ]);
+
+        const rosterPart2 = mustExist(batch2[0], 'rosterPart2');
+        const legacyPart2 = mustExist(batch2[1], 'legacyPart2');
+        expect(repo.claimForSending(rosterPart2.id, nowTs)).toBe(true);
+        expect(repo.claimForSending(legacyPart2.id, nowTs)).toBe(true);
+        expect(repo.markAsSent(rosterPart2.id)).toBe(true);
+        expect(repo.markAsSent(legacyPart2.id)).toBe(true);
+
+        const batch3 = repo.getPending(20);
+        expect(batch3.map((n) => [n.eventType, n.partIndex, n.partCount])).toEqual([
+            ['war_roster_reliability', 3, 3],
+        ]);
+    });
+
+    it('atomically cascades failed status to remaining pending parts without touching sent parts or other notifications', () => {
+        const { db, domainEventsRepo, repo } = setup();
+        const destId = createDestination(domainEventsRepo, '95', 10);
+
+        repo.enqueueDomainEventIfAbsent(
+            'Part 1',
+            destId,
+            'war_roster_reliability',
+            '95',
+            -1001,
+            0,
+            1,
+            3,
+        );
+        repo.enqueueDomainEventIfAbsent(
+            'Part 2',
+            destId,
+            'war_roster_reliability',
+            '95',
+            -1001,
+            0,
+            2,
+            3,
+        );
+        repo.enqueueDomainEventIfAbsent(
+            'Part 3',
+            destId,
+            'war_roster_reliability',
+            '95',
+            -1001,
+            0,
+            3,
+            3,
+        );
+        repo.enqueueDomainEventIfAbsent(
+            'Unrelated',
+            destId,
+            'war_violations',
+            '95',
+            -1001,
+            0,
+            1,
+            1,
+        );
+
+        // Legacy 3-part notification where part 1 is sent and part 2 fails
+        repo.enqueueIfAbsent('Legacy 1', 'war_ended', 'legacy-95', -2002, 0, 1, 3);
+        repo.enqueueIfAbsent('Legacy 2', 'war_ended', 'legacy-95', -2002, 0, 2, 3);
+        repo.enqueueIfAbsent('Legacy 3', 'war_ended', 'legacy-95', -2002, 0, 3, 3);
+
+        const initial = repo.getPending(20);
+        const rosterPart1 = mustExist(
+            initial.find((n) => n.eventType === 'war_roster_reliability'),
+            'rosterPart1',
+        );
+        const unrelated = mustExist(
+            initial.find((n) => n.eventType === 'war_violations'),
+            'unrelated',
+        );
+        const legacyPart1 = mustExist(
+            initial.find((n) => n.eventId === 'legacy-95'),
+            'legacyPart1',
+        );
+
+        const nowTs = Math.floor(Date.now() / 1000);
+
+        // markAsFailed on an unclaimed pending row must NOT transition or cascade
+        expect(repo.markAsFailed(rosterPart1.id, 'unclaimed fail')).toBe(false);
+        expect(repo.isPending(rosterPart1.id)).toBe(true);
+
+        // Claim and fail durable part 1 -> parts 2 and 3 cascade to failed with claimed_at = null; unrelated stays pending
+        expect(repo.claimForSending(rosterPart1.id, nowTs)).toBe(true);
+        expect(repo.markAsFailed(rosterPart1.id, 'HTTP 403 Forbidden')).toBe(true);
+
+        const rosterRows = db.connection
+            .prepare<
+                [number],
+                {
+                    part_index: number;
+                    status: string;
+                    attempts: number;
+                    claimed_at: number | null;
+                    last_error: string | null;
+                }
+            >(
+                `SELECT part_index, status, attempts, claimed_at, last_error
+                 FROM notifications
+                 WHERE domain_event_destination_id = ?
+                   AND event_type = 'war_roster_reliability'
+                 ORDER BY part_index;`,
+            )
+            .all(destId);
+
+        expect(rosterRows).toEqual([
+            {
+                part_index: 1,
+                status: 'failed',
+                attempts: 1,
+                claimed_at: null,
+                last_error: 'HTTP 403 Forbidden',
+            },
+            {
+                part_index: 2,
+                status: 'failed',
+                attempts: 0,
+                claimed_at: null,
+                last_error: 'Previous part 1/3 failed: HTTP 403 Forbidden',
+            },
+            {
+                part_index: 3,
+                status: 'failed',
+                attempts: 0,
+                claimed_at: null,
+                last_error: 'Previous part 1/3 failed: HTTP 403 Forbidden',
+            },
+        ]);
+        expect(repo.isPending(unrelated.id)).toBe(true);
+
+        // Claim and send legacy part 1, then claim and fail legacy part 2 -> part 1 stays sent, part 3 cascades to failed
+        expect(repo.claimForSending(legacyPart1.id, nowTs)).toBe(true);
+        expect(repo.markAsSent(legacyPart1.id)).toBe(true);
+        const legacyPart2 = mustExist(
+            repo.getPending(20).find((n) => n.eventId === 'legacy-95'),
+            'legacyPart2',
+        );
+        expect(legacyPart2.partIndex).toBe(2);
+        expect(repo.claimForSending(legacyPart2.id, nowTs)).toBe(true);
+        expect(repo.markAsFailed(legacyPart2.id, 'HTTP 400 Bad Request')).toBe(true);
+
+        const legacyRows = db.connection
+            .prepare<
+                [string],
+                {
+                    part_index: number;
+                    status: string;
+                    attempts: number;
+                    claimed_at: number | null;
+                    last_error: string | null;
+                }
+            >(
+                `SELECT part_index, status, attempts, claimed_at, last_error
+                 FROM notifications
+                 WHERE event_id = ?
+                 ORDER BY part_index;`,
+            )
+            .all('legacy-95');
+
+        expect(legacyRows).toEqual([
+            { part_index: 1, status: 'sent', attempts: 0, claimed_at: null, last_error: null },
+            {
+                part_index: 2,
+                status: 'failed',
+                attempts: 1,
+                claimed_at: null,
+                last_error: 'HTTP 400 Bad Request',
+            },
+            {
+                part_index: 3,
+                status: 'failed',
+                attempts: 0,
+                claimed_at: null,
+                last_error: 'Previous part 2/3 failed: HTTP 400 Bad Request',
+            },
+        ]);
+    });
 });

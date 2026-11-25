@@ -1,4 +1,11 @@
 export {
+    DEFAULT_TELEGRAM_MAX_VISIBLE_LENGTH,
+    TELEGRAM_HARD_MAX_VISIBLE_LENGTH,
+    countTelegramHtmlVisibleLength,
+    splitHtmlMessage,
+    type SplitHtmlMessageOptions,
+} from './htmlMessageSplitter.js';
+export {
     DEFAULT_NOTIFICATION_PART_COUNT,
     DEFAULT_NOTIFICATION_PART_INDEX,
     NOTIFICATION_EVENT_TYPES,

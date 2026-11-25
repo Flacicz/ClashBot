@@ -1,0 +1,10 @@
+=== PART 1/2 ===
+<b><i>Клановый отчёт &amp; итоги 🔥</i></b>
+<a href="https://example.com/war?id=1&amp;mode=full"><b>Игрок &lt;Alpha&gt; 👨‍👩‍👧‍👦 — 3⭐</b></a>
+
+<i>Часть 1/2</i>
+=== PART 2/2 ===
+<a href="https://example.com/war?id=1&amp;mode=full"><b>Игрок &lt;Beta&gt; ⚔️ — 2⭐</b></a>
+<code>#2PPLQ</code>
+
+<i>Часть 2/2</i>
