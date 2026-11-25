@@ -74,7 +74,7 @@ git diff --check
 - изменения локализованы задачей, без несвязанного рефакторинга и без правок применённых миграций;
 - unit-, integration- и golden-тесты Vitest покрывают применимые штатные, граничные и повторные сценарии;
 - успешно выполнены проверки из раздела «Команды»;
-- для изменений схемы проверены как чистая, так и уже мигрированная БД;
+- для изменений схемы проверены как чистая, так и уже мигрированная БД, и синхронно обновлён Docker smoke-тест в `.github/workflows/docker-publish.yml` (см. `docs/agents/git-workflow.md`);
 - обновлены затронутые документы в `docs/`, `GLOSSARY.md` и `README.md`, если изменились поведение, схема, события или доставка;
 - в описании PR и финальном отчёте указаны: что изменено, какие команды прогнаны (и что не запускалось), ключевые решения и инварианты, какие сценарии доказаны тестами и какие риски остались.
 
@@ -112,3 +112,11 @@ Standard five-label triage vocabulary (`needs-triage`, `needs-info`, `ready-for-
 ### Domain docs
 
 Single-context layout (`GLOSSARY.md` at repo root, `docs/adr/` for ADRs). See `docs/agents/domain.md`.
+
+### Git & PR workflow
+
+Pre-flight `main` sync, wave integration PRs (`<wave-branch> → main`), updating `BEHIND`/`CONFLICTING` PRs without `--force`, SQL migration smoke-test checklist, and Windows PowerShell/worktree setup. See `docs/agents/git-workflow.md`.
+
+### Swarm orchestration
+
+Default `/swarm` roles and models (`Neon High` coders, `Hydrogen High` read-only reviewer), wave serialization, two-axis review gate, and worker lifecycle. See `docs/agents/swarm.md`.
