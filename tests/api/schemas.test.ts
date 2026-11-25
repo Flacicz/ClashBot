@@ -259,7 +259,7 @@ describe('CoC API zod schemas and domain mappers', () => {
             const result = parseCurrentWarResponse(payload, '#Z', '/clans/%23Z/currentwar');
             expect(result).not.toBeNull();
             expect(result?.clanwar).toEqual({
-                warUID: '#A_#Z_20240101T000000',
+                warUID: '#Z_#A_#Z_20240101T000000',
                 clanTag: '#Z',
                 state: 'warEnded',
                 warType: 'regular',
@@ -349,6 +349,85 @@ describe('CoC API zod schemas and domain mappers', () => {
             ]);
         });
 
+        it('orients home/opponent relative to clanTag and produces distinct warUIDs for tracked opponents', () => {
+            const payload = {
+                state: 'warEnded',
+                teamSize: 10,
+                attacksPerMember: 2,
+                preparationStartTime: '20240101T000000.000Z',
+                startTime: '20240102T000000.000Z',
+                endTime: '20240103T000000.000Z',
+                clan: {
+                    tag: '#CLAN_A',
+                    name: 'Clan Alpha',
+                    stars: 3,
+                    destructionPercentage: 100.0,
+                    members: [{ tag: '#A1', name: 'Alice', townhallLevel: 16, mapPosition: 1 }],
+                },
+                opponent: {
+                    tag: '#CLAN_B',
+                    name: 'Clan Beta',
+                    stars: 1,
+                    destructionPercentage: 55.0,
+                    members: [{ tag: '#B1', name: 'Boris', townhallLevel: 15, mapPosition: 1 }],
+                },
+            };
+
+            const viewA = parseCurrentWarResponse(
+                payload,
+                '#CLAN_A',
+                '/clans/%23CLAN_A/currentwar',
+            );
+            const viewB = parseCurrentWarResponse(
+                payload,
+                '#CLAN_B',
+                '/clans/%23CLAN_B/currentwar',
+            );
+
+            expect(viewA?.clanwar.warUID).toBe('#CLAN_A_#CLAN_A_#CLAN_B_20240101T000000');
+            expect(viewA?.clanwar.clanTag).toBe('#CLAN_A');
+            expect(viewA?.clans[0]).toMatchObject({ side: 'home', clanTag: '#CLAN_A', stars: 3 });
+            expect(viewA?.clans[1]).toMatchObject({
+                side: 'opponent',
+                clanTag: '#CLAN_B',
+                stars: 1,
+            });
+            expect(viewA?.members[0].map((m) => m.playerTag)).toEqual(['#A1']);
+            expect(viewA?.members[1].map((m) => m.playerTag)).toEqual(['#B1']);
+
+            expect(viewB?.clanwar.warUID).toBe('#CLAN_B_#CLAN_A_#CLAN_B_20240101T000000');
+            expect(viewB?.clanwar.clanTag).toBe('#CLAN_B');
+            expect(viewB?.clans[0]).toMatchObject({ side: 'home', clanTag: '#CLAN_B', stars: 1 });
+            expect(viewB?.clans[1]).toMatchObject({
+                side: 'opponent',
+                clanTag: '#CLAN_A',
+                stars: 3,
+            });
+            expect(viewB?.members[0].map((m) => m.playerTag)).toEqual(['#B1']);
+            expect(viewB?.members[1].map((m) => m.playerTag)).toEqual(['#A1']);
+        });
+
+        it('throws CocApiError(invalid_schema) when tracked clanTag does not match either war participant', () => {
+            const payload = {
+                state: 'inWar',
+                teamSize: 10,
+                preparationStartTime: '20240101T000000.000Z',
+                clan: { tag: '#OTHER1', name: 'Other 1', members: [] },
+                opponent: { tag: '#OTHER2', name: 'Other 2', members: [] },
+            };
+
+            let caught: unknown;
+            try {
+                parseCurrentWarResponse(payload, '#OUR', '/clans/%23OUR/currentwar');
+            } catch (err) {
+                caught = err;
+            }
+
+            expect(caught).toBeInstanceOf(CocApiError);
+            expect((caught as CocApiError).kind).toBe('invalid_schema');
+            expect((caught as CocApiError).retryable).toBe(false);
+        });
+
         it('throws CocApiError(invalid_schema) for active war missing clan/opponent or wrong types', () => {
             for (const bad of [
                 { state: 'inWar', clan: { tag: '#A' } },
@@ -387,13 +466,56 @@ describe('CoC API zod schemas and domain mappers', () => {
             expect(result?.clanwar.warType).toBe('cwl');
             expect(result?.clanwar.attacksPerMember).toBe(1);
             expect(result?.clanwar.clanTag).toBe('#OUR');
-            expect(result?.clanwar.warUID).toBe('#ENEMY_#OUR_20240101T000000');
+            expect(result?.clanwar.warUID).toBe('#OUR_#ENEMY_#OUR_20240101T000000');
             expect(result?.clans[0].side).toBe('home');
             expect(result?.clans[0].clanTag).toBe('#OUR');
             expect(result?.clans[1].side).toBe('opponent');
             expect(result?.clans[1].clanTag).toBe('#ENEMY');
             expect(result?.members[0][0]?.playerTag).toBe('#O1');
             expect(result?.members[1][0]?.playerTag).toBe('#E1');
+        });
+
+        it('produces distinct warUIDs and mirrored home/opponent views for two tracked opponents in one CWL war', () => {
+            const payload = {
+                state: 'warEnded',
+                teamSize: 15,
+                preparationStartTime: '20240101T000000.000Z',
+                startTime: '20240102T000000.000Z',
+                endTime: '20240103T000000.000Z',
+                clan: {
+                    tag: '#CLAN_A',
+                    name: 'Clan Alpha',
+                    stars: 30,
+                    destructionPercentage: 90.0,
+                    members: [{ tag: '#A1', name: 'Alice', townhallLevel: 16, mapPosition: 1 }],
+                },
+                opponent: {
+                    tag: '#CLAN_B',
+                    name: 'Clan Beta',
+                    stars: 20,
+                    destructionPercentage: 70.0,
+                    members: [{ tag: '#B1', name: 'Boris', townhallLevel: 15, mapPosition: 1 }],
+                },
+            };
+
+            const viewA = parseCwlWarResponse(payload, '#CLAN_A', '/clanwarleagues/wars/%23WAR1');
+            const viewB = parseCwlWarResponse(payload, '#CLAN_B', '/clanwarleagues/wars/%23WAR1');
+
+            expect(viewA?.clanwar.warUID).toBe('#CLAN_A_#CLAN_A_#CLAN_B_20240101T000000');
+            expect(viewA?.clans[0]).toMatchObject({ side: 'home', clanTag: '#CLAN_A', stars: 30 });
+            expect(viewA?.clans[1]).toMatchObject({
+                side: 'opponent',
+                clanTag: '#CLAN_B',
+                stars: 20,
+            });
+
+            expect(viewB?.clanwar.warUID).toBe('#CLAN_B_#CLAN_A_#CLAN_B_20240101T000000');
+            expect(viewB?.clans[0]).toMatchObject({ side: 'home', clanTag: '#CLAN_B', stars: 20 });
+            expect(viewB?.clans[1]).toMatchObject({
+                side: 'opponent',
+                clanTag: '#CLAN_A',
+                stars: 30,
+            });
         });
 
         it('returns null when tracked clan is not in the CWL war', () => {

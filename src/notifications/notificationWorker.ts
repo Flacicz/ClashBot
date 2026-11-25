@@ -2,6 +2,7 @@ import { type Clock, SystemClock } from '../common/clock.js';
 import { AbortError, isAbortError } from '../common/errors.js';
 import {
     DEFAULT_PENDING_NOTIFICATIONS_LIMIT,
+    type NotificationRecoveryResult,
     type NotificationRepo,
     type PendingNotification,
 } from '../database/repos/notificationRepo.js';
@@ -11,6 +12,7 @@ import type { WakeableNotificationWorker } from './notificationService.js';
 import { classifyTelegramError, type TelegramGateway } from './telegramGateway.js';
 
 export const DEFAULT_NOTIFICATION_POLL_INTERVAL_MS = 1_000;
+export const DEFAULT_NOTIFICATION_CLAIM_TTL_SECONDS = 60;
 export const DEFAULT_TELEGRAM_RETRY_MAX_ATTEMPTS = 4;
 export const DEFAULT_TELEGRAM_RETRY_INITIAL_DELAY_MS = 500;
 export const DEFAULT_TELEGRAM_RETRY_MAX_DELAY_MS = 8_000;
@@ -28,6 +30,7 @@ export interface NotificationWorkerOptions {
     readonly pollIntervalMs?: number;
     readonly retryPolicy?: RetryPolicy;
     readonly batchSize?: number;
+    readonly claimTtlSeconds?: number;
     readonly clock?: Clock;
     readonly logger?: Logger;
 }
@@ -55,11 +58,13 @@ export class NotificationWorker implements WakeableNotificationWorker {
     private readonly pollIntervalMs: number;
     private readonly retryPolicy: RetryPolicy;
     private readonly batchSize: number;
+    private readonly claimTtlSeconds: number;
     private readonly clock: Clock;
     private readonly logger?: Logger;
 
     private stopRequested = false;
     private wakeRequested = true;
+    private startupRecoveryCompleted = false;
     private readonly stopController = new AbortController();
     private activeSleepController: AbortController | undefined;
 
@@ -90,14 +95,17 @@ export class NotificationWorker implements WakeableNotificationWorker {
 
         const pollIntervalMs = deps.pollIntervalMs ?? DEFAULT_NOTIFICATION_POLL_INTERVAL_MS;
         const batchSize = deps.batchSize ?? DEFAULT_PENDING_NOTIFICATIONS_LIMIT;
+        const claimTtlSeconds = deps.claimTtlSeconds ?? DEFAULT_NOTIFICATION_CLAIM_TTL_SECONDS;
         validatePositiveFinite('pollIntervalMs', pollIntervalMs);
         validatePositiveFinite('batchSize', batchSize);
+        validatePositiveFinite('claimTtlSeconds', claimTtlSeconds);
 
         this.notificationRepo = deps.notificationRepo;
         this.telegramGateway = deps.telegramGateway;
         this.pollIntervalMs = pollIntervalMs;
         this.retryPolicy = deps.retryPolicy ?? createDefaultTelegramRetryPolicy();
         this.batchSize = batchSize;
+        this.claimTtlSeconds = claimTtlSeconds;
         this.clock = deps.clock ?? new SystemClock();
         if (deps.logger !== undefined) {
             this.logger = deps.logger;
@@ -121,6 +129,21 @@ export class NotificationWorker implements WakeableNotificationWorker {
         this.activeSleepController?.abort();
     }
 
+    recoverSendingOnStartup(): NotificationRecoveryResult {
+        const recovered = this.notificationRepo.recoverAllSending();
+        this.startupRecoveryCompleted = true;
+        if (recovered.requeued > 0 || recovered.cancelled > 0) {
+            this.logger?.warn(
+                {
+                    requeued: recovered.requeued,
+                    cancelled: recovered.cancelled,
+                },
+                '[NotificationWorker] Recovered sending notifications on startup',
+            );
+        }
+        return recovered;
+    }
+
     async run(signal?: AbortSignal): Promise<void> {
         while (!this.shouldStop(signal)) {
             const woke = await this.waitForWakeOrPoll(signal);
@@ -129,6 +152,9 @@ export class NotificationWorker implements WakeableNotificationWorker {
             }
 
             try {
+                if (!this.startupRecoveryCompleted) {
+                    this.recoverSendingOnStartup();
+                }
                 await this.processPending(signal);
             } catch (error: unknown) {
                 if (isAbortError(error) || this.shouldStop(signal)) {
@@ -146,6 +172,8 @@ export class NotificationWorker implements WakeableNotificationWorker {
         if (this.shouldStop(signal)) {
             return;
         }
+
+        this.recoverStaleSending(this.clock.nowEpochSeconds());
 
         let remaining = this.batchSize;
 
@@ -166,7 +194,8 @@ export class NotificationWorker implements WakeableNotificationWorker {
                     return;
                 }
 
-                if (!this.notificationRepo.isPending(notification.id)) {
+                const claimedAt = this.clock.nowEpochSeconds();
+                if (!this.notificationRepo.claimForSending(notification.id, claimedAt)) {
                     continue;
                 }
 
@@ -184,6 +213,7 @@ export class NotificationWorker implements WakeableNotificationWorker {
                 } catch (error: unknown) {
                     const classification = classifyTelegramError(error, requestSignal);
                     if (classification.kind === 'aborted' || this.shouldStop(signal)) {
+                        this.releaseClaimedOnAbort(notification.id);
                         return;
                     }
 
@@ -252,6 +282,36 @@ export class NotificationWorker implements WakeableNotificationWorker {
         return this.clock.nowEpochSeconds() + delaySeconds;
     }
 
+    private recoverStaleSending(nowEpochSeconds: number): void {
+        const staleCutoffEpochSeconds = nowEpochSeconds - this.claimTtlSeconds;
+        const recovered = this.notificationRepo.recoverStaleSending(staleCutoffEpochSeconds);
+        if (recovered.requeued > 0 || recovered.cancelled > 0) {
+            this.logger?.warn(
+                {
+                    requeued: recovered.requeued,
+                    cancelled: recovered.cancelled,
+                    claimTtlSeconds: this.claimTtlSeconds,
+                    staleCutoffEpochSeconds,
+                },
+                '[NotificationWorker] Recovered stale sending notifications by claim TTL',
+            );
+        }
+    }
+
+    private releaseClaimedOnAbort(notificationId: number): void {
+        try {
+            this.notificationRepo.releaseClaimed(notificationId);
+        } catch (databaseError: unknown) {
+            this.logger?.error(
+                {
+                    err: databaseError,
+                    notificationId,
+                },
+                `[NotificationWorker] Failed to release claimed notification ${String(notificationId)} after abort`,
+            );
+        }
+    }
+
     private handleFailure(
         notification: PendingNotification,
         errorMessage: string,
@@ -272,6 +332,17 @@ export class NotificationWorker implements WakeableNotificationWorker {
                         error: errorMessage,
                     },
                     `[NotificationWorker] Notification ${String(notification.id)} permanently failed: ${errorMessage}`,
+                );
+                return;
+            }
+
+            if (this.notificationRepo.cancelSendingIfSubscriptionInactive(notification.id)) {
+                this.logger?.info(
+                    {
+                        notificationId: notification.id,
+                        error: errorMessage,
+                    },
+                    `[NotificationWorker] Notification ${String(notification.id)} cancelled instead of retrying because subscription is no longer active`,
                 );
                 return;
             }

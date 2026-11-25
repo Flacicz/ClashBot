@@ -23,11 +23,14 @@
    `EventNotificationPolicy.audiencesFor` и фиксирует снимок активных подписок (`subscription_id`, `chat_id`,
    `message_thread_id`, `audience`) — **получателей события** на момент события. Подписки, созданные позже, старые
    доменные события не получают.
-3. После commit `DomainEventWorker` загружает `pending`-получателей, десериализует payload (`DomainEventPayloadDeserializer`)
-   и в одной транзакции вызывает `NotificationService.materialize` + `DomainEventsRepo.markMaterialized`. При успехе
-   будит `NotificationWorker`.
-4. `NotificationWorker` читает `pending`-уведомления из outbox `notifications`, отправляет HTML-текст через `TelegramGateway`
-   и переводит запись в `sent`, `pending` (reschedule) или `failed`.
+3. После commit `DomainEventWorker` загружает `pending`-получателей и в одной транзакции условно захватывает получателя
+   через `DomainEventsRepo.markMaterialized` (`WHERE status = 'pending'`, `changes === 1`), десериализует payload
+   (`DomainEventPayloadDeserializer`) и вызывает `NotificationService.materialize`. При ошибке вся транзакция откатывается;
+   при успехе будит `NotificationWorker`.
+4. `NotificationWorker` восстанавливает зависшие `'sending'`-записи (при старте — все, перед батчем — по TTL
+   `claimTtlSeconds = 60`), читает `pending`-уведомления из outbox `notifications`, атомарно захватывает каждую запись в
+   статус `'sending'` с `claimed_at` до внешнего HTTP-вызова, отправляет HTML-текст через `TelegramGateway` и завершает
+   запись из `'sending'` в `sent`, `pending` (reschedule), `cancelled` (если подписка отменена к моменту повтора) или `failed`.
 
 Legacy-метод `NotificationService.handle` сохраняется для обратной совместимости (пишет в `notifications` напрямую с
 `domain_event_destination_id = NULL`), но в основном runtime-потоке не используется.
@@ -58,6 +61,10 @@ Legacy-метод `NotificationService.handle` сохраняется для о�
 - Для `SyncFailureEvent` ключ `event_id` равен `outageId`. Повторные сбои в рамках одного открытого `outage_id` увеличивают
   `sync_outages.failure_count`, но повторное доменное событие отбрасывается по уникальному ключу
   `(clan_tag, event_type, event_id)` в `domain_events`.
+- Если два отслеживаемых клана-соперника (`A` и `B`) встречаются в одной обычной войне или раунде CWL, каждый получает
+  собственный `war_uid` и собственный `war_id` (см. [`docs/database.md`](database.md)). Если оба клана подписаны на одно
+  и то же Telegram-назначение, в этот чат доставляются два независимых набора отчётов и напоминаний — от лица клана `A`
+  и от лица клана `B`.
 
 ## Матрица доставки и соответствие `notifications.event_type`
 
@@ -182,28 +189,53 @@ order_num ASC`) с нормализованными позициями (`ROW_NUM
    `(domain_event_destination_id, event_type, event_id, part_index)` для каждой части `1..N` (`part_count = N`). Повторная
    материализация одного получателя не создаёт дубли ни для одной части.
 3. **Строгий порядок доставки частей (`1 → 2 → ... → N`)**: `NotificationRepo.getPending` возвращает часть `part_index = K`
-   только после того, как все предыдущие части (`part_index < K`) этого же уведомления перешли в статус `sent`. При
-   временном сбое `part K` последующие части ждут её успешной отправки (не блокируя уведомления других чатов и событий), а
-   уже отправленные части (`part < K`) не дублируются при восстановлении.
-4. **Каскадный `'failed'`**: при переходе части `part K` в терминальный статус `'failed'` (перманентная ошибка Telegram или
-   исчерпание попыток ретрая) `NotificationRepo.markAsFailed` в одной транзакции переводит все оставшиеся `pending`-части
-   (`part_index > K`) того же уведомления в `'failed'`, исключая накопление «вечных» `pending`-сирот.
-5. Гарантия доставки — **at-least-once**: при падении процесса после успешного ответа Telegram API, но до `markAsSent`,
-   запись останется `pending` и будет отправлена повторно после перезапуска.
+   только после того, как все предыдущие части (`part_index < K`) этого же уведомления перешли в статус `'sent'`. Пока
+   предыдущая часть находится в `'pending'` (включая ожидание ретрая) или в `'sending'`, последующие части ждут её успешной
+   отправки (не блокируя уведомления других чатов и событий), а уже отправленные части (`part < K`) не дублируются при
+   восстановлении.
+4. **Каскадный `'failed'`**: при переходе захваченной (`'sending'`) части `part K` в терминальный статус `'failed'`
+   (перманентная ошибка Telegram или исчерпание попыток ретрая) `NotificationRepo.markAsFailed` в одной транзакции сбрасывает
+   `claimed_at = NULL` и переводит все оставшиеся `pending`-части (`part_index > K`) того же уведомления в `'failed'`,
+   исключая накопление «вечных» `pending`-сирот.
+5. Гарантия доставки — **at-least-once**: это осознанный компромисс outbox-доставки. Если процесс упадёт или произойдёт
+   сбой БД после успешного ответа Telegram API `sendMessage`, но до вызова `markAsSent`, запись останется в статусе
+   `'sending'`. При перезапуске воркера или по истечении TTL захвата (`claimTtlSeconds`, по умолчанию `60` секунд)
+   восстановление вернёт её в `'pending'` (если подписка всё ещё активна) и уведомление будет отправлено повторно.
 
-### Отмена по поколению подписки (`/unlink`)
+### Отмена по поколению подписки (`/unlink`) и claim/TTL
 
-При отключении клана через `/unlink` или меню в одной транзакции (`DomainEventsRepo.cancelForSubscription`) все `pending`
-записи в `domain_event_destinations` и связанные `pending` строки в `notifications` переводятся в `cancelled`
-(`last_error = 'subscription cancelled'`). Повторный `/link` создаёт новое поколение подписки (`subscription_id`), не
-воскрешая отменённые.
+При отключении клана через `/unlink` или меню в одной транзакции (`DomainEventsRepo.cancelForSubscription` +
+`SubscriptionRepo.unsubscribeFromChat`) все `pending`-записи в `domain_event_destinations` и связанные `pending`-строки в
+`notifications` переводятся в `cancelled` (`last_error = 'subscription cancelled'`), а строка подписки удаляется из
+`clan_subscriptions`. Повторный `/link` создаёт новое поколение подписки (`subscription_id`), не воскрешая отменённые.
 
-Защита от гонок:
+Защита от гонок и восстановление зависших отправок:
 
-- `DomainEventWorker` внутри транзакции материализации перепроверяет `isDestinationPending(destinationId)`.
-- `NotificationWorker` перед вызовом `TelegramGateway.sendMessage` перепроверяет `isPending(notification.id)`.
-- Уже начатый HTTP-запрос не отменяется; если Telegram принял сообщение после `/unlink`, `markAsSent` (обновляющий
-  только `WHERE status = 'pending'`) оставит строку в статусе `cancelled`.
+- **`DomainEventWorker`**: в одной синхронной SQLite-транзакции условно захватывает получателя через
+  `markMaterialized(destinationId)` (`WHERE id = ? AND status = 'pending'` с проверкой `changes === 1`) до десериализации и
+  `enqueue` уведомлений. Если `/unlink` успел отменить получателя раньше, захват возвращает `false`, а материализация не
+  выполняется. При ошибке форматирования/вставки транзакция полностью откатывается, возвращая destination в `pending`.
+- **`NotificationWorker` (атомарный claim)**: перед внешним HTTP-вызовом `TelegramGateway.sendMessage` переводит запись в
+  `status = 'sending'` с фиксацией `claimed_at = now` (`UPDATE notifications SET status = 'sending', claimed_at = ? WHERE id = ? AND status = 'pending'`).
+  Если `/unlink` выиграл до claim, запись уже в `cancelled` и не отправляется. Уже захваченная (`'sending'`) отправка
+  считается in-flight и может завершиться.
+- **Завершение из `'sending'`**: `markAsSent`, `reschedule` и `markAsFailed` обновляют только строки в статусе `'sending'` и
+  сбрасывают `claimed_at = NULL`. Если in-flight отправка завершилась успешно после `/unlink`, она фиксируется как `'sent'`;
+  если завершилась временной ошибкой (`5xx` / `429`), а подписка уже удалена из `clan_subscriptions`, воркер переводит
+  запись в `'cancelled'` вместо постановки в повторную отправку. При корректной остановке по `AbortSignal` во время
+  in-flight запроса запись освобождается через `releaseClaimed` (в `'cancelled'` для отменённой подписки или обратно в
+  `'pending'` без увеличения `attempts`).
+- **Восстановление зависших `'sending'`-записей (старт + TTL)**:
+  - при старте `NotificationWorker.run()` восстанавливаются **все** записи в статусе `'sending'` (`recoverAllSending`);
+  - перед каждой обработкой батча в `processPending()` восстанавливаются записи с истёкшим TTL
+    (`claimed_at IS NULL OR claimed_at <= now - claimTtlSeconds`, `recoverStaleSending`). Дефолтный
+    `claimTtlSeconds = 60` секунд (настраивается в `NotificationWorkerOptions`; в 6 раз превышает таймаут Telegram
+    `DEFAULT_TELEGRAM_REQUEST_TIMEOUT_SECONDS = 10`, чтобы не перехватывать живой запрос);
+  - при любом восстановлении проверяется наличие активного `subscription_id` в `clan_subscriptions` через
+    `domain_event_destinations.subscription_id`: если подписка отменена (включая случай повторного `/link` с новым
+    `subscription_id`), запись переводится в `'cancelled'` (`claimed_at = NULL`, `next_attempt_at = NULL`,
+    `last_error = 'subscription cancelled'`); если подписка активна (или запись legacy с
+    `domain_event_destination_id IS NULL`), запись возвращается в `'pending'` со сбросом `claimed_at = NULL`.
 
 ### Политики повторов (Retry) и отказы
 

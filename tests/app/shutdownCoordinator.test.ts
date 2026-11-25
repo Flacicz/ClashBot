@@ -285,11 +285,11 @@ describe('ShutdownCoordinator and application lifecycle', () => {
             ]);
         });
 
-        // Inspect state right before closing DB on shutdown by registering an inspection stop action
+        // Inspect state after loops finish and right before closing DB on shutdown
         let pendingNotifAttemptsOnStop = -1;
         let pendingDestAttemptsOnStop = -1;
         let openOutageIdOnStop: number | null = -1;
-        coordinator.addStopAction('inspectBeforeClose', () => {
+        coordinator.addCloser('inspectBeforeClose', () => {
             const pendingNotifs = notificationRepo.getPending(10, clock.nowEpochSeconds());
             pendingNotifAttemptsOnStop = pendingNotifs[0]?.attempts ?? -1;
             const pendingDests = domainEventsRepo.getPendingDestinations(

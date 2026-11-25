@@ -17,6 +17,7 @@ export {
     type WakeableNotificationWorker,
 } from './notificationService.js';
 export {
+    DEFAULT_NOTIFICATION_CLAIM_TTL_SECONDS,
     DEFAULT_NOTIFICATION_POLL_INTERVAL_MS,
     DEFAULT_TELEGRAM_RETRY_INITIAL_DELAY_MS,
     DEFAULT_TELEGRAM_RETRY_MAX_ATTEMPTS,

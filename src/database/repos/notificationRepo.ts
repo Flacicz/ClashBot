@@ -2,7 +2,14 @@ import { type DatabaseSource, getConnection, runRepoQuery } from './repoHelpers.
 
 export const DEFAULT_PENDING_NOTIFICATIONS_LIMIT = 100;
 
-export type NotificationStatus = 'pending' | 'failed' | 'sent' | 'cancelled';
+export type NotificationStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'cancelled';
+
+export interface NotificationRecoveryResult {
+    readonly requeued: number;
+    readonly cancelled: number;
+}
+
+export type ClaimReleaseOutcome = 'requeued' | 'cancelled' | 'not_found';
 
 export interface PendingNotification {
     readonly id: number;
@@ -22,6 +29,10 @@ interface IdRow {
 
 interface ExistsRow {
     readonly found: number;
+}
+
+interface StatusRow {
+    readonly status: NotificationStatus;
 }
 
 interface PendingNotificationRow {
@@ -252,6 +263,26 @@ export class NotificationRepo {
         );
     }
 
+    claimForSending(notificationId: number, claimedAt: number): boolean {
+        return runRepoQuery(
+            REPO_NAME,
+            'claim notification for sending',
+            { notificationId, claimedAt },
+            () => {
+                const result = getConnection(this.source)
+                    .prepare<[number, number]>(
+                        `UPDATE notifications
+                         SET status = 'sending',
+                             claimed_at = ?
+                         WHERE id = ?
+                           AND status = 'pending';`,
+                    )
+                    .run(claimedAt, notificationId);
+                return result.changes === 1;
+            },
+        );
+    }
+
     markAsSent(notificationId: number): boolean {
         return runRepoQuery(REPO_NAME, 'mark notification as sent', { notificationId }, () => {
             const result = getConnection(this.source)
@@ -260,12 +291,13 @@ export class NotificationRepo {
                      SET status = 'sent',
                          sent_at = strftime('%s', 'now'),
                          next_attempt_at = NULL,
+                         claimed_at = NULL,
                          last_error = NULL
                      WHERE id = ?
-                       AND status = 'pending';`,
+                       AND status = 'sending';`,
                 )
                 .run(notificationId);
-            return result.changes > 0;
+            return result.changes === 1;
         });
     }
 
@@ -281,12 +313,13 @@ export class NotificationRepo {
                          SET status = 'pending',
                              attempts = attempts + 1,
                              next_attempt_at = ?,
+                             claimed_at = NULL,
                              last_error = ?
                          WHERE id = ?
-                           AND status = 'pending';`,
+                           AND status = 'sending';`,
                     )
                     .run(nextAttemptAt, error, notificationId);
-                return result.changes > 0;
+                return result.changes === 1;
             },
         );
     }
@@ -301,10 +334,11 @@ export class NotificationRepo {
                          SET status = 'failed',
                              attempts = attempts + 1,
                              next_attempt_at = NULL,
+                             claimed_at = NULL,
                              last_error = ?,
                              sent_at = NULL
                          WHERE id = ?
-                           AND status = 'pending'
+                           AND status = 'sending'
                          RETURNING domain_event_destination_id,
                                    event_type,
                                    event_id,
@@ -326,6 +360,7 @@ export class NotificationRepo {
                             `UPDATE notifications
                              SET status = 'failed',
                                  next_attempt_at = NULL,
+                                 claimed_at = NULL,
                                  last_error = ?,
                                  sent_at = NULL
                              WHERE status = 'pending'
@@ -345,6 +380,7 @@ export class NotificationRepo {
                             `UPDATE notifications
                              SET status = 'failed',
                                  next_attempt_at = NULL,
+                                 claimed_at = NULL,
                                  last_error = ?,
                                  sent_at = NULL
                              WHERE status = 'pending'
@@ -370,6 +406,154 @@ export class NotificationRepo {
 
             return conn.inTransaction ? runAtomic() : conn.transaction(runAtomic).immediate();
         });
+    }
+
+    cancelSendingIfSubscriptionInactive(notificationId: number): boolean {
+        return runRepoQuery(
+            REPO_NAME,
+            'cancel claimed notification for inactive subscription',
+            { notificationId },
+            () => {
+                const result = getConnection(this.source)
+                    .prepare<[number]>(
+                        `UPDATE notifications
+                         SET status = 'cancelled',
+                             claimed_at = NULL,
+                             next_attempt_at = NULL,
+                             last_error = 'subscription cancelled'
+                         WHERE id = ?
+                           AND status = 'sending'
+                           AND domain_event_destination_id IS NOT NULL
+                           AND NOT EXISTS (
+                               SELECT 1
+                               FROM domain_event_destinations d
+                               JOIN clan_subscriptions cs ON cs.subscription_id = d.subscription_id
+                               WHERE d.id = notifications.domain_event_destination_id
+                           );`,
+                    )
+                    .run(notificationId);
+                return result.changes === 1;
+            },
+        );
+    }
+
+    releaseClaimed(notificationId: number): ClaimReleaseOutcome {
+        return runRepoQuery(REPO_NAME, 'release claimed notification', { notificationId }, () => {
+            const row = getConnection(this.source)
+                .prepare<[number], StatusRow>(
+                    `UPDATE notifications
+                         SET status = CASE
+                                 WHEN domain_event_destination_id IS NOT NULL
+                                  AND NOT EXISTS (
+                                      SELECT 1
+                                      FROM domain_event_destinations d
+                                      JOIN clan_subscriptions cs ON cs.subscription_id = d.subscription_id
+                                      WHERE d.id = notifications.domain_event_destination_id
+                                  ) THEN 'cancelled'
+                                 ELSE 'pending'
+                             END,
+                             claimed_at = NULL,
+                             next_attempt_at = CASE
+                                 WHEN domain_event_destination_id IS NOT NULL
+                                  AND NOT EXISTS (
+                                      SELECT 1
+                                      FROM domain_event_destinations d
+                                      JOIN clan_subscriptions cs ON cs.subscription_id = d.subscription_id
+                                      WHERE d.id = notifications.domain_event_destination_id
+                                  ) THEN NULL
+                                 ELSE next_attempt_at
+                             END,
+                             last_error = CASE
+                                 WHEN domain_event_destination_id IS NOT NULL
+                                  AND NOT EXISTS (
+                                      SELECT 1
+                                      FROM domain_event_destinations d
+                                      JOIN clan_subscriptions cs ON cs.subscription_id = d.subscription_id
+                                      WHERE d.id = notifications.domain_event_destination_id
+                                  ) THEN 'subscription cancelled'
+                                 ELSE last_error
+                             END
+                         WHERE id = ?
+                           AND status = 'sending'
+                         RETURNING status;`,
+                )
+                .get(notificationId);
+
+            if (row === undefined) {
+                return 'not_found';
+            }
+            return row.status === 'cancelled' ? 'cancelled' : 'requeued';
+        });
+    }
+
+    recoverAllSending(): NotificationRecoveryResult {
+        return this.recoverSending(null);
+    }
+
+    recoverStaleSending(claimedBeforeOrAtEpochSeconds: number): NotificationRecoveryResult {
+        return this.recoverSending(claimedBeforeOrAtEpochSeconds);
+    }
+
+    private recoverSending(cutoffEpochSeconds: number | null): NotificationRecoveryResult {
+        return runRepoQuery(
+            REPO_NAME,
+            cutoffEpochSeconds === null
+                ? 'recover all sending notifications on startup'
+                : 'recover stale sending notifications by TTL',
+            cutoffEpochSeconds === null ? {} : { cutoffEpochSeconds },
+            () => {
+                const rows = getConnection(this.source)
+                    .prepare<[number | null, number | null], StatusRow>(
+                        `UPDATE notifications
+                         SET status = CASE
+                                 WHEN domain_event_destination_id IS NOT NULL
+                                  AND NOT EXISTS (
+                                      SELECT 1
+                                      FROM domain_event_destinations d
+                                      JOIN clan_subscriptions cs ON cs.subscription_id = d.subscription_id
+                                      WHERE d.id = notifications.domain_event_destination_id
+                                  ) THEN 'cancelled'
+                                 ELSE 'pending'
+                             END,
+                             claimed_at = NULL,
+                             next_attempt_at = CASE
+                                 WHEN domain_event_destination_id IS NOT NULL
+                                  AND NOT EXISTS (
+                                      SELECT 1
+                                      FROM domain_event_destinations d
+                                      JOIN clan_subscriptions cs ON cs.subscription_id = d.subscription_id
+                                      WHERE d.id = notifications.domain_event_destination_id
+                                  ) THEN NULL
+                                 ELSE next_attempt_at
+                             END,
+                             last_error = CASE
+                                 WHEN domain_event_destination_id IS NOT NULL
+                                  AND NOT EXISTS (
+                                      SELECT 1
+                                      FROM domain_event_destinations d
+                                      JOIN clan_subscriptions cs ON cs.subscription_id = d.subscription_id
+                                      WHERE d.id = notifications.domain_event_destination_id
+                                  ) THEN 'subscription cancelled'
+                                 ELSE last_error
+                             END
+                         WHERE status = 'sending'
+                           AND (? IS NULL OR claimed_at IS NULL OR claimed_at <= ?)
+                         RETURNING status;`,
+                    )
+                    .all(cutoffEpochSeconds, cutoffEpochSeconds);
+
+                let requeued = 0;
+                let cancelled = 0;
+                for (const row of rows) {
+                    if (row.status === 'cancelled') {
+                        cancelled += 1;
+                    } else {
+                        requeued += 1;
+                    }
+                }
+                return { requeued, cancelled };
+            },
+        );
     }
 
     cancelForSubscription(subscriptionId: number): number {

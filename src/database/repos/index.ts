@@ -56,6 +56,8 @@ export {
 export {
     DEFAULT_PENDING_NOTIFICATIONS_LIMIT,
     NotificationRepo,
+    type ClaimReleaseOutcome,
+    type NotificationRecoveryResult,
     type NotificationStatus,
     type PendingNotification,
 } from './notificationRepo.js';

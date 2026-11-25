@@ -278,7 +278,8 @@ describe('DomainEventsRepo', () => {
             pendingNotifs.find((n) => n.eventType === 'war_comparison'),
             'comparisonNotif',
         );
-        notificationRepo.markAsSent(summaryNotif.id);
+        expect(notificationRepo.claimForSending(summaryNotif.id, 1_700_000_000)).toBe(true);
+        expect(notificationRepo.markAsSent(summaryNotif.id)).toBe(true);
 
         // Cancel subscription 10 (/unlink).
         repo.cancelForSubscription(10);

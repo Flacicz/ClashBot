@@ -183,13 +183,14 @@ describe('Drop-in compatibility with C++-generated v012 SQLite database', () => 
         });
 
         try {
-            // 1. Verify schema_migrations has all 12 migrations applied by C++ and untouched by TS MigratorManager
+            // 1. Verify schema_migrations preserved all 12 C++ migrations and applied 013 cleanly
             const appliedMigrations = app.db.connection
                 .prepare('SELECT version FROM schema_migrations ORDER BY version ASC;')
                 .all() as { version: string }[];
-            expect(appliedMigrations).toHaveLength(12);
+            expect(appliedMigrations).toHaveLength(13);
             expect(appliedMigrations[0]?.version).toBe('001_initial_schema.sql');
             expect(appliedMigrations[11]?.version).toBe('012_legacy_notification_idempotency.sql');
+            expect(appliedMigrations[12]?.version).toBe('013_notification_claim_status.sql');
 
             // 2. Verify C++ history (clans, wars, raids, subscriptions) is readable via TS repositories
             const clansRepo = new ClansRepo(app.db);
