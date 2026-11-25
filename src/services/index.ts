@@ -11,6 +11,7 @@ export {
     DEFAULT_SYNC_RETRY_DELAY_MS,
     type ClanManagerOptions,
     type TrackedClansReader,
+    type WakeableClanManager,
 } from './clanManager.js';
 export {
     CLANWAR_LEAGUE_SERVICE_NAME,
@@ -20,6 +21,7 @@ export {
 export { CLANWAR_SERVICE_NAME, ClanwarService, type ClanwarApiClient } from './clanwarService.js';
 export { RAID_SERVICE_NAME, RaidService, type RaidApiClient } from './raidService.js';
 export {
+    DEFAULT_STARTED_REMINDER_GRACE_PERIOD_SECONDS,
     RAID_REMINDER_FORTY_EIGHT_HOURS_SECONDS,
     RAID_REMINDER_ONE_HOUR_SECONDS,
     RAID_REMINDER_SIX_HOURS_SECONDS,
@@ -29,6 +31,23 @@ export {
     WAR_REMINDER_SIX_HOURS_SECONDS,
     getActiveRaidReminderKinds,
     getActiveWarReminderKinds,
+    getRaidReminderExpiresAt,
+    getWarReminderExpiresAt,
+    selectRaidReminders,
+    selectWarReminders,
+    type ReminderSelection,
 } from './reminders.js';
 export { createSyncError, createSyncSuccess, type SyncResult } from './syncResult.js';
 export type { SyncService } from './syncService.js';
+export {
+    TelegramSubscriptionLifecycle,
+    type ChatMigrationAndRequeueResult,
+    type ChatMigrationNotificationOutcome,
+    type ChatMigrationResult,
+    type DisableForDeliveryFailureParams,
+    type DisableSubscriptionsResult,
+    type MigrateChatAndRequeueNotificationParams,
+    type TelegramDestinationLifecycle,
+    type TelegramDestinationUnavailableScope,
+    type TelegramSubscriptionLifecycleDependencies,
+} from './telegramSubscriptionLifecycle.js';

@@ -15,6 +15,7 @@ import {
     TransactionManager,
 } from '../../src/database/index.js';
 import { createLogger } from '../../src/logging/index.js';
+import type { WakeableClanManager } from '../../src/services/index.js';
 import {
     AttackGuideCatalog,
     TELEGRAM_BOT_ALLOWED_UPDATES,
@@ -397,6 +398,7 @@ describe('TelegramBotService', () => {
         readonly skipBotInfo?: boolean;
         readonly pollingTimeoutSeconds?: number;
         readonly stopConfirmationTimeoutMs?: number;
+        readonly clanManager?: WakeableClanManager;
     }): TestHarness {
         const db = new Database(':memory:');
         openDatabases.push(db);
@@ -417,8 +419,10 @@ describe('TelegramBotService', () => {
             clansRepo,
             subscriptionRepo,
             domainEventsRepo,
+            notificationRepo,
             transactionManager,
             logger,
+            ...(options?.clanManager !== undefined ? { clanManager: options.clanManager } : {}),
             ...(options?.pollingTimeoutSeconds !== undefined
                 ? { pollingTimeoutSeconds: options.pollingTimeoutSeconds }
                 : {}),
@@ -766,6 +770,75 @@ describe('TelegramBotService', () => {
                 'management',
             );
             expect(secondSubscriptionId).toBe(firstSubscriptionId);
+        });
+
+        it('notifies ClanManager strictly after /link transaction commits and skips notification on rejected or failed /link', async () => {
+            const observedInTransaction: boolean[] = [];
+            const observedTrackedOnNotify: string[][] = [];
+            const notify = vi.fn();
+
+            const { service, db, clansRepo, transactionManager, transport } = createHarness({
+                clanManager: { notify },
+            });
+            notify.mockImplementation(() => {
+                observedInTransaction.push(db.connection.inTransaction);
+                observedTrackedOnNotify.push(clansRepo.getTrackedClans());
+            });
+
+            // Rejected /link (invalid tag, non-admin) must not wake ClanManager
+            transport.chatMembers.set(memberKey(-1002, 43), 'member');
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 1,
+                    chatId: -1002,
+                    chatType: 'supergroup',
+                    userId: 43,
+                    text: '/link #2PPLQ',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 2,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #BAD!',
+                }),
+            );
+            expect(notify).not.toHaveBeenCalled();
+
+            // Failed DB transaction must not wake ClanManager
+            const txSpy = vi
+                .spyOn(transactionManager, 'retryInTransaction')
+                .mockImplementationOnce(() => {
+                    throw new DatabaseError('sqlite busy', { sqliteCode: 'SQLITE_BUSY' });
+                });
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 3,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+            txSpy.mockRestore();
+            expect(notify).not.toHaveBeenCalled();
+
+            // Successful /link notifies after commit with the new clan already tracked
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 4,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            expect(notify).toHaveBeenCalledTimes(1);
+            expect(observedInTransaction).toEqual([false]);
+            expect(observedTrackedOnNotify).toEqual([['#2PPLQ']]);
         });
 
         it('rejects /link from non-administrator, private chat mismatch, unsupported chat types, invalid args and invalid tags', async () => {
@@ -1838,7 +1911,7 @@ describe('TelegramBotService', () => {
             expect(transport.calls).toHaveLength(0);
         });
 
-        it('polls with allowed_updates=[message, callback_query], handles middleware errors without crashing and stops on AbortSignal', async () => {
+        it('polls with allowed_updates=[message, callback_query, my_chat_member], handles middleware errors without crashing and stops on AbortSignal', async () => {
             const { service, transport, subscriptionRepo } = createHarness({
                 pollingTimeoutSeconds: 2,
             });
@@ -2080,6 +2153,325 @@ describe('TelegramBotService', () => {
 
             expect(subscriptionRepo.hasSubscription(-1001, 0, '#2PPLQ', 'players')).toBe(false);
             expect(transport.sentMessages()).toHaveLength(0);
+        });
+    });
+
+    describe('chat migration (migrate_to_chat_id / migrate_from_chat_id) and my_chat_member lifecycle', () => {
+        it('subscribes to my_chat_member in TELEGRAM_BOT_ALLOWED_UPDATES', () => {
+            expect(TELEGRAM_BOT_ALLOWED_UPDATES).toEqual([
+                'message',
+                'callback_query',
+                'my_chat_member',
+            ]);
+        });
+
+        it('atomically migrates telegram_chats, clan_subscriptions, pending destinations and notifications on message.migrate_to_chat_id and ignores duplicate migrate_from_chat_id', async () => {
+            const { service, db, clansRepo, subscriptionRepo, domainEventsRepo, notificationRepo } =
+                createHarness();
+            const oldChatId = -500;
+            const newChatId = -1005000001;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.saveTelegramChat(oldChatId, 0, 'Old Group');
+            subscriptionRepo.subscribeToChat(oldChatId, 0, '#2PPLQ', 'players');
+            const originalSubId = subscriptionRepo.getSubscriptionId(
+                oldChatId,
+                0,
+                '#2PPLQ',
+                'players',
+            );
+            expect(originalSubId).not.toBeNull();
+
+            // Seed one pending destination and one materialized destination with a pending notification
+            domainEventsRepo.appendEvent(
+                {
+                    eventType: 'war_ended',
+                    eventId: 'mig-dest-1',
+                    payload: '{}',
+                    payloadVersion: 1,
+                    clanTag: '#2PPLQ',
+                },
+                [
+                    {
+                        chatId: oldChatId,
+                        messageThreadId: 0,
+                        audience: 'players',
+                        subscriptionId: originalSubId ?? 0,
+                    },
+                ],
+            );
+            domainEventsRepo.appendEvent(
+                {
+                    eventType: 'war_ended',
+                    eventId: 'mig-notif-1',
+                    payload: '{}',
+                    payloadVersion: 1,
+                    clanTag: '#2PPLQ',
+                },
+                [
+                    {
+                        chatId: oldChatId,
+                        messageThreadId: 0,
+                        audience: 'players',
+                        subscriptionId: originalSubId ?? 0,
+                    },
+                ],
+            );
+            const pendingDests = domainEventsRepo.getPendingDestinations(10);
+            const matDest = pendingDests.find((d) => d.eventId === 'mig-notif-1');
+            expect(matDest).toBeDefined();
+            domainEventsRepo.markMaterialized(matDest?.destinationId ?? 0);
+            notificationRepo.enqueueDomainEventIfAbsent(
+                'Pending war report',
+                matDest?.destinationId ?? 0,
+                'war_ended',
+                'mig-notif-1',
+                oldChatId,
+                0,
+            );
+
+            // Receive migrate_to_chat_id service message in old group
+            await service.bot.handleUpdate({
+                update_id: 501,
+                message: {
+                    message_id: 501,
+                    date: 1_700_000_000,
+                    chat: { id: oldChatId, type: 'group', title: 'Upgraded Group' },
+                    migrate_to_chat_id: newChatId,
+                },
+            } as unknown as Update);
+
+            expect(subscriptionRepo.hasSubscription(oldChatId, 0, '#2PPLQ', 'players')).toBe(false);
+            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ', 'players')).toBe(
+                originalSubId,
+            );
+
+            const migratedDest = domainEventsRepo.getPendingDestinations(10);
+            expect(migratedDest).toHaveLength(1);
+            expect(migratedDest[0]?.chatId).toBe(newChatId);
+
+            const migratedNotifs = notificationRepo.getPending(10);
+            expect(migratedNotifs).toHaveLength(1);
+            expect(migratedNotifs[0]?.chatId).toBe(newChatId);
+
+            const titleRow = db.connection
+                .prepare<[number], { title: string }>(
+                    'SELECT title FROM telegram_chats WHERE chat_id = ? AND message_thread_id = 0;',
+                )
+                .get(newChatId);
+            expect(titleRow?.title).toBe('Upgraded Group');
+
+            // Follow-up migrate_from_chat_id service message in new supergroup is an idempotent no-op
+            await service.bot.handleUpdate({
+                update_id: 502,
+                message: {
+                    message_id: 502,
+                    date: 1_700_000_001,
+                    chat: { id: newChatId, type: 'supergroup', title: 'Upgraded Group' },
+                    migrate_from_chat_id: oldChatId,
+                },
+            } as unknown as Update);
+
+            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ', 'players')).toBe(
+                originalSubId,
+            );
+            expect(notificationRepo.getPending(10)).toHaveLength(1);
+        });
+
+        it('migrates subscriptions and queues on message.migrate_from_chat_id even when migrate_to_chat_id was missed', async () => {
+            const { service, clansRepo, subscriptionRepo, notificationRepo } = createHarness();
+            const oldChatId = -600;
+            const newChatId = -1006000001;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.saveTelegramChat(oldChatId, 0, 'Old Group');
+            subscriptionRepo.subscribeToChat(oldChatId, 0, '#2PPLQ', 'players');
+            const originalSubId = subscriptionRepo.getSubscriptionId(
+                oldChatId,
+                0,
+                '#2PPLQ',
+                'players',
+            );
+            notificationRepo.enqueueIfAbsent('Legacy pending', 'war_ended', 'mf-1', oldChatId, 0);
+
+            await service.bot.handleUpdate({
+                update_id: 601,
+                message: {
+                    message_id: 601,
+                    date: 1_700_000_000,
+                    chat: { id: newChatId, type: 'supergroup', title: 'New Supergroup' },
+                    migrate_from_chat_id: oldChatId,
+                },
+            } as unknown as Update);
+
+            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ', 'players')).toBe(
+                originalSubId,
+            );
+            const pendingNotifs = notificationRepo.getPending(10);
+            expect(pendingNotifs).toHaveLength(1);
+            expect(pendingNotifs[0]?.chatId).toBe(newChatId);
+        });
+
+        it('automatically disables subscriptions and cancels pending queues on my_chat_member kicked, left, and restricted without send rights', async () => {
+            const {
+                service,
+                db,
+                clansRepo,
+                subscriptionRepo,
+                domainEventsRepo,
+                notificationRepo,
+                transport,
+            } = createHarness();
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            clansRepo.insertMinimalClan('#SOLE');
+
+            // Chat -7001 (multi-topic supergroup, kicked)
+            subscriptionRepo.saveTelegramChat(-7001, 0, 'Group General');
+            subscriptionRepo.saveTelegramChat(-7001, 15, 'Group Topic');
+            subscriptionRepo.subscribeToChat(-7001, 0, '#2PPLQ', 'players');
+            subscriptionRepo.subscribeToChat(-7001, 15, '#SOLE', 'players');
+            // Chat -7002 (healthy supergroup keeping #2PPLQ tracked)
+            subscriptionRepo.saveTelegramChat(-7002, 0, 'Healthy Group');
+            subscriptionRepo.subscribeToChat(-7002, 0, '#2PPLQ', 'players');
+            // Private chat 7003 (user blocks bot -> kicked)
+            subscriptionRepo.saveTelegramChat(7003, 0, 'Leader PM');
+            subscriptionRepo.subscribeToChat(7003, 0, '#2PPLQ', 'management');
+            // Group -7004 (bot left)
+            subscriptionRepo.saveTelegramChat(-7004, 0, 'Left Group');
+            subscriptionRepo.subscribeToChat(-7004, 0, '#2PPLQ', 'players');
+            // Group -7005 (bot restricted with can_send_messages = false)
+            subscriptionRepo.saveTelegramChat(-7005, 0, 'Muted Group');
+            subscriptionRepo.subscribeToChat(-7005, 0, '#2PPLQ', 'players');
+
+            const sub7001Topic =
+                subscriptionRepo.getSubscriptionId(-7001, 15, '#SOLE', 'players') ?? 0;
+            const sub7003 =
+                subscriptionRepo.getSubscriptionId(7003, 0, '#2PPLQ', 'management') ?? 0;
+
+            // Pending destination for -7001 topic 15
+            domainEventsRepo.appendEvent(
+                {
+                    eventType: 'war_ended',
+                    eventId: 'mcm-1',
+                    payload: '{}',
+                    payloadVersion: 1,
+                    clanTag: '#SOLE',
+                },
+                [
+                    {
+                        chatId: -7001,
+                        messageThreadId: 15,
+                        audience: 'players',
+                        subscriptionId: sub7001Topic,
+                    },
+                ],
+            );
+            // Pending notification for private chat 7003
+            domainEventsRepo.appendEvent(
+                {
+                    eventType: 'war_ended',
+                    eventId: 'mcm-2',
+                    payload: '{}',
+                    payloadVersion: 1,
+                    clanTag: '#2PPLQ',
+                },
+                [
+                    {
+                        chatId: 7003,
+                        messageThreadId: 0,
+                        audience: 'management',
+                        subscriptionId: sub7003,
+                    },
+                ],
+            );
+            const dest7003 = domainEventsRepo
+                .getPendingDestinations(10)
+                .find((d) => d.eventId === 'mcm-2');
+            expect(dest7003).toBeDefined();
+            domainEventsRepo.markMaterialized(dest7003?.destinationId ?? 0);
+            notificationRepo.enqueueDomainEventIfAbsent(
+                'Management alert',
+                dest7003?.destinationId ?? 0,
+                'war_violations',
+                'mcm-2',
+                7003,
+                0,
+            );
+            const notif7003Id = notificationRepo.getPending(10)[0]?.id ?? 0;
+
+            const makeMyChatMemberUpdate = (
+                updateId: number,
+                chatId: number,
+                chatType: 'private' | 'group' | 'supergroup',
+                oldStatus: string,
+                newMember: Record<string, unknown>,
+            ): Update =>
+                ({
+                    update_id: updateId,
+                    my_chat_member: {
+                        chat: { id: chatId, type: chatType },
+                        from: { id: 1, is_bot: false, first_name: 'Admin' },
+                        date: 1_700_000_000,
+                        old_chat_member: { status: oldStatus, user: TEST_BOT_INFO },
+                        new_chat_member: { user: TEST_BOT_INFO, ...newMember },
+                    },
+                }) as unknown as Update;
+
+            // 1. Kicked from multi-topic supergroup -7001 -> disables both topics and untracks #SOLE
+            await service.bot.handleUpdate(
+                makeMyChatMemberUpdate(701, -7001, 'supergroup', 'administrator', {
+                    status: 'kicked',
+                    until_date: 0,
+                }),
+            );
+            expect(subscriptionRepo.getSubscriptionsForChat(-7001)).toEqual([]);
+            expect(clansRepo.getTrackedClans()).toEqual(['#2PPLQ']);
+            expect(domainEventsRepo.getPendingDestinations(10)).toEqual([]);
+
+            // 2. Blocked in private chat 7003 -> disables subscription and cancels pending notification
+            await service.bot.handleUpdate(
+                makeMyChatMemberUpdate(702, 7003, 'private', 'member', {
+                    status: 'kicked',
+                    until_date: 0,
+                }),
+            );
+            expect(subscriptionRepo.getSubscriptionsForChat(7003)).toEqual([]);
+            expect(rowStatus(db, 'notifications', notif7003Id)).toBe('cancelled');
+
+            // 3. Removed (left) from group -7004
+            await service.bot.handleUpdate(
+                makeMyChatMemberUpdate(703, -7004, 'group', 'member', { status: 'left' }),
+            );
+            expect(subscriptionRepo.getSubscriptionsForChat(-7004)).toEqual([]);
+
+            // 4. Restricted without can_send_messages in group -7005
+            await service.bot.handleUpdate(
+                makeMyChatMemberUpdate(704, -7005, 'supergroup', 'member', {
+                    status: 'restricted',
+                    is_member: true,
+                    can_send_messages: false,
+                }),
+            );
+            expect(subscriptionRepo.getSubscriptionsForChat(-7005)).toEqual([]);
+
+            // 5. Non-blocking transitions on healthy chat -7002 MUST NOT disable subscriptions
+            await service.bot.handleUpdate(
+                makeMyChatMemberUpdate(705, -7002, 'supergroup', 'administrator', {
+                    status: 'member',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMyChatMemberUpdate(706, -7002, 'supergroup', 'member', {
+                    status: 'restricted',
+                    is_member: true,
+                    can_send_messages: true,
+                }),
+            );
+            expect(subscriptionRepo.hasSubscription(-7002, 0, '#2PPLQ', 'players')).toBe(true);
+
+            // Zero Telegram HTTP calls were made during my_chat_member handling
+            expect(transport.calls).toHaveLength(0);
         });
     });
 });

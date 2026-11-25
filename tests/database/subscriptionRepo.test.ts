@@ -200,4 +200,79 @@ describe('SubscriptionRepo', () => {
             repo.subscribeToChat(999, 0, '#MISSING', 'players');
         }).toThrow(DatabaseError);
     });
+
+    it('loads subscriptions by destination or chat and atomically migrates chat_id preserving subscription_id and deduplicating overlaps', () => {
+        const { db, repo } = setup();
+        seedClan(db, '#CLAN1');
+        seedClan(db, '#CLAN2');
+
+        repo.saveTelegramChat(-500, 0, 'Legacy Group');
+        repo.saveTelegramChat(-500, 12, 'Legacy Topic');
+        repo.subscribeToChat(-500, 0, '#CLAN1', 'players');
+        repo.subscribeToChat(-500, 0, '#CLAN2', 'players');
+        repo.subscribeToChat(-500, 12, '#CLAN1', 'players');
+
+        const sub1 = repo.getSubscriptionId(-500, 0, '#CLAN1', 'players');
+        const sub2 = repo.getSubscriptionId(-500, 0, '#CLAN2', 'players');
+        const sub3 = repo.getSubscriptionId(-500, 12, '#CLAN1', 'players');
+        expect(sub1).not.toBeNull();
+        expect(sub2).not.toBeNull();
+        expect(sub3).not.toBeNull();
+
+        expect(repo.getSubscriptionsForDestination(-500, 0).map((s) => s.subscriptionId)).toEqual([
+            sub1,
+            sub2,
+        ]);
+        expect(repo.getSubscriptionsForChat(-500).map((s) => s.subscriptionId)).toEqual([
+            sub1,
+            sub2,
+            sub3,
+        ]);
+
+        // Pre-seed overlapping subscription for #CLAN2 in target supergroup -1005000001
+        repo.saveTelegramChat(-1005000001, 0, 'Target Supergroup');
+        repo.subscribeToChat(-1005000001, 0, '#CLAN2', 'players');
+        const targetSub2 = repo.getSubscriptionId(-1005000001, 0, '#CLAN2', 'players');
+
+        const result = repo.migrateChat(-500, -1005000001);
+        expect(result).toEqual({
+            migratedChats: 2,
+            migratedSubscriptions: 2,
+            duplicateSubscriptionIds: [sub2],
+        });
+
+        expect(telegramChatExists(db, -500, 0)).toBe(false);
+        expect(telegramChatExists(db, -500, 12)).toBe(false);
+        expect(telegramChatExists(db, -1005000001, 0)).toBe(true);
+        expect(telegramChatExists(db, -1005000001, 12)).toBe(true);
+
+        // Migrated subscriptions keep their original subscription_id; target overlap keeps its own
+        expect(repo.getSubscriptionId(-1005000001, 0, '#CLAN1', 'players')).toBe(sub1);
+        expect(repo.getSubscriptionId(-1005000001, 0, '#CLAN2', 'players')).toBe(targetSub2);
+        expect(repo.getSubscriptionId(-1005000001, 12, '#CLAN1', 'players')).toBe(sub3);
+        expect(repo.getSubscriptionsForChat(-500)).toEqual([]);
+
+        // Existing target title is preserved when newTitle is omitted; missing thread copies old title
+        const titles = db.connection
+            .prepare<[number], { message_thread_id: number; title: string }>(
+                'SELECT message_thread_id, title FROM telegram_chats WHERE chat_id = ? ORDER BY message_thread_id;',
+            )
+            .all(-1005000001);
+        expect(titles).toEqual([
+            { message_thread_id: 0, title: 'Target Supergroup' },
+            { message_thread_id: 12, title: 'Legacy Topic' },
+        ]);
+
+        // Self-migration and repeated migration are idempotent no-ops
+        expect(repo.migrateChat(-1005000001, -1005000001)).toEqual({
+            migratedChats: 0,
+            migratedSubscriptions: 0,
+            duplicateSubscriptionIds: [],
+        });
+        expect(repo.migrateChat(-500, -1005000001)).toEqual({
+            migratedChats: 0,
+            migratedSubscriptions: 0,
+            duplicateSubscriptionIds: [],
+        });
+    });
 });

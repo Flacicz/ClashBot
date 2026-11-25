@@ -55,6 +55,7 @@ export {
 } from './domainEventsRepo.js';
 export {
     DEFAULT_PENDING_NOTIFICATIONS_LIMIT,
+    NOTIFICATION_EXPIRED_ERROR,
     NotificationRepo,
     type ClaimReleaseOutcome,
     type NotificationRecoveryResult,
@@ -65,7 +66,9 @@ export { RaidRepo } from './raidRepo.js';
 export {
     GENERAL_CHAT_THREAD_ID,
     SubscriptionRepo,
+    type MigrateChatSubscriptionsResult,
     type SubscriptionDestination,
+    type SubscriptionRecord,
     type TelegramDestination,
 } from './subscriptionRepo.js';
 export {

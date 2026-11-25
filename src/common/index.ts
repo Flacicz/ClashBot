@@ -1,5 +1,10 @@
 export { FakeClock, SystemClock, type Clock } from './clock.js';
-export { escapeHtml, formatUnixToMoscowDateTime, removeTrailingNewlines } from './formatUtils.js';
+export {
+    escapeHtml,
+    formatRemainingTimePhrase,
+    formatUnixToMoscowDateTime,
+    removeTrailingNewlines,
+} from './formatUtils.js';
 export {
     AbortError,
     AppError,
@@ -7,9 +12,11 @@ export {
     DatabaseError,
     DomainError,
     ExternalApiError,
+    InstanceLockError,
     ValidationError,
     isAbortError,
     type AppErrorOptions,
     type DatabaseErrorOptions,
     type ExternalApiErrorOptions,
+    type InstanceLockErrorOptions,
 } from './errors.js';

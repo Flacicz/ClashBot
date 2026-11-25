@@ -341,6 +341,7 @@ describe('TelegramGateway', () => {
             kind: 'permanent',
             retryable: false,
             statusCode: 403,
+            destinationUnavailableScope: 'chat',
             message: forbiddenGrammy.message,
         });
 
@@ -355,5 +356,121 @@ describe('TelegramGateway', () => {
         abortedInner.name = 'AbortError';
         const abortedHttpError = new HttpError('Request aborted', abortedInner);
         expect(classifyTelegramError(abortedHttpError).kind).toBe('aborted');
+    });
+
+    it('classifies HTTP 400 parameters.migrate_to_chat_id as chat_migrated via loopback server and GrammyError', async () => {
+        const server = await startLoopbackServer((_req, res) => {
+            res.statusCode = 400;
+            res.setHeader('content-type', 'application/json');
+            res.end(
+                JSON.stringify({
+                    ok: false,
+                    error_code: 400,
+                    description: 'Bad Request: group chat was upgraded to a supergroup chat',
+                    parameters: { migrate_to_chat_id: -1001234567890 },
+                }),
+            );
+        });
+        openServers.push(server);
+
+        const gateway = new TelegramGateway('test-token', {
+            apiRoot: server.baseUrl,
+        });
+
+        let caught: unknown;
+        try {
+            await gateway.sendMessage(-500, 'Migrating group');
+        } catch (error: unknown) {
+            caught = error;
+        }
+
+        expect(isTelegramDeliveryError(caught)).toBe(true);
+        const deliveryError = caught as TelegramDeliveryError;
+        expect(deliveryError.kind).toBe('chat_migrated');
+        expect(deliveryError.statusCode).toBe(400);
+        expect(deliveryError.retryable).toBe(false);
+        expect(deliveryError.migrateToChatId).toBe(-1001234567890);
+        expect(deliveryError.destinationUnavailableScope).toBeUndefined();
+
+        const migratedGrammy = new GrammyError(
+            'Bad Request',
+            {
+                ok: false,
+                error_code: 400,
+                description: 'Bad Request: group chat was upgraded to a supergroup chat',
+                parameters: { migrate_to_chat_id: -1009876543210 },
+            },
+            'sendMessage',
+            {},
+        );
+        expect(classifyTelegramError(migratedGrammy)).toEqual({
+            kind: 'chat_migrated',
+            retryable: false,
+            statusCode: 400,
+            migrateToChatId: -1009876543210,
+            message: migratedGrammy.message,
+        });
+    });
+
+    it('distinguishes chat-wide unavailability, forum topic unavailability, and non-destination 4xx errors', () => {
+        const makeGrammy = (code: number, description: string): GrammyError =>
+            new GrammyError(
+                'Telegram API error',
+                { ok: false, error_code: code, description },
+                'sendMessage',
+                {},
+            );
+
+        expect(
+            classifyTelegramError(
+                makeGrammy(403, 'Forbidden: bot was kicked from the supergroup chat'),
+            ).destinationUnavailableScope,
+        ).toBe('chat');
+        expect(
+            classifyTelegramError(makeGrammy(403, 'Forbidden: user is deactivated'))
+                .destinationUnavailableScope,
+        ).toBe('chat');
+        expect(
+            classifyTelegramError(makeGrammy(400, 'Bad Request: chat not found'))
+                .destinationUnavailableScope,
+        ).toBe('chat');
+        expect(
+            classifyTelegramError(makeGrammy(400, 'Bad Request: have no rights to send a message'))
+                .destinationUnavailableScope,
+        ).toBe('chat');
+        expect(
+            classifyTelegramError(makeGrammy(400, 'Bad Request: CHAT_WRITE_FORBIDDEN'))
+                .destinationUnavailableScope,
+        ).toBe('chat');
+
+        expect(
+            classifyTelegramError(makeGrammy(400, 'Bad Request: message thread not found'))
+                .destinationUnavailableScope,
+        ).toBe('destination');
+        expect(
+            classifyTelegramError(makeGrammy(400, 'Bad Request: TOPIC_DELETED'))
+                .destinationUnavailableScope,
+        ).toBe('destination');
+        expect(
+            classifyTelegramError(makeGrammy(400, 'Bad Request: TOPIC_CLOSED'))
+                .destinationUnavailableScope,
+        ).toBe('destination');
+
+        // Formatting/payload/auth/method errors must NOT mark destination unavailable
+        expect(
+            classifyTelegramError(
+                makeGrammy(400, "Bad Request: can't parse entities: Can't find end tag"),
+            ).destinationUnavailableScope,
+        ).toBeUndefined();
+        expect(
+            classifyTelegramError(makeGrammy(400, 'Bad Request: message is too long'))
+                .destinationUnavailableScope,
+        ).toBeUndefined();
+        expect(
+            classifyTelegramError(makeGrammy(401, 'Unauthorized')).destinationUnavailableScope,
+        ).toBeUndefined();
+        expect(
+            classifyTelegramError(makeGrammy(404, 'Not Found')).destinationUnavailableScope,
+        ).toBeUndefined();
     });
 });

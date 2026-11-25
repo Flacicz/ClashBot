@@ -75,7 +75,7 @@ CI/CD, обновлениям, SSH-туннелю и онлайн-бэкапам
 | [`AGENTS.md`](AGENTS.md)                               | Правила работы AI-агента, команды проверок, инварианты и Definition of Done            |
 | [`GLOSSARY.md`](GLOSSARY.md)                           | Канонические термины предметной области и запрещённые синонимы                         |
 | [`docs/architecture.md`](docs/architecture.md)         | Архитектура TS/Node.js 24, границы модулей `src/`, схема `config.json`/`.env` и циклы  |
-| [`docs/database.md`](docs/database.md)                 | SQLite WAL, транзакции, миграции `001`–`014`, схема таблиц и контракты репозиториев    |
+| [`docs/database.md`](docs/database.md)                 | SQLite WAL, транзакции, миграции `001`–`015`, схема таблиц и контракты репозиториев    |
 | [`docs/reports.md`](docs/reports.md)                   | `ApplicationEvent`, payload, матрица доставки, форматтеры, напоминания и outbox        |
 | [`docs/telegram.md`](docs/telegram.md)                 | `grammY`, команды, права администратора чата, форумные темы, меню и `TelegramGateway`  |
 | [`docs/deployment.md`](docs/deployment.md)             | Серверные требования, Docker, GHCR CI/CD, SSH-туннель и бэкапы/восстановление SQLite   |

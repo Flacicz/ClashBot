@@ -233,4 +233,44 @@ describe('DomainEventPayloadSerializer', () => {
             expect(audiencesForEvent(testCase.event)).toEqual(testCase.audiences);
         }
     });
+
+    it('serializes optional remainingSeconds into remaining_seconds for war and raid reminders', () => {
+        const serializer = new DomainEventPayloadSerializer();
+
+        const warRecord = serializer.serialize({
+            type: 'war_reminder',
+            clanTag: CLAN_TAG,
+            warId: 61,
+            endTime: 1700,
+            warKind: 'regular',
+            kind: 'one_hour_left',
+            remainingSeconds: 1800,
+        });
+        expect(warRecord.payloadVersion).toBe(1);
+        expect(warRecord.eventId).toBe('61:one_hour_left');
+        expect(JSON.parse(warRecord.payload)).toEqual({
+            war_id: 61,
+            end_time: 1700,
+            war_kind: 'regular',
+            reminder_kind: 'one_hour_left',
+            remaining_seconds: 1800,
+        });
+
+        const raidRecord = serializer.serialize({
+            type: 'raid_reminder',
+            clanTag: CLAN_TAG,
+            raidReference: { raidId: 71 },
+            endTime: 1800,
+            kind: 'six_hours_left',
+            remainingSeconds: 13500,
+        });
+        expect(raidRecord.payloadVersion).toBe(1);
+        expect(raidRecord.eventId).toBe('71:six_hours_left');
+        expect(JSON.parse(raidRecord.payload)).toEqual({
+            raid_reference: { raid_id: 71 },
+            end_time: 1800,
+            reminder_kind: 'six_hours_left',
+            remaining_seconds: 13500,
+        });
+    });
 });

@@ -320,7 +320,75 @@ describe('RaidRepo', () => {
         expect(raidRepo.getBestRaidMembers(emptyRef)).toEqual([]);
     });
 
-    it('computes raid slackers and comparison stats using active membership at raid end_time', () => {
+    it('returns API player names for guest participants without clan roster snapshots and preserves known names on empty updates', () => {
+        const { clansRepo, raidRepo } = createMigratedDb();
+
+        clansRepo.insertMinimalClan('#CLAN1');
+        // Guest with API name (no clan_memberships, no player_snapshots)
+        clansRepo.insertMinimal('#GUEST_NAMED', 'Guest Striker');
+        // Guest initially saved without name, then resolved from raid API
+        clansRepo.insertMinimal('#GUEST_RESOLVED');
+        clansRepo.insertMinimal('#GUEST_RESOLVED', 'Resolved Guest');
+        // Brand-new guest without name falls back to Unknown Player
+        clansRepo.insertMinimal('#GUEST_NAMELESS');
+
+        const raidRef = raidRepo.saveCompleteRaidData(makeRaid(), [
+            {
+                playerTag: '#GUEST_NAMED',
+                playerName: 'Guest Striker',
+                attacksCount: 6,
+                bonusAttack: 1,
+                totalLoot: 32_000,
+            },
+            {
+                playerTag: '#GUEST_RESOLVED',
+                playerName: 'Resolved Guest',
+                attacksCount: 5,
+                bonusAttack: 0,
+                totalLoot: 24_000,
+            },
+            {
+                playerTag: '#GUEST_NAMELESS',
+                attacksCount: 5,
+                bonusAttack: 0,
+                totalLoot: 18_000,
+            },
+        ]);
+
+        expect(raidRepo.getBestRaidMembers(raidRef)).toEqual([
+            {
+                playerTag: '#GUEST_NAMED',
+                playerName: 'Guest Striker',
+                attacksCount: 6,
+                bonusAttacks: 1,
+                totalLoot: 32_000,
+            },
+            {
+                playerTag: '#GUEST_RESOLVED',
+                playerName: 'Resolved Guest',
+                attacksCount: 5,
+                bonusAttacks: 0,
+                totalLoot: 24_000,
+            },
+            {
+                playerTag: '#GUEST_NAMELESS',
+                playerName: 'Unknown Player',
+                attacksCount: 5,
+                bonusAttacks: 0,
+                totalLoot: 18_000,
+            },
+        ]);
+
+        // Updating known guest name updates reported current name; blank/missing name preserves it
+        clansRepo.insertMinimal('#GUEST_NAMED', 'Guest Renamed');
+        clansRepo.insertMinimal('#GUEST_NAMED');
+        clansRepo.insertMinimal('#GUEST_NAMED', '');
+        clansRepo.insertMinimal('#GUEST_NAMED', '   ');
+
+        expect(raidRepo.getBestRaidMembers(raidRef)[0]?.playerName).toBe('Guest Renamed');
+    });
+
+    it('computes raid slackers and comparison stats using membership at raid start_time through end_time', () => {
         const { db, clansRepo, raidRepo } = createMigratedDb();
 
         const startTime = 1_700_000_000;
@@ -337,13 +405,14 @@ describe('RaidRepo', () => {
             { tag: '#JOINED_LATE', name: 'JoinedAfterEnd', clanTag: '#CLAN1' },
         ]);
 
-        // Eligible at endTime: #FULL, #BONUS_MISS, #PARTIAL, #NOSNAP, #LEFT_AFTER (5 eligible)
+        // Eligible (in clan at startTime and stayed through endTime):
+        // #FULL, #BONUS_MISS, #PARTIAL, #NOSNAP, #LEFT_AFTER (5 eligible)
         insertMembership(db, '#CLAN1', '#FULL', startTime - 1000, null);
         insertMembership(db, '#CLAN1', '#BONUS_MISS', startTime - 1000, null);
         insertMembership(db, '#CLAN1', '#PARTIAL', startTime - 1000, null);
         insertMembership(db, '#CLAN1', '#NOSNAP', startTime - 1000, null);
         insertMembership(db, '#CLAN1', '#LEFT_AFTER', startTime - 1000, endTime);
-        // Not eligible at endTime:
+        // Not eligible:
         insertMembership(db, '#CLAN1', '#LEFT_EARLY', startTime - 1000, endTime - 1);
         insertMembership(db, '#CLAN1', '#JOINED_LATE', endTime + 1, null);
 
@@ -386,28 +455,312 @@ describe('RaidRepo', () => {
             },
         ]);
 
-        // Comparison stats:
-        // usedAttacks = 6 + 5 + 2 + 5 + 5 = 23
+        // Comparison stats (cohort-only numerators and denominators; #LEFT_EARLY isolated into external context):
+        // usedAttacks (eligible only) = #FULL(6) + #BONUS_MISS(5) + #PARTIAL(2) + #LEFT_AFTER(5) = 18
         // availableAttacks (eligible only):
         //   #FULL(6) + #BONUS_MISS(6) + #PARTIAL(5) + #NOSNAP(5) + #LEFT_AFTER(5) = 27
-        // activeParticipants = 5 (snapshots count)
+        // activeParticipants (eligible with attacks_count > 0) = 4 (#FULL, #BONUS_MISS, #PARTIAL, #LEFT_AFTER)
         // eligibleParticipants = 5 (#FULL, #BONUS_MISS, #PARTIAL, #NOSNAP, #LEFT_AFTER)
-        // participantsWithAllAttacksUsed = 3 (#FULL 6>=6, #LEFT_EARLY 5>=5, #LEFT_AFTER 5>=5)
+        // participantsWithAllAttacksUsed (eligible only) = 2 (#FULL 6>=6, #LEFT_AFTER 5>=5)
         // participantsWithoutAttacks = 1 (#NOSNAP)
+        // externalUsedAttacks = 5 (#LEFT_EARLY), externalParticipants = 1 (#LEFT_EARLY)
         expect(raidRepo.getRaidComparisonStats(raidRef)).toEqual({
             startTime,
             totalLoot: 90_000,
             raidsCompleted: 8,
-            usedAttacks: 23,
+            usedAttacks: 18,
             availableAttacks: 27,
-            activeParticipants: 5,
+            activeParticipants: 4,
             eligibleParticipants: 5,
-            participantsWithAllAttacksUsed: 3,
+            participantsWithAllAttacksUsed: 2,
             participantsWithoutAttacks: 1,
+            externalUsedAttacks: 5,
+            externalParticipants: 1,
             enemyDistrictsDestroyed: 40,
             offensiveReward: 1100,
             defensiveReward: 250,
         });
+    });
+
+    it('excludes late joiners after raid start_time from slackers and eligible cohort while keeping their attacks in overall totals', () => {
+        const { db, clansRepo, raidRepo } = createMigratedDb();
+
+        const startTime = 1_700_000_000;
+        const endTime = 1_700_259_200;
+
+        clansRepo.insertMinimalClan('#CLAN1');
+        clansRepo.savePlayers([
+            { tag: '#AT_START', name: 'AtStartBoundary', clanTag: '#CLAN1' },
+            { tag: '#LATE_NONE', name: 'LateNoAttacks', clanTag: '#CLAN1' },
+            { tag: '#LATE_PARTIAL', name: 'LatePartial', clanTag: '#CLAN1' },
+            { tag: '#LATE_END', name: 'LateAtEnd', clanTag: '#CLAN1' },
+            { tag: '#REJOINED', name: 'LeftAndRejoined', clanTag: '#CLAN1' },
+        ]);
+
+        // Joined exactly at startTime => eligible
+        insertMembership(db, '#CLAN1', '#AT_START', startTime, null);
+        // Joined 1 second after startTime => NOT eligible
+        insertMembership(db, '#CLAN1', '#LATE_NONE', startTime + 1, null);
+        // Joined near endTime and did partial attacks => NOT eligible, but attacks still count in totals
+        insertMembership(db, '#CLAN1', '#LATE_PARTIAL', endTime - 3600, null);
+        // Joined exactly at endTime => NOT eligible
+        insertMembership(db, '#CLAN1', '#LATE_END', endTime, null);
+        // Left mid-raid and rejoined before endTime => NOT continuously present [startTime, endTime]
+        insertMembership(db, '#CLAN1', '#REJOINED', startTime - 500, startTime + 1000);
+        insertMembership(db, '#CLAN1', '#REJOINED', endTime - 1000, null);
+
+        const raidRef = raidRepo.saveCompleteRaidData(
+            makeRaid({
+                startTime,
+                endTime,
+                totalLoot: 45_000,
+                raidsCompleted: 4,
+                totalAttacks: 6,
+                enemyDistrictsDestroyed: 12,
+                offensiveReward: 700,
+                defensiveReward: 150,
+            }),
+            [
+                // Eligible at boundary, incomplete (3/5) => slacker
+                { playerTag: '#AT_START', attacksCount: 3, bonusAttack: 0, totalLoot: 20_000 },
+                // Late joiner with partial attacks (2/5) => excluded from slackers, counted in overall stats
+                { playerTag: '#LATE_PARTIAL', attacksCount: 2, bonusAttack: 0, totalLoot: 15_000 },
+                // Rejoined player with 1 attack => excluded from slackers, counted in overall stats
+                { playerTag: '#REJOINED', attacksCount: 1, bonusAttack: 0, totalLoot: 10_000 },
+            ],
+        );
+
+        // Only #AT_START is obligated to play the raid
+        expect(raidRepo.getRaidSlackers(raidRef)).toEqual([
+            {
+                playerTag: '#AT_START',
+                playerName: 'AtStartBoundary',
+                attacksCount: 3,
+                bonusAttacks: 0,
+            },
+        ]);
+
+        // Late joiner attacks remain in overall raid stats and best members
+        expect(raidRepo.getRaidStats(raidRef).totalAttacks).toBe(6);
+        expect(raidRepo.getBestRaidMembers(raidRef).map((m) => m.playerTag)).toEqual([
+            '#AT_START',
+            '#LATE_PARTIAL',
+            '#REJOINED',
+        ]);
+
+        // Comparison stats keep rate numerators strictly within the eligible cohort (#AT_START)
+        // and report #LATE_PARTIAL + #REJOINED attacks in external context so no share exceeds 100%
+        expect(raidRepo.getRaidComparisonStats(raidRef)).toEqual({
+            startTime,
+            totalLoot: 45_000,
+            raidsCompleted: 4,
+            usedAttacks: 3,
+            availableAttacks: 5,
+            activeParticipants: 1,
+            eligibleParticipants: 1,
+            participantsWithAllAttacksUsed: 0,
+            participantsWithoutAttacks: 0,
+            externalUsedAttacks: 3,
+            externalParticipants: 2,
+            enemyDistrictsDestroyed: 12,
+            offensiveReward: 700,
+            defensiveReward: 150,
+        });
+    });
+
+    it('isolates guest and leaver attacks into external context so no comparison share exceeds 100%', () => {
+        const { db, clansRepo, raidRepo } = createMigratedDb();
+
+        const startTime = 1_700_000_000;
+        const endTime = 1_700_259_200;
+
+        clansRepo.insertMinimalClan('#CLAN1');
+        clansRepo.savePlayers([
+            { tag: '#ELIG_FULL', name: 'EligibleFull', clanTag: '#CLAN1' },
+            { tag: '#ELIG_PARTIAL', name: 'EligiblePartial', clanTag: '#CLAN1' },
+            { tag: '#LEAVER', name: 'AttackedAndLeft', clanTag: '#CLAN1' },
+            { tag: '#GUEST', name: 'VisitingGuest', clanTag: '#CLAN1' },
+            { tag: '#GUEST_ZERO', name: 'GuestZeroAttacks', clanTag: '#CLAN1' },
+        ]);
+
+        // Eligible cohort: #ELIG_FULL and #ELIG_PARTIAL
+        insertMembership(db, '#CLAN1', '#ELIG_FULL', startTime - 500, null);
+        insertMembership(db, '#CLAN1', '#ELIG_PARTIAL', startTime - 500, null);
+        // Attacked and left before endTime
+        insertMembership(db, '#CLAN1', '#LEAVER', startTime - 500, endTime - 10);
+        // #GUEST and #GUEST_ZERO have no clan_memberships rows for #CLAN1
+
+        const raidRef = raidRepo.saveCompleteRaidData(
+            makeRaid({
+                startTime,
+                endTime,
+                totalLoot: 110_000,
+                raidsCompleted: 6,
+                totalAttacks: 21,
+                enemyDistrictsDestroyed: 28,
+                offensiveReward: 1_150,
+                defensiveReward: 310,
+            }),
+            [
+                { playerTag: '#ELIG_FULL', attacksCount: 6, bonusAttack: 1, totalLoot: 35_000 },
+                { playerTag: '#ELIG_PARTIAL', attacksCount: 4, bonusAttack: 0, totalLoot: 20_000 },
+                { playerTag: '#LEAVER', attacksCount: 5, bonusAttack: 0, totalLoot: 25_000 },
+                { playerTag: '#GUEST', attacksCount: 6, bonusAttack: 1, totalLoot: 30_000 },
+                { playerTag: '#GUEST_ZERO', attacksCount: 0, bonusAttack: 0, totalLoot: 0 },
+            ],
+        );
+
+        const stats = raidRepo.getRaidComparisonStats(raidRef);
+        expect(stats).toEqual({
+            startTime,
+            totalLoot: 110_000,
+            raidsCompleted: 6,
+            usedAttacks: 10,
+            availableAttacks: 11,
+            activeParticipants: 2,
+            eligibleParticipants: 2,
+            participantsWithAllAttacksUsed: 1,
+            participantsWithoutAttacks: 0,
+            externalUsedAttacks: 11,
+            externalParticipants: 2,
+            enemyDistrictsDestroyed: 28,
+            offensiveReward: 1_150,
+            defensiveReward: 310,
+        });
+
+        // Invariant: no cohort share exceeds 100%
+        expect(stats.usedAttacks).toBeLessThanOrEqual(stats.availableAttacks);
+        expect(stats.activeParticipants).toBeLessThanOrEqual(stats.eligibleParticipants);
+        expect(stats.participantsWithAllAttacksUsed).toBeLessThanOrEqual(stats.activeParticipants);
+        expect(stats.participantsWithoutAttacks).toBeLessThanOrEqual(stats.eligibleParticipants);
+        expect(stats.activeParticipants + stats.participantsWithoutAttacks).toBe(
+            stats.eligibleParticipants,
+        );
+
+        // Edge case: raid with 0 eligible members and only guest attacks
+        const guestOnlyRaidRef = raidRepo.saveCompleteRaidData(
+            makeRaid({
+                startTime: startTime + 1_000_000,
+                endTime: endTime + 1_000_000,
+                totalLoot: 30_000,
+                raidsCompleted: 2,
+                totalAttacks: 6,
+                enemyDistrictsDestroyed: 6,
+                offensiveReward: 500,
+                defensiveReward: 100,
+            }),
+            [{ playerTag: '#GUEST', attacksCount: 6, bonusAttack: 1, totalLoot: 30_000 }],
+        );
+        // Close existing memberships before guest-only raid start
+        db.connection
+            .prepare('UPDATE clan_memberships SET left_at = ? WHERE left_at IS NULL')
+            .run(startTime + 500_000);
+
+        expect(raidRepo.getRaidComparisonStats(guestOnlyRaidRef)).toEqual({
+            startTime: startTime + 1_000_000,
+            totalLoot: 30_000,
+            raidsCompleted: 2,
+            usedAttacks: 0,
+            availableAttacks: 0,
+            activeParticipants: 0,
+            eligibleParticipants: 0,
+            participantsWithAllAttacksUsed: 0,
+            participantsWithoutAttacks: 0,
+            externalUsedAttacks: 6,
+            externalParticipants: 1,
+            enemyDistrictsDestroyed: 6,
+            offensiveReward: 500,
+            defensiveReward: 100,
+        });
+    });
+
+    it('treats player_raid_snapshots with attacks_count = 0 as did not attack consistently in getRaidSlackers and getRaidComparisonStats', () => {
+        const { db, clansRepo, raidRepo } = createMigratedDb();
+
+        const startTime = 1_700_000_000;
+        const endTime = 1_700_259_200;
+
+        clansRepo.insertMinimalClan('#CLAN1');
+        clansRepo.savePlayers([
+            { tag: '#FULL', name: 'AlphaFull', clanTag: '#CLAN1' },
+            { tag: '#ZERO_SNAP', name: 'BravoZeroSnapshot', clanTag: '#CLAN1' },
+            { tag: '#ZERO_SNAP_BONUS', name: 'CharlieZeroSnapshotBonus', clanTag: '#CLAN1' },
+            { tag: '#NO_SNAP', name: 'DeltaNoSnapshot', clanTag: '#CLAN1' },
+            { tag: '#LATE_ZERO_SNAP', name: 'EchoLateZeroSnapshot', clanTag: '#CLAN1' },
+        ]);
+
+        insertMembership(db, '#CLAN1', '#FULL', startTime - 1000, null);
+        insertMembership(db, '#CLAN1', '#ZERO_SNAP', startTime - 1000, null);
+        insertMembership(db, '#CLAN1', '#ZERO_SNAP_BONUS', startTime - 1000, null);
+        insertMembership(db, '#CLAN1', '#NO_SNAP', startTime - 1000, null);
+        // Late joiner with a zero-attack snapshot must be excluded from both slackers and comparison counts
+        insertMembership(db, '#CLAN1', '#LATE_ZERO_SNAP', startTime + 60, null);
+
+        const raidRef = raidRepo.saveCompleteRaidData(
+            makeRaid({
+                startTime,
+                endTime,
+                totalLoot: 25_000,
+                raidsCompleted: 2,
+                totalAttacks: 5,
+                enemyDistrictsDestroyed: 8,
+                offensiveReward: 600,
+                defensiveReward: 100,
+            }),
+            [
+                { playerTag: '#FULL', attacksCount: 5, bonusAttack: 0, totalLoot: 25_000 },
+                { playerTag: '#ZERO_SNAP', attacksCount: 0, bonusAttack: 0, totalLoot: 0 },
+                { playerTag: '#ZERO_SNAP_BONUS', attacksCount: 0, bonusAttack: 1, totalLoot: 0 },
+                { playerTag: '#LATE_ZERO_SNAP', attacksCount: 0, bonusAttack: 0, totalLoot: 0 },
+            ],
+        );
+
+        const slackers = raidRepo.getRaidSlackers(raidRef);
+        expect(slackers).toEqual([
+            {
+                playerTag: '#ZERO_SNAP',
+                playerName: 'BravoZeroSnapshot',
+                attacksCount: 0,
+                bonusAttacks: 0,
+            },
+            {
+                playerTag: '#ZERO_SNAP_BONUS',
+                playerName: 'CharlieZeroSnapshotBonus',
+                attacksCount: 0,
+                bonusAttacks: 1,
+            },
+            {
+                playerTag: '#NO_SNAP',
+                playerName: 'DeltaNoSnapshot',
+                attacksCount: 0,
+                bonusAttacks: 0,
+            },
+        ]);
+
+        const stats = raidRepo.getRaidComparisonStats(raidRef);
+        expect(stats).toEqual({
+            startTime,
+            totalLoot: 25_000,
+            raidsCompleted: 2,
+            usedAttacks: 5,
+            // #FULL(5) + #ZERO_SNAP(5) + #ZERO_SNAP_BONUS(6) + #NO_SNAP(5) = 21
+            availableAttacks: 21,
+            // Only #FULL made > 0 attacks; zero-attack snapshots are NOT active participants
+            activeParticipants: 1,
+            eligibleParticipants: 4,
+            participantsWithAllAttacksUsed: 1,
+            // #ZERO_SNAP, #ZERO_SNAP_BONUS, #NO_SNAP (matches 0-attack slackers)
+            participantsWithoutAttacks: 3,
+            externalUsedAttacks: 0,
+            externalParticipants: 0,
+            enemyDistrictsDestroyed: 8,
+            offensiveReward: 600,
+            defensiveReward: 100,
+        });
+
+        // Consistency invariant between violations and comparison stats
+        const zeroAttackSlackers = slackers.filter((slacker) => slacker.attacksCount === 0);
+        expect(zeroAttackSlackers).toHaveLength(stats.participantsWithoutAttacks);
     });
 
     it('returns zeroed comparison stats for a raid with no snapshots and no eligible members', () => {
@@ -437,6 +790,8 @@ describe('RaidRepo', () => {
             eligibleParticipants: 0,
             participantsWithAllAttacksUsed: 0,
             participantsWithoutAttacks: 0,
+            externalUsedAttacks: 0,
+            externalParticipants: 0,
             enemyDistrictsDestroyed: 0,
             offensiveReward: 0,
             defensiveReward: 0,

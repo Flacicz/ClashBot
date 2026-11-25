@@ -7,18 +7,27 @@ import { FakeClock } from '../../src/common/clock.js';
 import { AbortError } from '../../src/common/errors.js';
 import {
     ClansRepo,
+    ClanwarRepo,
+    ClanwarsLeagueRepo,
     Database,
     DomainEventsRepo,
     MigratorManager,
+    NotificationRepo,
     RaidRepo,
     SubscriptionRepo,
     TransactionManager,
 } from '../../src/database/index.js';
-import { DomainEventPayloadSerializer, DomainEventRecorder } from '../../src/domainEvents/index.js';
+import {
+    DomainEventPayloadDeserializer,
+    DomainEventPayloadSerializer,
+    DomainEventRecorder,
+    DomainEventWorker,
+} from '../../src/domainEvents/index.js';
 import {
     APPLICATION_EVENT_TYPES,
     RAID_REMINDER_KINDS,
 } from '../../src/events/applicationEvents.js';
+import { NotificationService } from '../../src/notifications/index.js';
 import { RaidService, SECONDS_PER_HOUR, type RaidApiClient } from '../../src/services/index.js';
 
 const REAL_MIGRATIONS_PATH = path.resolve(import.meta.dirname, '../../migrations');
@@ -353,7 +362,9 @@ describe('RaidService', () => {
         clock.setNow((endTime - SECONDS_PER_HOUR) * 1000);
         const oneHour = await service.updateData(CLAN_TAG);
         await service.updateData(CLAN_TAG);
-        expect(oneHour.events).toHaveLength(5);
+        expect(oneHour.events.map((e) => (e.type === 'raid_reminder' ? e.kind : e.type))).toEqual([
+            RAID_REMINDER_KINDS.oneHourLeft,
+        ]);
         expect(tableRowCount(db, 'domain_events')).toBe(5);
 
         const pendingReminders = domainEventsRepo.getPendingDestinations(50);
@@ -445,5 +456,279 @@ describe('RaidService', () => {
         expect(tableRowCount(db, 'player_raid_snapshots')).toBe(2);
         expect(tableRowCount(db, 'domain_events')).toBe(1);
         expect(domainEventsRepo.getPendingDestinations(50)).toHaveLength(1);
+    });
+
+    it('emits only the newest reminder on late raid sync start and skips earlier checkpoints without sending', async () => {
+        const startTime = 1_700_100_000;
+        const endTime = startTime + 72 * SECONDS_PER_HOUR;
+        // Late sync start: 25 minutes before raid ends
+        const { db, clock, clansRepo, subscriptionRepo, domainEventsRepo, apiClient, service } =
+            setup(endTime - 25 * 60);
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+        subscriptionRepo.saveTelegramChat(-1001, 0, 'Players');
+        subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+
+        apiClient.raidData = makeRaidData({
+            startTime,
+            endTime,
+            state: 'ongoing',
+        });
+
+        const first = await service.updateData(CLAN_TAG);
+        expect(first.successFlag).toBe(true);
+        expect(first.events).toHaveLength(1);
+        const activeReminder = first.events[0];
+        if (activeReminder?.type !== APPLICATION_EVENT_TYPES.raidReminder) {
+            throw new Error('Expected RaidReminderEvent');
+        }
+        const raidId = activeReminder.raidReference.raidId;
+        expect(activeReminder.kind).toBe(RAID_REMINDER_KINDS.oneHourLeft);
+        expect(activeReminder.remainingSeconds).toBe(25 * 60);
+
+        // All 5 checkpoints recorded in domain_events (4 skipped + 1 active),
+        // but only the newest open checkpoint has a pending destination
+        expect(tableRowCount(db, 'domain_events')).toBe(5);
+        const pending = domainEventsRepo.getPendingDestinations(50);
+        expect(pending).toHaveLength(1);
+        expect(pending[0]?.eventId).toBe(`${String(raidId)}:${RAID_REMINDER_KINDS.oneHourLeft}`);
+
+        // Repeat sync 10 minutes later -> still no extra destinations or re-emitted skipped points
+        clock.setNow((endTime - 15 * 60) * 1000);
+        const repeat = await service.updateData(CLAN_TAG);
+        expect(repeat.successFlag).toBe(true);
+        expect(tableRowCount(db, 'domain_events')).toBe(5);
+        expect(domainEventsRepo.getPendingDestinations(50)).toHaveLength(1);
+    });
+
+    it('skips missed raid checkpoints after downtime recovery and renders actual remaining time', async () => {
+        const startTime = 1_700_100_000;
+        const endTime = startTime + 72 * SECONDS_PER_HOUR;
+        const {
+            db,
+            clock,
+            clansRepo,
+            raidRepo,
+            subscriptionRepo,
+            domainEventsRepo,
+            apiClient,
+            service,
+        } = setup(startTime + 5 * 60);
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+        subscriptionRepo.saveTelegramChat(-1001, 0, 'Players');
+        subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+
+        apiClient.raidData = makeRaidData({
+            startTime,
+            endTime,
+            state: 'ongoing',
+        });
+
+        // 1. On-time start reminder
+        const started = await service.updateData(CLAN_TAG);
+        expect(started.events).toHaveLength(1);
+        const startedEvent = started.events[0];
+        if (startedEvent?.type !== APPLICATION_EVENT_TYPES.raidReminder) {
+            throw new Error('Expected started RaidReminderEvent');
+        }
+        const raidId = startedEvent.raidReference.raidId;
+        expect(startedEvent.kind).toBe(RAID_REMINDER_KINDS.started);
+
+        // 2. Outage across 48h and 24h windows; recovery at 3h 45m left (inside 6h window)
+        clock.setNow((endTime - 3 * SECONDS_PER_HOUR - 45 * 60) * 1000);
+        const recovered = await service.updateData(CLAN_TAG);
+        expect(recovered.successFlag).toBe(true);
+        expect(recovered.events).toHaveLength(1);
+        expect(recovered.events[0]).toMatchObject({
+            type: APPLICATION_EVENT_TYPES.raidReminder,
+            kind: RAID_REMINDER_KINDS.sixHoursLeft,
+            remainingSeconds: 3 * SECONDS_PER_HOUR + 45 * 60,
+        });
+
+        // Repeat sync after recovery -> idempotent
+        await service.updateData(CLAN_TAG);
+
+        // 4 rows in domain_events (started, 48h skipped, 24h skipped, 6h active)
+        expect(tableRowCount(db, 'domain_events')).toBe(4);
+        const pending = domainEventsRepo.getPendingDestinations(50);
+        expect(pending.map((d) => d.eventId)).toEqual([
+            `${String(raidId)}:${RAID_REMINDER_KINDS.started}`,
+            `${String(raidId)}:${RAID_REMINDER_KINDS.sixHoursLeft}`,
+        ]);
+
+        // Materialize pending reminders and verify actual remaining time in notification text
+        const txManager = new TransactionManager(db);
+        const notificationRepo = new NotificationRepo(db);
+        const notificationService = new NotificationService({
+            notificationRepo,
+            clansRepo,
+            clanwarRepo: new ClanwarRepo(db),
+            clanwarsLeagueRepo: new ClanwarsLeagueRepo(db),
+            raidRepo,
+        });
+        const worker = new DomainEventWorker({
+            domainEventsRepo,
+            transactionManager: txManager,
+            deserializer: new DomainEventPayloadDeserializer(),
+            materializer: notificationService,
+            clock,
+        });
+        worker.processPending();
+
+        // At 3h 45m left, the earlier `started` reminder is superseded (expires at -48h), so only `six_hours_left` is deliverable
+        const notifications = notificationRepo.getPending(10, clock.nowEpochSeconds());
+        expect(notifications).toHaveLength(1);
+        expect(notifications[0]?.eventId).toBe(
+            `${String(raidId)}:${RAID_REMINDER_KINDS.sixHoursLeft}`,
+        );
+        expect(notifications[0]?.messageText).toContain(
+            'До окончания рейдовых выходных осталось 3 часа 45 минут',
+        );
+    });
+
+    it('persists raid member names for guests, updates outdated names, renders guest name in raids_ended report, and preserves known names on empty API names', async () => {
+        const {
+            db,
+            clock,
+            clansRepo,
+            raidRepo,
+            subscriptionRepo,
+            domainEventsRepo,
+            apiClient,
+            service,
+        } = setup(10_000);
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+        // Existing clan member with outdated nickname
+        clansRepo.savePlayers([{ tag: '#MEMBER', name: 'Old Member Name', clanTag: CLAN_TAG }]);
+        // Legacy guest previously inserted as Unknown Player
+        clansRepo.insertMinimal('#LEGACY_GUEST');
+
+        subscriptionRepo.saveTelegramChat(-1001, 0, 'Players');
+        subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+
+        apiClient.raidData = makeRaidData({
+            startTime: 1_000,
+            endTime: 2_000,
+            state: 'ended',
+            totalLoot: 75_000,
+            participants: [
+                {
+                    playerTag: '#GUEST',
+                    playerName: 'Guest Hero',
+                    attacksCount: 6,
+                    bonusAttack: 1,
+                    totalLoot: 35_000,
+                },
+                {
+                    playerTag: '#MEMBER',
+                    playerName: 'Updated Member',
+                    attacksCount: 6,
+                    bonusAttack: 1,
+                    totalLoot: 25_000,
+                },
+                {
+                    playerTag: '#LEGACY_GUEST',
+                    playerName: 'Resolved Guest',
+                    attacksCount: 5,
+                    bonusAttack: 0,
+                    totalLoot: 15_000,
+                },
+            ],
+        });
+
+        const firstResult = await service.updateData(CLAN_TAG);
+        expect(firstResult.successFlag).toBe(true);
+        const endedEvent = firstResult.events[0];
+        if (endedEvent?.type !== APPLICATION_EVENT_TYPES.raidsEnded) {
+            throw new Error('Expected RaidsEndedEvent');
+        }
+
+        // Verify players table: guest gets API name, legacy guest loses Unknown Player,
+        // existing member gets updated name while preserving clan_tag
+        const playersAfterFirst = db.connection
+            .prepare('SELECT tag, name, clan_tag FROM players ORDER BY tag ASC')
+            .all() as { tag: string; name: string; clan_tag: string | null }[];
+        expect(playersAfterFirst).toEqual([
+            { tag: '#GUEST', name: 'Guest Hero', clan_tag: null },
+            { tag: '#LEGACY_GUEST', name: 'Resolved Guest', clan_tag: null },
+            { tag: '#MEMBER', name: 'Updated Member', clan_tag: CLAN_TAG },
+        ]);
+
+        // Materialize raids_ended notification and verify guest appears by API nick, not Unknown Player
+        const txManager = new TransactionManager(db);
+        const notificationRepo = new NotificationRepo(db);
+        const notificationService = new NotificationService({
+            notificationRepo,
+            clansRepo,
+            clanwarRepo: new ClanwarRepo(db),
+            clanwarsLeagueRepo: new ClanwarsLeagueRepo(db),
+            raidRepo,
+        });
+        const worker = new DomainEventWorker({
+            domainEventsRepo,
+            transactionManager: txManager,
+            deserializer: new DomainEventPayloadDeserializer(),
+            materializer: notificationService,
+            clock,
+        });
+        worker.processPending();
+
+        const notifications = notificationRepo.getPending(10, clock.nowEpochSeconds());
+        expect(notifications).toHaveLength(1);
+        expect(notifications[0]?.messageText).toContain('1. Guest Hero — 35000 золота');
+        expect(notifications[0]?.messageText).toContain('2. Updated Member — 25000 золота');
+        expect(notifications[0]?.messageText).toContain('3. Resolved Guest — 15000 золота');
+        expect(notifications[0]?.messageText).not.toContain('Unknown Player');
+
+        // Subsequent raid sync with missing/empty/whitespace names must NOT overwrite known names,
+        // while a brand-new nameless participant still falls back to Unknown Player
+        apiClient.raidData = makeRaidData({
+            startTime: 3_000,
+            endTime: 4_000,
+            state: 'ongoing',
+            participants: [
+                {
+                    playerTag: '#GUEST',
+                    attacksCount: 2,
+                    bonusAttack: 0,
+                    totalLoot: 8_000,
+                },
+                {
+                    playerTag: '#MEMBER',
+                    playerName: '',
+                    attacksCount: 2,
+                    bonusAttack: 0,
+                    totalLoot: 7_000,
+                },
+                {
+                    playerTag: '#LEGACY_GUEST',
+                    playerName: '   ',
+                    attacksCount: 1,
+                    bonusAttack: 0,
+                    totalLoot: 4_000,
+                },
+                {
+                    playerTag: '#NAMELESS',
+                    attacksCount: 1,
+                    bonusAttack: 0,
+                    totalLoot: 2_000,
+                },
+            ],
+        });
+
+        const secondResult = await service.updateData(CLAN_TAG);
+        expect(secondResult.successFlag).toBe(true);
+
+        const playersAfterSecond = db.connection
+            .prepare('SELECT tag, name, clan_tag FROM players ORDER BY tag ASC')
+            .all() as { tag: string; name: string; clan_tag: string | null }[];
+        expect(playersAfterSecond).toEqual([
+            { tag: '#GUEST', name: 'Guest Hero', clan_tag: null },
+            { tag: '#LEGACY_GUEST', name: 'Resolved Guest', clan_tag: null },
+            { tag: '#MEMBER', name: 'Updated Member', clan_tag: CLAN_TAG },
+            { tag: '#NAMELESS', name: 'Unknown Player', clan_tag: null },
+        ]);
     });
 });

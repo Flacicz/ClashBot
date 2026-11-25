@@ -3,6 +3,10 @@ import { createCocApiClientFromConfig } from '../api/cocApiClient.js';
 import { SystemClock, type Clock } from '../common/clock.js';
 import { type AppConfig } from '../config/configSchema.js';
 import { Database } from '../database/database.js';
+import {
+    acquireDatabaseInstanceLock,
+    type DatabaseInstanceLock,
+} from '../database/instanceLock.js';
 import { MigratorManager } from '../database/migratorManager.js';
 import {
     ClansRepo,
@@ -34,6 +38,7 @@ import { ClanwarLeagueService } from '../services/clanwarLeagueService.js';
 import { ClanwarService } from '../services/clanwarService.js';
 import { RaidService } from '../services/raidService.js';
 import { type SyncService } from '../services/syncService.js';
+import { TelegramSubscriptionLifecycle } from '../services/telegramSubscriptionLifecycle.js';
 import { loadAttackGuideCatalog } from '../telegram/attackGuideCatalog.js';
 import { TelegramBotService } from '../telegram/telegramBotService.js';
 import { ShutdownCoordinator } from './shutdownCoordinator.js';
@@ -68,6 +73,7 @@ export interface ApplicationOptions {
 
 export interface Application {
     readonly coordinator: ShutdownCoordinator;
+    readonly instanceLock: DatabaseInstanceLock;
     readonly db: Database;
     readonly cocApiClient: ClosableCocApiClient;
     readonly clanManager: ClanManager;
@@ -82,7 +88,7 @@ export interface Application {
 type Cleanup = () => void | Promise<void>;
 
 /**
- * Composition root: одно соединение SQLite, миграции, сервисы, воркеры и Telegram (ADR-0002).
+ * Composition root: single-instance lock, одно соединение SQLite, миграции, сервисы, воркеры и Telegram (ADR-0002).
  * При ошибке инициализации уже созданные ресурсы закрываются, исключение пробрасывается выше.
  */
 export async function createApplication(
@@ -95,6 +101,11 @@ export async function createApplication(
     const cleanups: Cleanup[] = [];
 
     try {
+        const instanceLock = acquireDatabaseInstanceLock(config.databasePath, { logger });
+        cleanups.push(() => {
+            instanceLock.release();
+        });
+
         const db = new Database(config.databasePath, { logger });
         cleanups.push(() => {
             db.close();
@@ -120,11 +131,20 @@ export async function createApplication(
         const notificationRepo = new NotificationRepo(db);
         const syncOutageRepo = new SyncOutageRepo(db);
 
+        const destinationLifecycle = new TelegramSubscriptionLifecycle({
+            transactionManager: transactions,
+            clansRepo,
+            subscriptionRepo,
+            domainEventsRepo,
+            notificationRepo,
+        });
+
         const telegramGateway =
             options.telegramGateway ?? new GrammyTelegramGateway({ token: config.telegramToken });
         const notificationWorker = new NotificationWorker({
             notificationRepo,
             telegramGateway,
+            destinationLifecycle,
             clock,
             logger,
             ...options.notificationWorkerOptions,
@@ -198,10 +218,16 @@ export async function createApplication(
                 clansRepo,
                 subscriptionRepo,
                 domainEventsRepo,
+                notificationRepo,
                 transactionManager: transactions,
+                destinationLifecycle,
+                clanManager,
                 logger,
             });
 
+        coordinator.addCloser('instanceLock', () => {
+            instanceLock.release();
+        });
         coordinator.addCloser('sqlite', () => {
             db.close();
         });
@@ -218,6 +244,7 @@ export async function createApplication(
 
         return {
             coordinator,
+            instanceLock,
             db,
             cocApiClient,
             clanManager,

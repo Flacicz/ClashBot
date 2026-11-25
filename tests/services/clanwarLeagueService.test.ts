@@ -474,14 +474,21 @@ describe('ClanwarLeagueService', () => {
         expect(tableRowCount(db, 'domain_events')).toBe(1);
         expect(domainEventsRepo.getPendingDestinations(50)).toHaveLength(1);
 
-        // Advance to round 1 1h left -> started + six_hours_left + one_hour_left
+        // Advance to round 1 6h left -> only six_hours_left emitted
+        clock.setNow((round1End - 6 * SECONDS_PER_HOUR) * 1000);
+        const sixHoursSync = await service.updateData(CLAN_TAG);
+        expect(sixHoursSync.successFlag).toBe(true);
+        expect(sixHoursSync.events).toHaveLength(1);
+        expect(tableRowCount(db, 'domain_events')).toBe(2);
+
+        // Advance to round 1 1h left -> only one_hour_left emitted
         clock.setNow((round1End - SECONDS_PER_HOUR) * 1000);
         const oneHourSync = await service.updateData(CLAN_TAG);
         expect(oneHourSync.successFlag).toBe(true);
-        expect(oneHourSync.events).toHaveLength(3);
+        expect(oneHourSync.events).toHaveLength(1);
         expect(tableRowCount(db, 'domain_events')).toBe(3);
 
-        // Advance to round 2 6h left, round 1 ended
+        // Advance to round 2 6h left (skipping round 2 started), round 1 ended
         clock.setNow((round2End - 6 * SECONDS_PER_HOUR) * 1000);
         apiClient.leagueData = {
             ...apiClient.leagueData,
@@ -514,23 +521,23 @@ describe('ClanwarLeagueService', () => {
         expect(transitionSync.successFlag).toBe(true);
         expect(transitionRepeat.successFlag).toBe(true);
 
-        const round2Started = transitionSync.events.find(
+        const round2SixHours = transitionSync.events.find(
             (e) => e.type === APPLICATION_EVENT_TYPES.warReminder && e.warId !== round1WarId,
         );
-        if (round2Started?.type !== APPLICATION_EVENT_TYPES.warReminder) {
+        if (round2SixHours?.type !== APPLICATION_EVENT_TYPES.warReminder) {
             throw new Error('Expected round 2 WarReminderEvent');
         }
-        const round2WarId = round2Started.warId;
+        const round2WarId = round2SixHours.warId;
 
         // Total domain events:
         //   round 1: 3 reminders + 1 cwl_round_ended
-        //   round 2: 2 reminders (started + six_hours_left)
+        //   round 2: 2 reminders (started [skipped without destinations] + six_hours_left)
         // = 6 unique domain events
         expect(tableRowCount(db, 'domain_events')).toBe(6);
 
         const pending = domainEventsRepo.getPendingDestinations(50);
-        // 5 players-only reminders + 2 destinations (players + management) for round 1 cwl_round_ended = 7
-        expect(pending).toHaveLength(7);
+        // 4 players-only active reminders + 2 destinations (players + management) for round 1 cwl_round_ended = 6
+        expect(pending).toHaveLength(6);
 
         const reminderEventIds = pending
             .filter((d) => d.eventType === 'war_reminder')
@@ -539,7 +546,6 @@ describe('ClanwarLeagueService', () => {
             `${String(round1WarId)}:${WAR_REMINDER_KINDS.started}`,
             `${String(round1WarId)}:${WAR_REMINDER_KINDS.sixHoursLeft}`,
             `${String(round1WarId)}:${WAR_REMINDER_KINDS.oneHourLeft}`,
-            `${String(round2WarId)}:${WAR_REMINDER_KINDS.started}`,
             `${String(round2WarId)}:${WAR_REMINDER_KINDS.sixHoursLeft}`,
         ]);
         for (const reminderDest of pending.filter((d) => d.eventType === 'war_reminder')) {
@@ -1234,4 +1240,139 @@ describe('ClanwarLeagueService', () => {
             }
         },
     );
+
+    it('emits only the newest CWL reminder on late start and downtime recovery, skipping missed points and rendering actual time', async () => {
+        const round1Start = 1_700_100_000;
+        const round1End = round1Start + 24 * SECONDS_PER_HOUR;
+        const round2Start = round1End;
+        const round2End = round2Start + 24 * SECONDS_PER_HOUR;
+
+        // Late start: 21 minutes before round 1 ends
+        const {
+            db,
+            clock,
+            clansRepo,
+            clanwarRepo,
+            leagueRepo,
+            subscriptionRepo,
+            domainEventsRepo,
+            apiClient,
+            service,
+        } = setup(round1End - 21 * 60);
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+        subscriptionRepo.saveTelegramChat(-1001, 0, 'Players');
+        subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+
+        apiClient.leagueData = {
+            clanwarsLeagueSeason: { clanTag: CLAN_TAG, seasonId: '2026-09' },
+            clanwarsLeagueMembers: [],
+            warDetails: [
+                makeCwlWar({
+                    opponentTag: '#OPP1',
+                    warUID: 'cwl-late-round-1',
+                    state: 'inWar',
+                    roundNumber: 1,
+                    preparationStartTime: round1Start - 24 * SECONDS_PER_HOUR,
+                    startTime: round1Start,
+                    endTime: round1End,
+                    withDetails: false,
+                }),
+            ],
+        };
+
+        // 1. Late start in final hour of round 1 -> only one_hour_left sent; started & 6h skipped without destinations
+        const lateSync = await service.updateData(CLAN_TAG);
+        expect(lateSync.successFlag).toBe(true);
+        expect(lateSync.events).toHaveLength(1);
+        const r1Reminder = lateSync.events[0];
+        if (r1Reminder?.type !== APPLICATION_EVENT_TYPES.warReminder) {
+            throw new Error('Expected CWL WarReminderEvent');
+        }
+        expect(r1Reminder.warKind).toBe(WAR_REMINDER_WAR_KINDS.cwl);
+        expect(r1Reminder.kind).toBe(WAR_REMINDER_KINDS.oneHourLeft);
+        expect(r1Reminder.remainingSeconds).toBe(21 * 60);
+        expect(tableRowCount(db, 'domain_events')).toBe(3);
+
+        // Repeat sync 5 minutes later -> idempotent
+        clock.setNow((round1End - 16 * 60) * 1000);
+        await service.updateData(CLAN_TAG);
+        expect(tableRowCount(db, 'domain_events')).toBe(3);
+        expect(domainEventsRepo.getPendingDestinations(50)).toHaveLength(1);
+
+        // 2. Downtime through round 2 start; recover at 4h 10m left in round 2
+        clock.setNow((round2End - 4 * SECONDS_PER_HOUR - 10 * 60) * 1000);
+        apiClient.leagueData = {
+            ...apiClient.leagueData,
+            warDetails: [
+                makeCwlWar({
+                    opponentTag: '#OPP2',
+                    warUID: 'cwl-late-round-2',
+                    state: 'inWar',
+                    roundNumber: 2,
+                    preparationStartTime: round1Start,
+                    startTime: round2Start,
+                    endTime: round2End,
+                    withDetails: false,
+                }),
+            ],
+        };
+
+        const recoverySync = await service.updateData(CLAN_TAG);
+        expect(recoverySync.successFlag).toBe(true);
+        expect(recoverySync.events).toHaveLength(1);
+        const r2Reminder = recoverySync.events[0];
+        if (r2Reminder?.type !== APPLICATION_EVENT_TYPES.warReminder) {
+            throw new Error('Expected round 2 CWL WarReminderEvent');
+        }
+        expect(r2Reminder.kind).toBe(WAR_REMINDER_KINDS.sixHoursLeft);
+        expect(r2Reminder.remainingSeconds).toBe(4 * SECONDS_PER_HOUR + 10 * 60);
+
+        // 3 events from round 1 + 2 events from round 2 (started skipped + 6h active) = 5 domain_events, 2 destinations
+        expect(tableRowCount(db, 'domain_events')).toBe(5);
+        const pending = domainEventsRepo.getPendingDestinations(50);
+        expect(pending.map((d) => d.eventId)).toEqual([
+            `${String(r1Reminder.warId)}:${WAR_REMINDER_KINDS.oneHourLeft}`,
+            `${String(r2Reminder.warId)}:${WAR_REMINDER_KINDS.sixHoursLeft}`,
+        ]);
+
+        // Materialize and verify actual remaining times in notification texts
+        const txManager = new TransactionManager(db);
+        const notificationRepo = new NotificationRepo(db);
+        const notificationService = new NotificationService({
+            notificationRepo,
+            clansRepo,
+            clanwarRepo,
+            clanwarsLeagueRepo: leagueRepo,
+            raidRepo: new RaidRepo(db),
+        });
+        const worker = new DomainEventWorker({
+            domainEventsRepo,
+            transactionManager: txManager,
+            deserializer: new DomainEventPayloadDeserializer(),
+            materializer: notificationService,
+            clock,
+        });
+        worker.processPending();
+
+        const allMaterialized = db.connection
+            .prepare<[], { event_id: string; message_text: string }>(
+                'SELECT event_id, message_text FROM notifications ORDER BY id;',
+            )
+            .all();
+        expect(allMaterialized).toHaveLength(2);
+        expect(allMaterialized[0]?.message_text).toContain(
+            'До окончания раунда ЛВК осталась 21 минута',
+        );
+        expect(allMaterialized[1]?.message_text).toContain(
+            'До окончания раунда ЛВК осталось 4 часа 10 минут',
+        );
+
+        // At round 2 clock time, round 1 has already ended so only round 2's reminder is still deliverable
+        const deliverable = notificationRepo.getPending(10, clock.nowEpochSeconds());
+        expect(deliverable).toHaveLength(1);
+        expect(deliverable[0]?.messageText).toContain(
+            'До окончания раунда ЛВК осталось 4 часа 10 минут',
+        );
+    });
 });

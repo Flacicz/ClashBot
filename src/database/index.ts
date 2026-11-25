@@ -5,6 +5,13 @@ export {
     type SqliteConnection,
 } from './database.js';
 export {
+    INSTANCE_LOCK_SUFFIX,
+    acquireDatabaseInstanceLock,
+    resolveInstanceLockPath,
+    type DatabaseInstanceLock,
+    type DatabaseInstanceLockOptions,
+} from './instanceLock.js';
+export {
     ForeignKeysGuard,
     isForeignKeysEnabled,
     requireForeignKeysEnabled,
@@ -48,6 +55,7 @@ export {
     DEFAULT_PENDING_NOTIFICATIONS_LIMIT,
     DomainEventsRepo,
     GENERAL_CHAT_THREAD_ID,
+    NOTIFICATION_EXPIRED_ERROR,
     NotificationRepo,
     RaidRepo,
     SYNC_SERVICE_NAMES,
@@ -85,6 +93,7 @@ export {
     type DomainEventDestinationStatus,
     type DomainEventRecord,
     type ClaimReleaseOutcome,
+    type MigrateChatSubscriptionsResult,
     type NotMirrorAttack,
     type NotificationRecoveryResult,
     type NotificationStatus,
@@ -93,6 +102,7 @@ export {
     type SqlBindValue,
     type SqlRow,
     type SubscriptionDestination,
+    type SubscriptionRecord,
     type SyncOutageState,
     type SyncServiceName,
     type TelegramDestination,

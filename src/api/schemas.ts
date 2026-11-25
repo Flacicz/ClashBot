@@ -385,6 +385,7 @@ export function parseCwlWarResponse(
 
 export const raidMemberSchema = z.object({
     tag: z.string().default('unknown'),
+    name: z.string().nullish(),
     attacks: z.number().int().default(0),
     bonusAttackLimit: z.number().int().default(0),
     capitalResourcesLooted: z.number().int().default(0),
@@ -450,12 +451,18 @@ export function parseRaidSeasonsResponse(
         defensiveReward: latest.defensiveReward,
     };
 
-    const playerRaidSnapshots: PlayerRaidSnapshot[] = latest.members.map((member) => ({
-        playerTag: member.tag,
-        attacksCount: member.attacks,
-        bonusAttack: member.bonusAttackLimit,
-        totalLoot: member.capitalResourcesLooted,
-    }));
+    const playerRaidSnapshots: PlayerRaidSnapshot[] = latest.members.map((member) => {
+        const normalizedName = member.name?.trim();
+        return {
+            playerTag: member.tag,
+            ...(normalizedName !== undefined && normalizedName.length > 0
+                ? { playerName: normalizedName }
+                : {}),
+            attacksCount: member.attacks,
+            bonusAttack: member.bonusAttackLimit,
+            totalLoot: member.capitalResourcesLooted,
+        };
+    });
 
     return { clanRaid, playerRaidSnapshots };
 }

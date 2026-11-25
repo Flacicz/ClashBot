@@ -8,6 +8,7 @@ import {
     Database,
     DomainEventsRepo,
     MigratorManager,
+    NOTIFICATION_EXPIRED_ERROR,
     NotificationRepo,
     SubscriptionRepo,
     TransactionManager,
@@ -794,5 +795,261 @@ describe('NotificationRepo', () => {
                 last_error: 'Previous part 2/3 failed: HTTP 400 Bad Request',
             },
         ]);
+    });
+
+    it('enforces expires_at filtering, atomic claim guard, and cancellation helpers without affecting non-expiring rows', () => {
+        const { db, domainEventsRepo, repo } = setup();
+        const destId = createDestination(domainEventsRepo, 'exp-1', 10);
+        const expiresAt = 1_700_010_000;
+
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Expiring war reminder',
+                destId,
+                'war_reminder',
+                '10:one_hour_left',
+                -1001,
+                0,
+                1,
+                1,
+                expiresAt,
+            ),
+        ).toBe(true);
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Eternal war report',
+                destId,
+                'war_ended',
+                '10',
+                -1001,
+                0,
+                1,
+                1,
+            ),
+        ).toBe(true);
+        expect(
+            repo.enqueueIfAbsent(
+                'Legacy expiring reminder',
+                'raid_reminder',
+                '20:one_hour_left',
+                -1001,
+                0,
+                1,
+                1,
+                expiresAt,
+            ),
+        ).toBe(true);
+
+        // 1 second before expiresAt: all 3 are returned with accurate expiresAt
+        const beforeExpiry = repo.getPending(10, expiresAt - 1);
+        expect(beforeExpiry).toHaveLength(3);
+        const durableReminder = mustExist(
+            beforeExpiry.find((n) => n.eventType === 'war_reminder'),
+            'durableReminder',
+        );
+        const eternalReport = mustExist(
+            beforeExpiry.find((n) => n.eventType === 'war_ended'),
+            'eternalReport',
+        );
+        const legacyReminder = mustExist(
+            beforeExpiry.find((n) => n.eventType === 'raid_reminder'),
+            'legacyReminder',
+        );
+        expect(durableReminder.expiresAt).toBe(expiresAt);
+        expect(eternalReport.expiresAt).toBeNull();
+        expect(legacyReminder.expiresAt).toBe(expiresAt);
+
+        // At exact expiresAt boundary: getPending hides expired rows, claimForSending refuses expired row
+        expect(repo.getPending(10, expiresAt).map((n) => n.id)).toEqual([eternalReport.id]);
+        expect(repo.claimForSending(durableReminder.id, expiresAt)).toBe(false);
+        expect(repo.isPending(durableReminder.id)).toBe(true);
+
+        // cancelPendingIfExpired cancels only the targeted expired row
+        expect(repo.cancelPendingIfExpired(durableReminder.id, expiresAt - 1)).toBe(false);
+        expect(repo.cancelPendingIfExpired(eternalReport.id, expiresAt + 10_000)).toBe(false);
+        expect(repo.cancelPendingIfExpired(durableReminder.id, expiresAt)).toBe(true);
+
+        // Claim legacyReminder BEFORE expiry, then cancelSendingIfExpired when next retry is >= expiresAt
+        expect(repo.claimForSending(legacyReminder.id, expiresAt - 10)).toBe(true);
+        expect(repo.cancelSendingIfExpired(legacyReminder.id, expiresAt - 1)).toBe(false);
+        expect(repo.cancelSendingIfExpired(legacyReminder.id, expiresAt)).toBe(true);
+
+        // Bulk cancelExpiredPending cancels another expired pending row (including rescheduled ones) without touching eternal report
+        expect(
+            repo.enqueueIfAbsent(
+                'Bulk expired',
+                'war_reminder',
+                '30:six_hours_left',
+                -1002,
+                0,
+                1,
+                1,
+                expiresAt,
+            ),
+        ).toBe(true);
+        const bulkId = mustExist(
+            repo.getPending(10, expiresAt - 1).find((n) => n.eventId === '30:six_hours_left'),
+            'bulkId',
+        ).id;
+        expect(repo.claimForSending(bulkId, expiresAt - 5)).toBe(true);
+        expect(repo.reschedule(bulkId, expiresAt + 60, 'HTTP 429')).toBe(true);
+
+        expect(repo.cancelExpiredPending(expiresAt)).toBe(1);
+
+        const inspect = (id: number) =>
+            db.connection
+                .prepare<
+                    [number],
+                    {
+                        status: string;
+                        claimed_at: number | null;
+                        next_attempt_at: number | null;
+                        last_error: string | null;
+                    }
+                >(
+                    'SELECT status, claimed_at, next_attempt_at, last_error FROM notifications WHERE id = ?;',
+                )
+                .get(id);
+
+        expect(inspect(durableReminder.id)).toEqual({
+            status: 'cancelled',
+            claimed_at: null,
+            next_attempt_at: null,
+            last_error: NOTIFICATION_EXPIRED_ERROR,
+        });
+        expect(inspect(legacyReminder.id)).toEqual({
+            status: 'cancelled',
+            claimed_at: null,
+            next_attempt_at: null,
+            last_error: NOTIFICATION_EXPIRED_ERROR,
+        });
+        expect(inspect(bulkId)).toEqual({
+            status: 'cancelled',
+            claimed_at: null,
+            next_attempt_at: null,
+            last_error: NOTIFICATION_EXPIRED_ERROR,
+        });
+        expect(inspect(eternalReport.id)?.status).toBe('pending');
+    });
+
+    it('migrates active pending/sending notifications to new chat_id, handles legacy collisions, and requeues after chat migration', () => {
+        const { db, domainEventsRepo, repo } = setup();
+        const destId = createDestination(domainEventsRepo, 'mig-n1', 10, -500);
+
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Durable pending',
+                destId,
+                'war_ended',
+                'mig-n1',
+                -500,
+                0,
+            ),
+        ).toBe(true);
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Durable sending',
+                destId,
+                'war_comparison',
+                'mig-n1',
+                -500,
+                0,
+            ),
+        ).toBe(true);
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Durable sent',
+                destId,
+                'war_violations',
+                'mig-n1',
+                -500,
+                0,
+            ),
+        ).toBe(true);
+
+        // Legacy collision: both oldChatId and newChatId have the same legacy event
+        expect(repo.enqueueIfAbsent('Legacy old dup', 'war_ended', 'leg-dup', -500, 0)).toBe(true);
+        expect(repo.enqueueIfAbsent('Legacy target', 'war_ended', 'leg-dup', -1005000001, 0)).toBe(
+            true,
+        );
+
+        const queued = repo.getPending(20);
+        const pendingRow = mustExist(
+            queued.find((n) => n.messageText === 'Durable pending'),
+            'pendingRow',
+        );
+        const sendingRow = mustExist(
+            queued.find((n) => n.messageText === 'Durable sending'),
+            'sendingRow',
+        );
+        const sentRow = mustExist(
+            queued.find((n) => n.messageText === 'Durable sent'),
+            'sentRow',
+        );
+        const legacyDupRow = mustExist(
+            queued.find((n) => n.messageText === 'Legacy old dup'),
+            'legacyDupRow',
+        );
+
+        expect(repo.claimForSending(sendingRow.id, 1_700_000_000)).toBe(true);
+        expect(repo.claimForSending(sentRow.id, 1_700_000_000)).toBe(true);
+        expect(repo.markAsSent(sentRow.id)).toBe(true);
+
+        expect(repo.migrateActiveChatId(-500, -500)).toBe(0);
+        expect(repo.migrateActiveChatId(-500, -1005000001)).toBe(2);
+
+        // Requeue the sending notification after migration
+        expect(
+            repo.requeueAfterChatMigration(
+                sendingRow.id,
+                -1005000001,
+                1_700_000_001,
+                'Bad Request: group chat was upgraded to a supergroup chat',
+            ),
+        ).toBe(true);
+        // Requeue on a non-sending row returns false
+        expect(
+            repo.requeueAfterChatMigration(pendingRow.id, -1005000001, 1_700_000_001, 'noop'),
+        ).toBe(false);
+
+        const inspect = (id: number) =>
+            db.connection
+                .prepare<
+                    [number],
+                    {
+                        chat_id: number;
+                        status: string;
+                        attempts: number;
+                        claimed_at: number | null;
+                        last_error: string | null;
+                    }
+                >(
+                    'SELECT chat_id, status, attempts, claimed_at, last_error FROM notifications WHERE id = ?;',
+                )
+                .get(id);
+
+        expect(inspect(pendingRow.id)).toEqual({
+            chat_id: -1005000001,
+            status: 'pending',
+            attempts: 0,
+            claimed_at: null,
+            last_error: null,
+        });
+        expect(inspect(sendingRow.id)).toEqual({
+            chat_id: -1005000001,
+            status: 'pending',
+            attempts: 1,
+            claimed_at: null,
+            last_error: 'Bad Request: group chat was upgraded to a supergroup chat',
+        });
+        expect(inspect(sentRow.id)?.chat_id).toBe(-500);
+        expect(inspect(sentRow.id)?.status).toBe('sent');
+        expect(inspect(legacyDupRow.id)).toEqual({
+            chat_id: -500,
+            status: 'cancelled',
+            attempts: 0,
+            claimed_at: null,
+            last_error: 'chat migrated duplicate',
+        });
     });
 });

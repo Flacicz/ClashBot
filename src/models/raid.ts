@@ -47,6 +47,8 @@ export interface RaidComparisonStats {
     readonly eligibleParticipants: number;
     readonly participantsWithAllAttacksUsed: number;
     readonly participantsWithoutAttacks: number;
+    readonly externalUsedAttacks: number;
+    readonly externalParticipants: number;
     readonly enemyDistrictsDestroyed: number;
     readonly offensiveReward: number;
     readonly defensiveReward: number;

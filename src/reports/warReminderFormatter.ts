@@ -1,9 +1,17 @@
-import { escapeHtml, formatUnixToMoscowDateTime } from '../common/formatUtils.js';
+import {
+    escapeHtml,
+    formatRemainingTimePhrase,
+    formatUnixToMoscowDateTime,
+} from '../common/formatUtils.js';
 import {
     WAR_REMINDER_KINDS,
     WAR_REMINDER_WAR_KINDS,
     type WarReminderEvent,
 } from '../events/applicationEvents.js';
+
+const SECONDS_PER_HOUR = 60 * 60;
+const NOMINAL_SIX_HOURS_SECONDS = 6 * SECONDS_PER_HOUR;
+const NOMINAL_ONE_HOUR_SECONDS = 1 * SECONDS_PER_HOUR;
 
 function formatWarDetails(event: WarReminderEvent): string {
     return (
@@ -48,16 +56,22 @@ export class WarReminderFormatter {
     }
 
     static formatSixHoursLeftReminder(event: WarReminderEvent): string {
+        const remaining = formatRemainingTimePhrase(
+            event.remainingSeconds ?? NOMINAL_SIX_HOURS_SECONDS,
+        );
         return (
-            '⏳ <b>До окончания войны осталось 6 часов</b>\n\n' +
+            `⏳ <b>До окончания войны ${remaining}</b>\n\n` +
             formatWarDetails(event) +
             '📢 Участники войны, используйте оставшиеся атаки, пока есть время!'
         );
     }
 
     static formatOneHourLeftReminder(event: WarReminderEvent): string {
+        const remaining = formatRemainingTimePhrase(
+            event.remainingSeconds ?? NOMINAL_ONE_HOUR_SECONDS,
+        );
         return (
-            '🚨 <b>До окончания войны остался 1 час</b>\n\n' +
+            `🚨 <b>До окончания войны ${remaining}</b>\n\n` +
             formatWarDetails(event) +
             '⏰ Участники войны, завершите все оставшиеся атаки!'
         );
@@ -72,16 +86,22 @@ export class WarReminderFormatter {
     }
 
     static formatSixHoursLeftCwlReminder(event: WarReminderEvent): string {
+        const remaining = formatRemainingTimePhrase(
+            event.remainingSeconds ?? NOMINAL_SIX_HOURS_SECONDS,
+        );
         return (
-            '⏳ <b>До окончания раунда ЛВК осталось 6 часов</b>\n\n' +
+            `⏳ <b>До окончания раунда ЛВК ${remaining}</b>\n\n` +
             formatWarDetails(event) +
             '📢 Участники раунда ЛВК, используйте оставшиеся атаки, пока есть время!'
         );
     }
 
     static formatOneHourLeftCwlReminder(event: WarReminderEvent): string {
+        const remaining = formatRemainingTimePhrase(
+            event.remainingSeconds ?? NOMINAL_ONE_HOUR_SECONDS,
+        );
         return (
-            '🚨 <b>До окончания раунда ЛВК остался 1 час</b>\n\n' +
+            `🚨 <b>До окончания раунда ЛВК ${remaining}</b>\n\n` +
             formatWarDetails(event) +
             '⏰ Участники раунда ЛВК, завершите все оставшиеся атаки!'
         );

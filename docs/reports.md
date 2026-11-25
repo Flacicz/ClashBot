@@ -28,9 +28,11 @@
    (`DomainEventPayloadDeserializer`) и вызывает `NotificationService.materialize`. При ошибке вся транзакция откатывается;
    при успехе будит `NotificationWorker`.
 4. `NotificationWorker` восстанавливает зависшие `'sending'`-записи (при старте — все, перед батчем — по TTL
-   `claimTtlSeconds = 60`), читает `pending`-уведомления из outbox `notifications`, атомарно захватывает каждую запись в
-   статус `'sending'` с `claimed_at` до внешнего HTTP-вызова, отправляет HTML-текст через `TelegramGateway` и завершает
-   запись из `'sending'` в `sent`, `pending` (reschedule), `cancelled` (если подписка отменена к моменту повтора) или `failed`.
+   `claimTtlSeconds = 60`), отменяет просроченные `pending`-напоминания (`expires_at <= now` → `'cancelled'`,
+   `last_error = 'notification expired'`), читает актуальные `pending`-уведомления из outbox `notifications`, атомарно
+   захватывает каждую запись в статус `'sending'` с `claimed_at` до внешнего HTTP-вызова, отправляет HTML-текст через
+   `TelegramGateway` и завершает запись из `'sending'` в `sent`, `pending` (reschedule), `cancelled` (если подписка
+   отменена или истёк `expires_at` до следующей попытки) или `failed`.
 
 Legacy-метод `NotificationService.handle` сохраняется для обратной совместимости (пишет в `notifications` напрямую с
 `domain_event_destination_id = NULL`), но в основном runtime-потоке не используется.
@@ -49,8 +51,8 @@ Legacy-метод `NotificationService.handle` сохраняется для о�
 | `war_ended`                              | `String(warReference.warId)`               | `war_reference: { clan_tag, war_id, home_clan_id, opponent_clan_id }`                  | `ClanwarService` при `state === 'warEnded'`                        |
 | `cwl_round_ended`                        | `String(warReference.warId)`               | `cwl_season_id`, `war_reference: { clan_tag, war_id, home_clan_id, opponent_clan_id }` | `ClanwarLeagueService` для каждого раунда с `state === 'warEnded'` |
 | `raids_ended`                            | `String(raidReference.raidId)`             | `raid_reference: { raid_id }`                                                          | `RaidService` при `state === 'ended'`                              |
-| `war_reminder`                           | `${warId}:${kind}`                         | `war_id`, `end_time`, `war_kind` (`regular` \| `cwl`), `reminder_kind`                 | `ClanwarService` / `ClanwarLeagueService`                          |
-| `raid_reminder`                          | `${raidId}:${kind}`                        | `raid_reference: { raid_id }`, `end_time`, `reminder_kind`                             | `RaidService`                                                      |
+| `war_reminder`                           | `${warId}:${kind}`                         | `war_id`, `end_time`, `war_kind` (`regular` \| `cwl`), `reminder_kind`, опц. `remaining_seconds` | `ClanwarService` / `ClanwarLeagueService`                          |
+| `raid_reminder`                          | `${raidId}:${kind}`                        | `raid_reference: { raid_id }`, `end_time`, `reminder_kind`, опц. `remaining_seconds`             | `RaidService`                                                      |
 | `SyncFailureEvent`                       | `String(outageId)`                         | `service_name`, `error_message`, `attempts`, `outage_id`                               | `ClanManager` после исчерпания попыток синхронизации               |
 | `SyncRecoveryEvent`                      | `String(outageId)`                         | `service_name`, `outage_id`                                                            | `ClanManager` при первом успехе после открытого сбоя               |
 
@@ -115,30 +117,69 @@ order_num ASC`) с нормализованными позициями (`ROW_NUM
 - Нарушения раунда CWL (`ClanwarsLeagueRoundViolationsFormatter`): только пропустившие атаку (с пометкой `[0/1]`) и первые
   атаки не по зеркалу; отдельного раздела для одной атаки нет (в CWL 1 атака на раунд).
 - Итог рейдов (`RaidsEndedFormatter`): добыча золота, завершённые рейды, использованные атаки, уничтоженные районы,
-  награды за нападение и оборону, до 3 лучших участников (`total_loot DESC, player_tag ASC`) с указанием бонусных атак.
-- Нарушения рейдов (`RaidsViolationsFormatter`): лимит `5 + bonus_attacks`. В выборку попадают только участники,
-  состоявшие в клане на момент `end_time` (`joined_at <= end_time AND (left_at IS NULL OR left_at >= end_time)`);
-  вышедшие до окончания рейда исключаются. Разделы: не использовали все атаки (`0 < attacks < limit`) и без атак (`0/limit`).
+  награды за нападение и оборону, до 3 лучших участников (`total_loot DESC, player_tag ASC`) с указанием бонусных атак;
+  отображается текущее имя игрока из `players.name` (включая гостей без снимка состава клана — имя сохраняется из
+  рейдового ответа CoC API).
+- Нарушения рейдов (`RaidsViolationsFormatter`): лимит `5 + bonus_attacks`. Игрок обязан отыграть рейд только если
+  состоял в клане на момент начала рейдового уикенда (`joined_at <= start_time`) и не покинул клан до его окончания
+  (`left_at IS NULL OR left_at >= end_time`). Вступившие позже `start_time` и вышедшие до `end_time` в отчёт нарушений
+  не попадают (при этом атаки вступивших позже учитываются в общих показателях рейда). Запись в `player_raid_snapshots`
+  с `attacks_count = 0` трактуется одинаково с отсутствием снимка как «не атаковал». Разделы: не использовали все атаки
+  (`0 < attacks < limit`) и без атак (`0/limit`).
 
 ### Напоминания (`src/services/reminders.ts`)
 
-Напоминания предназначены только для аудитории `players`. На каждом цикле синхронизации проверяются все контрольные
-окна, для которых `nowEpochSeconds >= threshold && nowEpochSeconds < endTime`:
+Напоминания предназначены только для аудитории `players`. На каждом цикле синхронизации активной войны, раунда ЛВК
+(`state !== 'warEnded'`) или рейда (`state !== 'ended'`) в окне `startTime <= nowEpochSeconds < endTime` функции
+`selectWarReminders` / `selectRaidReminders` (и обёртки `getActiveWarReminderKinds` / `getActiveRaidReminderKinds`)
+определяют открытые контрольные точки (`nowEpochSeconds >= threshold`):
 
-| Событие                             | `kind`                   | Порог (`threshold`) | Особенности                                                      |
-| ----------------------------------- | ------------------------ | ------------------- | ---------------------------------------------------------------- |
-| `war_reminder` (`regular` \| `cwl`) | `started`                | `startTime`         | Разные тексты для обычной войны и раунда ЛВК                     |
-| `war_reminder` (`regular` \| `cwl`) | `six_hours_left`         | `endTime - 6h`      | Повторная отправка в рамках окна блокируется ключом `warId:kind` |
-| `war_reminder` (`regular` \| `cwl`) | `one_hour_left`          | `endTime - 1h`      | Повторная отправка в рамках окна блокируется ключом `warId:kind` |
-| `raid_reminder`                     | `started`                | `startTime`         | —                                                                |
-| `raid_reminder`                     | `forty_eight_hours_left` | `endTime - 48h`     | —                                                                |
-| `raid_reminder`                     | `twenty_four_hours_left` | `endTime - 24h`     | —                                                                |
-| `raid_reminder`                     | `six_hours_left`         | `endTime - 6h`      | —                                                                |
-| `raid_reminder`                     | `one_hour_left`          | `endTime - 1h`      | —                                                                |
+| Событие                             | `kind`                   | Порог (`threshold`) | Особенности                                                                               |
+| ----------------------------------- | ------------------------ | ------------------- | ----------------------------------------------------------------------------------------- |
+| `war_reminder` (`regular` \| `cwl`) | `started`                | `startTime`         | Разные тексты для обычной войны и раунда ЛВК; grace-период `1 ч` после `startTime`        |
+| `war_reminder` (`regular` \| `cwl`) | `six_hours_left`         | `endTime - 6h`      | Показывает фактический остаток времени; дедупликация по стабильному ключу `warId:kind`    |
+| `war_reminder` (`regular` \| `cwl`) | `one_hour_left`          | `endTime - 1h`      | Показывает фактический остаток времени; дедупликация по стабильному ключу `warId:kind`    |
+| `raid_reminder`                     | `started`                | `startTime`         | Grace-период `1 ч` после `startTime`                                                      |
+| `raid_reminder`                     | `forty_eight_hours_left` | `endTime - 48h`     | Показывает фактический остаток времени; дедупликация по стабильному ключу `raidId:kind`   |
+| `raid_reminder`                     | `twenty_four_hours_left` | `endTime - 24h`     | Показывает фактический остаток времени; дедупликация по стабильному ключу `raidId:kind`   |
+| `raid_reminder`                     | `six_hours_left`         | `endTime - 6h`      | Показывает фактический остаток времени; дедупликация по стабильному ключу `raidId:kind`   |
+| `raid_reminder`                     | `one_hour_left`          | `endTime - 1h`      | Показывает фактический остаток времени; дедупликация по стабильному ключу `raidId:kind`   |
 
-Время окончания в напоминаниях (и дата рейда в сравнении рейдов) форматируется через `formatUnixToMoscowDateTime`
-(`UTC+3`, `DD.MM.YYYY HH:MM`; при значении `<= 0` или нечисловом — `"неизвестно"`). Так как цикл синхронизации
-работает с интервалом 15 минут, напоминание приходит в первом цикле после наступления порога и больше не дублируется.
+Правила выбора окна, пропусков и текста:
+
+- **Только самое свежее открытое окно**: если в момент синхронизации открыто сразу несколько контрольных точек
+  (например, при позднем старте синхронизации или после восстановления от простоя), генерируется **не более одного**
+  напоминания — для самой свежей открытой точки.
+- **Grace-период для `started` (`DEFAULT_STARTED_REMINDER_GRACE_PERIOD_SECONDS = 3600`, 1 ч)**: если единственной
+  открытой точкой является `started`, но с `startTime` уже прошёл `1 ч` или больше, напоминание о старте считается
+  просроченным и не отправляется.
+- **Фиксация пропущенных точек без отправки**: все более старые открытые точки (и просроченный `started`) записываются
+  в той же транзакции через `DomainEventRecorder.recordSkipped` — строка попадает в `domain_events` со стабильным
+  `event_id` (`${warId}:${kind}` / `${raidId}:${kind}`), но с пустым списком `domain_event_destinations` (без отправки).
+  Если точка уже была записана ранее (отправлена или пропущена), `ON CONFLICT DO NOTHING` оставляет её без изменений;
+  повторные циклы не генерируют пропущенные точки повторно.
+- **Фактическое оставшееся время**: для всех отсчётных напоминаний (`kind !== 'started'`) сервис передаёт в событии
+  фактический остаток `remainingSeconds = Math.max(0, Math.trunc(endTime - nowEpochSeconds))` (сохраняется как
+  опциональное поле `remaining_seconds` в payload v1 с обратной совместимостью для старых записей без этого поля).
+  Форматтеры (`WarReminderFormatter`, `RaidReminderFormatter`) отображают фактический остаток через
+  `formatRemainingTimePhrase` (`src/common/formatUtils.ts`) с корректным склонением (`остался 1 час`,
+  `осталось 3 часа 45 минут`, `осталась 21 минута`, `осталось менее минуты` для `< 60` с); при отсутствии
+  `remaining_seconds` в историческом payload используется номинальное значение контрольной точки.
+- **Срок актуальности (`expires_at`) в outbox**: при материализации `war_reminder` и `raid_reminder` (и в legacy-пути
+  `NotificationService.handle`) для каждой записи вычисляется `expires_at` (`getWarReminderExpiresAt` /
+  `getRaidReminderExpiresAt` в `src/services/reminders.ts`), равный порогу следующей контрольной точки того же события
+  (для `war_reminder`: `started` → `endTime - 6h`, `six_hours_left` → `endTime - 1h`, `one_hour_left` → `endTime`; для
+  `raid_reminder`: `started` → `endTime - 48h`, `forty_eight_hours_left` → `endTime - 24h`, `twenty_four_hours_left` →
+  `endTime - 6h`, `six_hours_left` → `endTime - 1h`, `one_hour_left` → `endTime`). Если на момент доставки наступила
+  следующая контрольная точка или событие уже завершилось (`now >= expires_at`), напоминание переводится в
+  `status = 'cancelled'` (`last_error = 'notification expired'`) и не отправляется в `TelegramGateway` (включая случаи
+  просрочки между выборкой батча и `claimForSending`, а также при планировании ретрая, если `next_attempt_at >= expires_at`).
+  Итоговые и сравнительные отчёты, отчёты нарушений, события состава и системные алерты сохраняются с `expires_at = NULL`
+  и доставляются без ограничения срока.
+- Время окончания в напоминаниях (и дата рейда в сравнении рейдов) форматируется через `formatUnixToMoscowDateTime`
+  (`UTC+3`, `DD.MM.YYYY HH:MM`; при значении `<= 0` или нечисловом — `"неизвестно"`). Так как цикл синхронизации
+  работает с интервалом 15 минут, каждое актуальное напоминание приходит в первом цикле после наступления порога и
+  больше не дублируется.
 
 ### Сравнительная аналитика и надёжность состава (`src/analytics/`)
 
@@ -159,6 +200,16 @@ order_num ASC`) с нормализованными позициями (`ROW_NUM
   - Тренд (`better` / `worse` / `similar`) считается строго по **3 основным метрикам**: добыча на использованную атаку (↑),
     доля активных участников, использовавших все атаки (↑), доля eligible-участников без атак (↓). Активность и
     абсолютные итоги рейда выводятся как контекст.
+  - Все долевые метрики (использованные атаки, активные участники, участники без атак, полностью/частично использованные
+    атаки) считаются строго по единой когорте `eligible`-участников, согласованной с отчётом нарушений
+    (`joined_at <= start_time AND (left_at IS NULL OR left_at >= end_time)`), что гарантирует инвариант `<= 100%` для
+    каждой доли. Снимок `player_raid_snapshots` с `attacks_count = 0` не входит в активных участников (`attacks_count > 0`)
+    и учитывается в доле участников без атак.
+  - Атаки гостей, игроков, покинувших клан до `end_time`, и вступивших после `start_time` (вне `eligible`-когорты) не
+    входят в долевые метрики и выводятся отдельной строкой контекста
+    (`ℹ️ Атаки вне основного состава (не входят в доли): ...`) только при их наличии. Общая добыча золота (`total_loot`)
+    остаётся полной (как отдаёт CoC API), а средняя добыча за использованную атаку делится на все использованные атаки
+    (`used_attacks + external_used_attacks`).
 - `ClanwarRosterFormatter` (`clanwarRosterAnalyzer.ts`):
   - Строит срез по текущему активному составу (`ClansRepo.getActiveMembers`) за текущую и до 4 предыдущих завершённых и
     полных обычных войн (`war_type = 'regular'`, `state = 'warEnded'`, `is_complete = 1`; максимум 5 КВ): число включений,
@@ -252,7 +303,7 @@ order_num ASC`) с нормализованными позициями (`ROW_NUM
 | Компонент            | Интервал / батч по умолчанию    | Стратегия повторов                                                                                                                                                                                                  | Поведение при исчерпании                                                                                                                                                      |
 | -------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DomainEventWorker`  | `1000 мс` / `100` destinations  | Экспоненциальный backoff: старт `1000 мс`, потолок `3 600 000 мс` (1 ч), округление вверх до целых секунд (мин. `1 с`)                                                                                              | После `maxAttempts = 5` логирует `error`-alert, но destination **остаётся `pending`** и продолжает повторяться, не блокируя остальные                                         |
-| `NotificationWorker` | `1000 мс` / `100` notifications | `permanent` (4xx кроме 429) → сразу `failed`; `transient` (сеть, 5xx) / `rate_limit` (429) → экспоненциальный backoff: старт `500 мс`, потолок `8000 мс` (для 429 берётся `max(backoff, ceil(retry_after) * 1000)`) | После `maxAttempts = 4` или при `permanent`-ошибке переводит запись (и каскадно все оставшиеся `pending`-части `part_index > K` того же уведомления) в `status = 'failed'`; автоматического requeue нет (ручной сброс — см. [`docs/database.md`](database.md)) |
+| `NotificationWorker` | `1000 мс` / `100` notifications | `chat_migrated` (`400` + `parameters.migrate_to_chat_id`) → атомарная миграция `chat_id` и немедленный requeue с новым `chat_id`; `permanent` (4xx кроме 429) → сразу `failed` (при постоянной недоступности назначения — `403`, `400` chat/topic unavailable — в той же транзакции автоматически отключаются подписки аналогично `/unlink` и отменяются их оставшиеся `pending`-записи); `transient` (сеть, 5xx) / `rate_limit` (429) → экспоненциальный backoff: старт `500 мс`, потолок `8000 мс` (для 429 берётся `max(backoff, ceil(retry_after) * 1000)`) | После `maxAttempts = 4` или при `permanent`-ошибке переводит запись (и каскадно все оставшиеся `pending`-части `part_index > K` того же уведомления) в `status = 'failed'`; автоматического requeue нет (ручной сброс — см. [`docs/database.md`](database.md)). Для отключённых по недоступности подписок повторная активация выполняется командой `/link` |
 
 ## Добавление нового типа отчёта или напоминания
 
