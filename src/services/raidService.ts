@@ -11,10 +11,14 @@ import type { RaidRepo } from '../database/repos/raidRepo.js';
 import type { SyncServiceName } from '../database/repos/syncOutageRepo.js';
 import type { TransactionManager } from '../database/transactionManager.js';
 import type { DomainEventRecorder } from '../domainEvents/domainEventRecorder.js';
-import { APPLICATION_EVENT_TYPES, type ApplicationEvent } from '../events/applicationEvents.js';
+import {
+    APPLICATION_EVENT_TYPES,
+    RAID_REMINDER_KINDS,
+    type ApplicationEvent,
+} from '../events/applicationEvents.js';
 import type { Logger } from '../logging/logger.js';
 import type { RaidReference } from '../models/raid.js';
-import { getActiveRaidReminderKinds } from './reminders.js';
+import { selectRaidReminders } from './reminders.js';
 import { createSyncError, createSyncSuccess, type SyncResult } from './syncResult.js';
 import type { SyncService } from './syncService.js';
 
@@ -37,26 +41,49 @@ function throwIfAborted(signal: AbortSignal | undefined, serviceName: string): v
     throw new AbortError(`[Service: ${serviceName}] Operation aborted`, { cause: reason });
 }
 
+interface GeneratedRaidEvents {
+    readonly events: ApplicationEvent[];
+    readonly skippedEvents: ApplicationEvent[];
+}
+
 function generateEvents(
     clanTag: string,
     clanRaid: ClanRaid,
     reference: RaidReference,
     nowEpochSeconds: number,
-): ApplicationEvent[] {
+): GeneratedRaidEvents {
     const events: ApplicationEvent[] = [];
+    const skippedEvents: ApplicationEvent[] = [];
 
-    for (const kind of getActiveRaidReminderKinds(
-        clanRaid.startTime,
-        clanRaid.endTime,
-        nowEpochSeconds,
-    )) {
-        events.push({
-            type: APPLICATION_EVENT_TYPES.raidReminder,
-            clanTag,
-            raidReference: reference,
-            endTime: clanRaid.endTime,
-            kind,
-        });
+    if (clanRaid.state !== 'ended') {
+        const selection = selectRaidReminders(
+            clanRaid.startTime,
+            clanRaid.endTime,
+            nowEpochSeconds,
+        );
+
+        for (const kind of selection.skippedKinds) {
+            skippedEvents.push({
+                type: APPLICATION_EVENT_TYPES.raidReminder,
+                clanTag,
+                raidReference: reference,
+                endTime: clanRaid.endTime,
+                kind,
+            });
+        }
+
+        if (selection.activeKind !== null) {
+            events.push({
+                type: APPLICATION_EVENT_TYPES.raidReminder,
+                clanTag,
+                raidReference: reference,
+                endTime: clanRaid.endTime,
+                kind: selection.activeKind,
+                ...(selection.activeKind !== RAID_REMINDER_KINDS.started
+                    ? { remainingSeconds: selection.remainingSeconds }
+                    : {}),
+            });
+        }
     }
 
     if (clanRaid.state === 'ended') {
@@ -67,7 +94,7 @@ function generateEvents(
         });
     }
 
-    return events;
+    return { events, skippedEvents };
 }
 
 export class RaidService implements SyncService {
@@ -153,7 +180,16 @@ export class RaidService implements SyncService {
                     nowEpochSeconds,
                 );
 
-                const events = generateEvents(clanTag, clanRaid, reference, nowEpochSeconds);
+                const { events, skippedEvents } = generateEvents(
+                    clanTag,
+                    clanRaid,
+                    reference,
+                    nowEpochSeconds,
+                );
+
+                if (skippedEvents.length > 0) {
+                    this.domainEventRecorder.recordSkipped(skippedEvents);
+                }
 
                 if (events.length > 0) {
                     this.domainEventRecorder.recordAll(events);

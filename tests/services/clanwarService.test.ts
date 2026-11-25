@@ -462,27 +462,23 @@ describe('ClanwarService', () => {
         expect(tableRowCount(db, 'domain_events')).toBe(1);
         expect(domainEventsRepo.getPendingDestinations(50)).toHaveLength(1);
 
-        // 3. Exact 6h before end -> started + six_hours_left (only 1 new domain_event persisted)
+        // 3. Exact 6h before end -> only six_hours_left emitted (started already persisted)
         clock.setNow((endTime - 6 * SECONDS_PER_HOUR) * 1000);
         const sixHoursResult = await service.updateData(CLAN_TAG);
         expect(sixHoursResult.successFlag).toBe(true);
         expect(
             sixHoursResult.events.map((e) => (e.type === 'war_reminder' ? e.kind : e.type)),
-        ).toEqual([WAR_REMINDER_KINDS.started, WAR_REMINDER_KINDS.sixHoursLeft]);
+        ).toEqual([WAR_REMINDER_KINDS.sixHoursLeft]);
         expect(tableRowCount(db, 'domain_events')).toBe(2);
         expect(domainEventsRepo.getPendingDestinations(50)).toHaveLength(2);
 
-        // 4. Exact 1h before end -> all 3 reminders (only 1 new domain_event persisted)
+        // 4. Exact 1h before end -> only one_hour_left emitted (earlier checkpoints already persisted)
         clock.setNow((endTime - SECONDS_PER_HOUR) * 1000);
         const oneHourResult = await service.updateData(CLAN_TAG);
         expect(oneHourResult.successFlag).toBe(true);
         expect(
             oneHourResult.events.map((e) => (e.type === 'war_reminder' ? e.kind : e.type)),
-        ).toEqual([
-            WAR_REMINDER_KINDS.started,
-            WAR_REMINDER_KINDS.sixHoursLeft,
-            WAR_REMINDER_KINDS.oneHourLeft,
-        ]);
+        ).toEqual([WAR_REMINDER_KINDS.oneHourLeft]);
         expect(tableRowCount(db, 'domain_events')).toBe(3);
 
         const pendingReminders = domainEventsRepo.getPendingDestinations(50);
@@ -933,4 +929,131 @@ describe('ClanwarService', () => {
             expect(sharedComparisons.some((n) => n.messageText.includes('Clan Beta'))).toBe(true);
         },
     );
+
+    it('emits only the newest reminder on late regular war sync start and skips earlier checkpoints without sending', async () => {
+        const startTime = 1_700_100_000;
+        const endTime = startTime + 24 * SECONDS_PER_HOUR;
+        // Late sync start: 30 minutes before war ends
+        const { db, clock, clansRepo, subscriptionRepo, domainEventsRepo, apiClient, service } =
+            setup(endTime - 30 * 60);
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+        subscriptionRepo.saveTelegramChat(-1001, 0, 'Players');
+        subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+
+        apiClient.warData = makeClanwarData({
+            warUID: 'war-late-start-1',
+            state: 'inWar',
+            preparationStartTime: startTime - 23 * SECONDS_PER_HOUR,
+            startTime,
+            endTime,
+            withDetails: false,
+        });
+
+        const first = await service.updateData(CLAN_TAG);
+        expect(first.successFlag).toBe(true);
+        expect(first.events).toHaveLength(1);
+        const reminder = first.events[0];
+        if (reminder?.type !== APPLICATION_EVENT_TYPES.warReminder) {
+            throw new Error('Expected WarReminderEvent');
+        }
+        expect(reminder.kind).toBe(WAR_REMINDER_KINDS.oneHourLeft);
+        expect(reminder.remainingSeconds).toBe(30 * 60);
+
+        // All 3 checkpoints recorded in domain_events (started & 6h skipped without destinations)
+        expect(tableRowCount(db, 'domain_events')).toBe(3);
+        const pending = domainEventsRepo.getPendingDestinations(50);
+        expect(pending).toHaveLength(1);
+        expect(pending[0]?.eventId).toBe(
+            `${String(reminder.warId)}:${WAR_REMINDER_KINDS.oneHourLeft}`,
+        );
+
+        // Repeat sync 15 minutes later -> still no extra destinations or re-emitted skipped points
+        clock.setNow((endTime - 15 * 60) * 1000);
+        const repeat = await service.updateData(CLAN_TAG);
+        expect(repeat.successFlag).toBe(true);
+        expect(tableRowCount(db, 'domain_events')).toBe(3);
+        expect(domainEventsRepo.getPendingDestinations(50)).toHaveLength(1);
+    });
+
+    it('skips expired started reminder and missed checkpoints after downtime recovery, rendering actual remaining time', async () => {
+        const startTime = 1_700_100_000;
+        const endTime = startTime + 24 * SECONDS_PER_HOUR;
+        // Start after the 1h grace period for `started` (3h into war, 21h left)
+        const {
+            db,
+            clock,
+            clansRepo,
+            clanwarRepo,
+            subscriptionRepo,
+            domainEventsRepo,
+            apiClient,
+            service,
+        } = setup(startTime + 3 * SECONDS_PER_HOUR);
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+        subscriptionRepo.saveTelegramChat(-1001, 0, 'Players');
+        subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+
+        apiClient.warData = makeClanwarData({
+            warUID: 'war-recovery-1',
+            state: 'inWar',
+            preparationStartTime: startTime - 23 * SECONDS_PER_HOUR,
+            startTime,
+            endTime,
+            withDetails: false,
+        });
+
+        // 1. Late start at +3h -> `started` skipped with 0 destinations
+        const afterGrace = await service.updateData(CLAN_TAG);
+        expect(afterGrace.successFlag).toBe(true);
+        expect(afterGrace.events).toHaveLength(0);
+        expect(tableRowCount(db, 'domain_events')).toBe(1);
+        expect(domainEventsRepo.getPendingDestinations(50)).toHaveLength(0);
+
+        // 2. Outage across 6h window; recovery at 25 minutes left -> 6h skipped, only 1h emitted with 25 min left
+        clock.setNow((endTime - 25 * 60) * 1000);
+        const recovered = await service.updateData(CLAN_TAG);
+        expect(recovered.successFlag).toBe(true);
+        expect(recovered.events).toHaveLength(1);
+        const activeReminder = recovered.events[0];
+        if (activeReminder?.type !== APPLICATION_EVENT_TYPES.warReminder) {
+            throw new Error('Expected WarReminderEvent');
+        }
+        expect(activeReminder.kind).toBe(WAR_REMINDER_KINDS.oneHourLeft);
+        expect(activeReminder.remainingSeconds).toBe(25 * 60);
+
+        // Repeat sync -> idempotent
+        await service.updateData(CLAN_TAG);
+        expect(tableRowCount(db, 'domain_events')).toBe(3);
+
+        const pending = domainEventsRepo.getPendingDestinations(50);
+        expect(pending).toHaveLength(1);
+        expect(pending[0]?.eventId).toBe(
+            `${String(activeReminder.warId)}:${WAR_REMINDER_KINDS.oneHourLeft}`,
+        );
+
+        // Materialize and verify notification text shows actual remaining time
+        const txManager = new TransactionManager(db);
+        const notificationRepo = new NotificationRepo(db);
+        const notificationService = new NotificationService({
+            notificationRepo,
+            clansRepo,
+            clanwarRepo,
+            clanwarsLeagueRepo: new ClanwarsLeagueRepo(db),
+            raidRepo: new RaidRepo(db),
+        });
+        const worker = new DomainEventWorker({
+            domainEventsRepo,
+            transactionManager: txManager,
+            deserializer: new DomainEventPayloadDeserializer(),
+            materializer: notificationService,
+            clock,
+        });
+        worker.processPending();
+
+        const notifications = notificationRepo.getPending(10, clock.nowEpochSeconds());
+        expect(notifications).toHaveLength(1);
+        expect(notifications[0]?.messageText).toContain('До окончания войны осталось 25 минут');
+    });
 });

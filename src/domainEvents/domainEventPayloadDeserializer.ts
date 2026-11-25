@@ -85,12 +85,14 @@ const warReminderPayloadSchema = z.object({
     end_time: safeIntSchema,
     war_kind: warKindSchema,
     reminder_kind: warReminderKindSchema,
+    remaining_seconds: safeIntSchema.nonnegative().optional(),
 });
 
 const raidReminderPayloadSchema = z.object({
     raid_reference: raidReferenceSchema,
     end_time: safeIntSchema,
     reminder_kind: raidReminderKindSchema,
+    remaining_seconds: safeIntSchema.nonnegative().optional(),
 });
 
 function toClanwarReference(parsed: z.infer<typeof clanwarReferenceSchema>): ClanwarReference {
@@ -250,6 +252,9 @@ export function deserializeDomainEvent(
                 endTime: data.end_time,
                 warKind: data.war_kind,
                 kind: data.reminder_kind,
+                ...(data.remaining_seconds !== undefined
+                    ? { remainingSeconds: data.remaining_seconds }
+                    : {}),
             };
         }
         case APPLICATION_EVENT_TYPES.raidReminder: {
@@ -260,6 +265,9 @@ export function deserializeDomainEvent(
                 raidReference: { raidId: data.raid_reference.raid_id },
                 endTime: data.end_time,
                 kind: data.reminder_kind,
+                ...(data.remaining_seconds !== undefined
+                    ? { remainingSeconds: data.remaining_seconds }
+                    : {}),
             };
         }
         default:

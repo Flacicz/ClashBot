@@ -20,6 +20,7 @@ export {
 export { CLANWAR_SERVICE_NAME, ClanwarService, type ClanwarApiClient } from './clanwarService.js';
 export { RAID_SERVICE_NAME, RaidService, type RaidApiClient } from './raidService.js';
 export {
+    DEFAULT_STARTED_REMINDER_GRACE_PERIOD_SECONDS,
     RAID_REMINDER_FORTY_EIGHT_HOURS_SECONDS,
     RAID_REMINDER_ONE_HOUR_SECONDS,
     RAID_REMINDER_SIX_HOURS_SECONDS,
@@ -29,6 +30,9 @@ export {
     WAR_REMINDER_SIX_HOURS_SECONDS,
     getActiveRaidReminderKinds,
     getActiveWarReminderKinds,
+    selectRaidReminders,
+    selectWarReminders,
+    type ReminderSelection,
 } from './reminders.js';
 export { createSyncError, createSyncSuccess, type SyncResult } from './syncResult.js';
 export type { SyncService } from './syncService.js';
