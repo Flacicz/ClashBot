@@ -21,6 +21,7 @@ import { DomainEventPayloadSerializer, DomainEventRecorder } from '../../src/dom
 import { APPLICATION_EVENT_TYPES } from '../../src/events/applicationEvents.js';
 import type { Logger } from '../../src/logging/logger.js';
 import {
+    ClanInfoService,
     ClanManager,
     createSyncError,
     createSyncSuccess,
@@ -28,11 +29,13 @@ import {
     DEFAULT_SYNC_CYCLE_INTERVAL_MS,
     DEFAULT_SYNC_RETRY_DELAY_MS,
     RaidService,
+    type ClanInfoApiClient,
     type RaidApiClient,
     type SyncResult,
     type SyncService,
     type TrackedClansReader,
 } from '../../src/services/index.js';
+import { AttackGuideCatalog, TelegramBotService } from '../../src/telegram/index.js';
 
 const REAL_MIGRATIONS_PATH = path.resolve(import.meta.dirname, '../../migrations');
 
@@ -1026,6 +1029,415 @@ describe('ClanManager', () => {
         });
         expect(ctx.getDomainEvents()).toHaveLength(3);
         expect(ctx.getDomainEvents()[2]?.event_type).toBe(APPLICATION_EVENT_TYPES.syncFailure);
+
+        controller.abort();
+        await runPromise;
+    });
+
+    it('keeps next_due schedule without accumulating drift from sync processing duration', async () => {
+        const ctx = createTestContext();
+        ctx.seedTrackedClan('#CLAN1', { managementChatId: 2001 });
+        ctx.seedTrackedClan('#CLAN2', { managementChatId: 2002 });
+
+        const startMs = 1_000_000;
+        const clock = new FakeClock(startMs);
+        const clan1DurationMs = 2 * 60 * 1000;
+        const clan2DurationMs = 3 * 60 * 1000;
+        const totalCycleDurationMs = clan1DurationMs + clan2DurationMs;
+        const events: { readonly clanTag: string; readonly startedAtMs: number }[] = [];
+
+        const service = new CallbackSyncService('ClanInfoService', async (tag, signal) => {
+            events.push({ clanTag: tag, startedAtMs: clock.nowMs() });
+            const durationMs = tag === '#CLAN1' ? clan1DurationMs : clan2DurationMs;
+            await clock.sleep(durationMs, signal);
+            return createSyncSuccess('ClanInfoService', tag);
+        });
+
+        const manager = new ClanManager(
+            [service],
+            ctx.clansRepo,
+            ctx.syncOutageRepo,
+            ctx.transactionManager,
+            ctx.recorder,
+            { clock },
+        );
+
+        const controller = new AbortController();
+        const runPromise = manager.syncAll(controller.signal);
+
+        // Cycle 1: #CLAN1 starts at t0 (2m), #CLAN2 starts at t0 + 2m (3m), finishes at t0 + 5m
+        await waitForCondition(() => events.length === 1 && clock.pendingSleepCount() === 1);
+        clock.advance(clan1DurationMs);
+        await waitForCondition(() => events.length === 2 && clock.pendingSleepCount() === 1);
+        clock.advance(clan2DurationMs);
+        await waitForCondition(() => clock.pendingSleepCount() === 1);
+
+        expect(events).toEqual([
+            { clanTag: '#CLAN1', startedAtMs: startMs },
+            { clanTag: '#CLAN2', startedAtMs: startMs + clan1DurationMs },
+        ]);
+
+        // Remaining wait is 15m - 5m = 10m; 1ms before t0 + 15m nothing has started yet
+        const remainingToCycle2 = DEFAULT_SYNC_CYCLE_INTERVAL_MS - totalCycleDurationMs;
+        clock.advance(remainingToCycle2 - 1);
+        await Promise.resolve();
+        expect(events).toHaveLength(2);
+
+        // At exact t0 + 15m, Cycle 2 starts with zero drift
+        clock.advance(1);
+        await waitForCondition(() => events.length === 3 && clock.pendingSleepCount() === 1);
+        clock.advance(clan1DurationMs);
+        await waitForCondition(() => events.length === 4 && clock.pendingSleepCount() === 1);
+        clock.advance(clan2DurationMs);
+        await waitForCondition(() => clock.pendingSleepCount() === 1);
+
+        expect(events.slice(2)).toEqual([
+            { clanTag: '#CLAN1', startedAtMs: startMs + DEFAULT_SYNC_CYCLE_INTERVAL_MS },
+            {
+                clanTag: '#CLAN2',
+                startedAtMs: startMs + DEFAULT_SYNC_CYCLE_INTERVAL_MS + clan1DurationMs,
+            },
+        ]);
+
+        // Cycle 3 starts at exact t0 + 30m (no accumulated drift across multiple cycles)
+        clock.advance(remainingToCycle2);
+        await waitForCondition(() => events.length === 5 && clock.pendingSleepCount() === 1);
+        expect(events[4]).toEqual({
+            clanTag: '#CLAN1',
+            startedAtMs: startMs + DEFAULT_SYNC_CYCLE_INTERVAL_MS * 2,
+        });
+
+        controller.abort();
+        await runPromise;
+    });
+
+    it('skips missed intervals on cycle overrun without triggering a catch-up storm', async () => {
+        const ctx = createTestContext();
+        ctx.seedTrackedClan('#CLAN1', { managementChatId: 2001 });
+
+        const startMs = 2_000_000;
+        const clock = new FakeClock(startMs);
+        const overrunDurationMs = DEFAULT_SYNC_CYCLE_INTERVAL_MS + 60_000; // 16m > 15m
+        const startTimestamps: number[] = [];
+
+        const service = new CallbackSyncService('ClanInfoService', async (tag, signal) => {
+            startTimestamps.push(clock.nowMs());
+            if (startTimestamps.length === 1) {
+                await clock.sleep(overrunDurationMs, signal);
+            }
+            return createSyncSuccess('ClanInfoService', tag);
+        });
+
+        const manager = new ClanManager(
+            [service],
+            ctx.clansRepo,
+            ctx.syncOutageRepo,
+            ctx.transactionManager,
+            ctx.recorder,
+            { clock },
+        );
+
+        const controller = new AbortController();
+        const runPromise = manager.syncAll(controller.signal);
+
+        await waitForCondition(
+            () => startTimestamps.length === 1 && clock.pendingSleepCount() === 1,
+        );
+        clock.advance(overrunDurationMs);
+        await waitForCondition(() => clock.pendingSleepCount() === 1);
+
+        // No immediate catch-up storm at t0 + 16m
+        expect(startTimestamps).toEqual([startMs]);
+
+        // Next due is aligned to t0 + 30m (14m remaining)
+        const remainingToAlignedSlot = DEFAULT_SYNC_CYCLE_INTERVAL_MS - 60_000;
+        clock.advance(remainingToAlignedSlot - 1);
+        await Promise.resolve();
+        expect(startTimestamps).toHaveLength(1);
+
+        clock.advance(1);
+        await waitForCondition(
+            () => startTimestamps.length === 2 && clock.pendingSleepCount() === 1,
+        );
+        expect(startTimestamps).toEqual([startMs, startMs + DEFAULT_SYNC_CYCLE_INTERVAL_MS * 2]);
+
+        controller.abort();
+        await runPromise;
+    });
+
+    it('wakes immediately on notify() to sync a newly tracked clan without re-syncing already scheduled clans', async () => {
+        const ctx = createTestContext();
+        ctx.seedTrackedClan('#CLAN1', { managementChatId: 2001 });
+
+        const startMs = 3_000_000;
+        const clock = new FakeClock(startMs);
+        const syncLog: { readonly clanTag: string; readonly atMs: number }[] = [];
+
+        const service = new CallbackSyncService('ClanInfoService', (tag) => {
+            syncLog.push({ clanTag: tag, atMs: clock.nowMs() });
+            return createSyncSuccess('ClanInfoService', tag);
+        });
+
+        const manager = new ClanManager(
+            [service],
+            ctx.clansRepo,
+            ctx.syncOutageRepo,
+            ctx.transactionManager,
+            ctx.recorder,
+            { clock },
+        );
+
+        const controller = new AbortController();
+        const runPromise = manager.syncAll(controller.signal);
+
+        await waitForCondition(() => syncLog.length === 1 && clock.pendingSleepCount() === 1);
+        expect(syncLog).toEqual([{ clanTag: '#CLAN1', atMs: startMs }]);
+
+        // 5 minutes later, a new clan is linked and notify() is called
+        const linkDelayMs = 5 * 60 * 1000;
+        clock.advance(linkDelayMs);
+        ctx.seedTrackedClan('#CLAN2', { managementChatId: 2002 });
+        manager.notify();
+
+        await waitForCondition(() => syncLog.length === 2 && clock.pendingSleepCount() === 1);
+        expect(syncLog).toEqual([
+            { clanTag: '#CLAN1', atMs: startMs },
+            { clanTag: '#CLAN2', atMs: startMs + linkDelayMs },
+        ]);
+
+        // Calling notify() again without new clans does not trigger spurious re-syncs
+        clock.advance(60_000);
+        manager.notify();
+        await waitForCondition(() => clock.pendingSleepCount() === 1);
+        expect(syncLog).toHaveLength(2);
+
+        // At t0 + 15m, only #CLAN1 is due
+        clock.advance(DEFAULT_SYNC_CYCLE_INTERVAL_MS - linkDelayMs - 60_000);
+        await waitForCondition(() => syncLog.length === 3 && clock.pendingSleepCount() === 1);
+        expect(syncLog[2]).toEqual({
+            clanTag: '#CLAN1',
+            atMs: startMs + DEFAULT_SYNC_CYCLE_INTERVAL_MS,
+        });
+
+        // At t0 + 20m (linkTime + 15m), only #CLAN2 is due
+        clock.advance(linkDelayMs);
+        await waitForCondition(() => syncLog.length === 4 && clock.pendingSleepCount() === 1);
+        expect(syncLog[3]).toEqual({
+            clanTag: '#CLAN2',
+            atMs: startMs + linkDelayMs + DEFAULT_SYNC_CYCLE_INTERVAL_MS,
+        });
+
+        controller.abort();
+        await runPromise;
+    });
+
+    it('wakes immediately from empty tracked clans state and prioritizes a newly linked clan arriving mid-cycle', async () => {
+        const ctx = createTestContext();
+
+        const startMs = 4_000_000;
+        const clock = new FakeClock(startMs);
+        const order: { readonly clanTag: string; readonly atMs: number }[] = [];
+        let slowFirstClan = false;
+
+        const service = new CallbackSyncService('ClanInfoService', async (tag, signal) => {
+            order.push({ clanTag: tag, atMs: clock.nowMs() });
+            if (slowFirstClan && tag === '#CLAN1') {
+                slowFirstClan = false;
+                await clock.sleep(10_000, signal);
+            }
+            return createSyncSuccess('ClanInfoService', tag);
+        });
+
+        const manager = new ClanManager(
+            [service],
+            ctx.clansRepo,
+            ctx.syncOutageRepo,
+            ctx.transactionManager,
+            ctx.recorder,
+            { clock },
+        );
+
+        const controller = new AbortController();
+        const runPromise = manager.syncAll(controller.signal);
+
+        // Starts with 0 tracked clans and sleeps
+        await waitForCondition(() => clock.pendingSleepCount() === 1);
+        expect(order).toEqual([]);
+
+        // 30s later, #CLAN1 and #CLAN2 are added and manager is notified
+        clock.advance(30_000);
+        ctx.seedTrackedClan('#CLAN1', { managementChatId: 2001 });
+        ctx.seedTrackedClan('#CLAN2', { managementChatId: 2002 });
+        slowFirstClan = true;
+        manager.notify();
+
+        // While #CLAN1 is mid-sync (sleeping 10s), #CLAN3 is linked and notified
+        await waitForCondition(() => order.length === 1 && clock.pendingSleepCount() === 1);
+        ctx.seedTrackedClan('#CLAN3', { managementChatId: 2003 });
+        manager.notify();
+
+        // Once #CLAN1 finishes, #CLAN3 runs immediately before #CLAN2
+        clock.advance(10_000);
+        await waitForCondition(() => order.length === 3 && clock.pendingSleepCount() === 1);
+
+        expect(order).toEqual([
+            { clanTag: '#CLAN1', atMs: startMs + 30_000 },
+            { clanTag: '#CLAN3', atMs: startMs + 40_000 },
+            { clanTag: '#CLAN2', atMs: startMs + 40_000 },
+        ]);
+
+        // Unlink #CLAN1, advance to its next due slot so it is pruned, then re-link and verify immediate sync
+        ctx.clansRepo.disableTracking('#CLAN1');
+        clock.advance(DEFAULT_SYNC_CYCLE_INTERVAL_MS - 10_000);
+        await waitForCondition(() => order.length === 4 && clock.pendingSleepCount() === 1);
+        expect(order[3]).toEqual({
+            clanTag: '#CLAN2',
+            atMs: startMs + 30_000 + DEFAULT_SYNC_CYCLE_INTERVAL_MS,
+        });
+
+        clock.advance(60_000);
+        ctx.clansRepo.insertMinimalClan('#CLAN1');
+        manager.notify();
+        await waitForCondition(() => order.length === 6 && clock.pendingSleepCount() === 1);
+        expect(order.slice(4)).toEqual([
+            { clanTag: '#CLAN1', atMs: startMs + 90_000 + DEFAULT_SYNC_CYCLE_INTERVAL_MS },
+            { clanTag: '#CLAN3', atMs: startMs + 90_000 + DEFAULT_SYNC_CYCLE_INTERVAL_MS },
+        ]);
+
+        controller.abort();
+        await runPromise;
+    });
+
+    it('runs immediate initial synchronization via TelegramBotService /link without waiting 15 minutes', async () => {
+        const ctx = createTestContext();
+        const startMs = 5_000_000;
+        const clock = new FakeClock(startMs);
+        const syncedTags: { readonly clanTag: string; readonly atMs: number }[] = [];
+
+        const apiClient: ClanInfoApiClient = {
+            getCompleteClanData(clanTag: string) {
+                syncedTags.push({ clanTag, atMs: clock.nowMs() });
+                return Promise.resolve({
+                    clan: {
+                        tag: clanTag,
+                        name: 'Synced Immediately',
+                        description: 'Fresh clan',
+                        locationId: 1,
+                        locationName: 'Intl',
+                        chatLanguageId: 1,
+                        chatLanguage: 'RU',
+                        isFamilyFriendly: true,
+                    },
+                    clanSnapshot: {
+                        clanTag,
+                        type: 'open',
+                        membersCount: 0,
+                        clanLevel: 12,
+                        clanPoints: 25000,
+                        clanBuilderBasePoints: 10000,
+                        clanCapitalPoints: 5000,
+                        capitalHallLevel: 8,
+                        capitalLeagueId: 85000000,
+                        requiredTrophies: 0,
+                        requiredBuilderBaseTrophies: 0,
+                        requiredTownhallLevel: 1,
+                        warFrequency: 'always',
+                        isWarLogPublic: true,
+                        warWinStreak: 3,
+                        warWins: 100,
+                        warTies: 2,
+                        warLosses: 10,
+                        warLeagueId: 48000000,
+                    },
+                    players: [],
+                    playerSnapshots: [],
+                });
+            },
+        };
+
+        const clanInfoService = new ClanInfoService(
+            ctx.clansRepo,
+            apiClient,
+            ctx.transactionManager,
+            ctx.recorder,
+        );
+
+        const manager = new ClanManager(
+            [clanInfoService],
+            ctx.clansRepo,
+            ctx.syncOutageRepo,
+            ctx.transactionManager,
+            ctx.recorder,
+            { clock },
+        );
+
+        const botService = new TelegramBotService({
+            telegramToken: 'test-token',
+            attackGuideCatalog: AttackGuideCatalog.fromJson({ guides: [] }),
+            clansRepo: ctx.clansRepo,
+            subscriptionRepo: ctx.subscriptionRepo,
+            domainEventsRepo: ctx.domainEventsRepo,
+            transactionManager: ctx.transactionManager,
+            clanManager: manager,
+            botConfig: {
+                botInfo: {
+                    id: 999000,
+                    is_bot: true,
+                    first_name: 'ClashBot',
+                    username: 'ClashTestBot',
+                    can_join_groups: true,
+                    can_read_all_group_messages: false,
+                    supports_inline_queries: false,
+                    can_connect_to_business: false,
+                    has_main_web_app: false,
+                    has_topics_enabled: true,
+                    allows_users_to_create_topics: false,
+                    can_manage_bots: false,
+                    supports_join_request_queries: false,
+                },
+            },
+        });
+
+        botService.bot.api.config.use((_prev, method, payload) => {
+            expect(ctx.db.connection.inTransaction).toBe(false);
+            if (method === 'sendMessage') {
+                const payloadRecord = payload as Record<string, unknown>;
+                return Promise.resolve({
+                    ok: true,
+                    result: {
+                        message_id: 1,
+                        date: 1_700_000_000,
+                        chat: { id: Number(payloadRecord.chat_id), type: 'private' },
+                        text: typeof payloadRecord.text === 'string' ? payloadRecord.text : '',
+                    },
+                } as never);
+            }
+            return Promise.reject(new Error(`Unexpected method: ${method}`));
+        });
+
+        const controller = new AbortController();
+        const runPromise = manager.syncAll(controller.signal);
+
+        // Manager is sleeping with 0 tracked clans; advance 2 minutes
+        await waitForCondition(() => clock.pendingSleepCount() === 1);
+        clock.advance(2 * 60 * 1000);
+
+        // User sends /link #2PPLQ -> manager wakes immediately without advancing FakeClock
+        await botService.handleUpdate({
+            update_id: 1,
+            message: {
+                message_id: 1,
+                date: 1_700_000_000,
+                chat: { id: 7001, type: 'private', first_name: 'Leader' },
+                from: { id: 7001, is_bot: false, first_name: 'Leader' },
+                text: '/link #2PPLQ',
+            },
+        } as never);
+
+        await waitForCondition(() => syncedTags.length === 1 && clock.pendingSleepCount() === 1);
+
+        expect(syncedTags).toEqual([{ clanTag: '#2PPLQ', atMs: startMs + 2 * 60 * 1000 }]);
+        expect(ctx.clansRepo.getClanNameByTag('#2PPLQ')).toBe('Synced Immediately');
 
         controller.abort();
         await runPromise;

@@ -15,6 +15,7 @@ import type {
     TransactionManager,
 } from '../database/index.js';
 import { createLogger, type Logger } from '../logging/logger.js';
+import type { WakeableClanManager } from '../services/clanManager.js';
 import type { AttackGuideCatalog } from './attackGuideCatalog.js';
 import {
     type CallbackContext,
@@ -68,6 +69,7 @@ export interface TelegramBotServiceDependencies {
     readonly subscriptionRepo: SubscriptionRepo;
     readonly domainEventsRepo: DomainEventsRepo;
     readonly transactionManager: TransactionManager;
+    readonly clanManager?: WakeableClanManager;
     readonly logger?: Logger;
     readonly botConfig?: BotConfig<Context>;
     readonly pollingTimeoutSeconds?: number;
@@ -125,6 +127,7 @@ export class TelegramBotService {
     private readonly subscriptionRepo: SubscriptionRepo;
     private readonly domainEventsRepo: DomainEventsRepo;
     private readonly transactionManager: TransactionManager;
+    private readonly clanManager?: WakeableClanManager;
     private readonly logger: Logger;
     private readonly pollingTimeoutSeconds: number;
     private readonly stopConfirmationTimeoutMs: number;
@@ -136,6 +139,9 @@ export class TelegramBotService {
         this.subscriptionRepo = deps.subscriptionRepo;
         this.domainEventsRepo = deps.domainEventsRepo;
         this.transactionManager = deps.transactionManager;
+        if (deps.clanManager !== undefined) {
+            this.clanManager = deps.clanManager;
+        }
         this.logger = deps.logger ?? createLogger({ name: 'TelegramBotService' });
         this.pollingTimeoutSeconds = deps.pollingTimeoutSeconds ?? DEFAULT_POLLING_TIMEOUT_SECONDS;
         this.stopConfirmationTimeoutMs =
@@ -552,6 +558,8 @@ export class TelegramBotService {
             }
             throw error;
         }
+
+        this.clanManager?.notify();
 
         const destination = chat.type === 'private' ? 'Личный чат' : 'Общий чат';
         const details =

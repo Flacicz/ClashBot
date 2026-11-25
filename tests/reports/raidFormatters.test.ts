@@ -422,6 +422,13 @@ describe('Raid formatters end-to-end integration with SQLite RaidRepo and ClansR
         const comparisonReport = comparisonFormatter.format(event);
         expect(comparisonReport).toContain('📈 <b>ДИНАМИКА РЕЙДОВ</b>');
         expect(comparisonReport).toContain('📉 <b>СРАВНЕНИЕ СО СРЕДНИМ ЗА 1 ПРЕДЫДУЩИЙ РЕЙД</b>');
+        // Previous raid (start=100) predates joined_at=500 => its 10 attacks (2 players) are external;
+        // current raid (start=1000) isolates #P4 (Leaver, 1 attack) into context line and keeps cohort rates <= 100%
+        expect(comparisonReport).toContain('10/16');
+        expect(comparisonReport).toContain('2/3');
+        expect(comparisonReport).toContain(
+            'ℹ️ Атаки вне основного состава (не входят в доли): 10 → 1 (игроков: 2 → 1)',
+        );
         expect(comparisonFormatter.format(event)).toBe(comparisonReport);
     });
 
@@ -524,7 +531,12 @@ describe('Raid formatters end-to-end integration with SQLite RaidRepo and ClansR
         const comparisonReport = comparisonFormatter.format(event);
         // Without attacks: 0/2 -> 1/2 (ZeroSnapshot counted, late joiners excluded from eligible)
         expect(comparisonReport).toContain('0/2 → 1/2');
-        // Active participants: #P1 + #P4 = 2 (ZeroSnapshot with attacks_count = 0 is NOT active)
-        expect(comparisonReport).toContain('2/2 → 2/2');
+        // Active participants (cohort-only): #P1 only => 2/2 -> 1/2 (ZeroSnapshot is not active, LateAttacker is outside cohort)
+        expect(comparisonReport).toContain('2/2 → 1/2');
+        // Cohort attack usage: 10/10 -> 5/10 (50.0% <= 100%), LateAttacker shown in external context
+        expect(comparisonReport).toContain('10/10 → 5/10');
+        expect(comparisonReport).toContain(
+            'ℹ️ Атаки вне основного состава (не входят в доли): 0 → 2 (игроков: 0 → 1)',
+        );
     });
 });

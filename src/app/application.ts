@@ -209,6 +209,7 @@ export async function createApplication(
                 subscriptionRepo,
                 domainEventsRepo,
                 transactionManager: transactions,
+                clanManager,
                 logger,
             });
 

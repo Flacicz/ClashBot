@@ -31,6 +31,8 @@ function makeRaidStats(
     enemyDistrictsDestroyed: number,
     offensiveReward: number,
     defensiveReward: number,
+    externalUsedAttacks = 0,
+    externalParticipants = 0,
 ): RaidComparisonStats {
     return {
         startTime,
@@ -42,6 +44,8 @@ function makeRaidStats(
         eligibleParticipants,
         participantsWithAllAttacksUsed,
         participantsWithoutAttacks,
+        externalUsedAttacks,
+        externalParticipants,
         enemyDistrictsDestroyed,
         offensiveReward,
         defensiveReward,
@@ -69,6 +73,8 @@ function makeHistoricalAverages(raidsCount = 3): RaidHistoricalAverages {
         averageParticipantsWithoutAttacks: 5.3,
         averageUsedAttacks: 88.9,
         averageAvailableAttacks: 120.0,
+        averageExternalUsedAttacks: 0.0,
+        averageExternalParticipants: 0.0,
         averageTotalLoot: 1_130_000.0,
         averageRaidsCompleted: 7.3,
         averageEnemyDistrictsDestroyed: 9.3,
@@ -606,6 +612,151 @@ describe('RaidsComparisonFormatter (golden parity)', () => {
         expect(report).toContain('Уничтожено районов:\n9.5 → 10 (+0.5)');
         expect(report).toContain('Награда за нападение:\n1 234 → 2 345 (+1 111)');
         expect(report).toContain('Награда за оборону:\n0 → 0 (0)');
+    });
+
+    it('matches golden snapshot: leaver and guest attacks shown in separate context line without >100% shares', () => {
+        // Current raid: 4 eligible members (3 active, 2 full, 1 no attacks, 18/21 attacks)
+        // + 1 leaver (5 attacks) + 1 guest (6 attacks) => externalUsedAttacks = 11, externalParticipants = 2
+        // Total loot (full from CoC API) = 147_000 across 18 + 11 = 29 attacks => 5 069 gold/attack
+        const currentRaid = makeRaidStats(
+            1_710_000_000,
+            147_000,
+            6,
+            18,
+            21,
+            3,
+            4,
+            2,
+            1,
+            24,
+            1_150,
+            320,
+            11,
+            2,
+        );
+        // Previous raid 1: 4 eligible members, 0 external attacks
+        const prevRaid1 = makeRaidStats(
+            1_709_395_200,
+            100_000,
+            5,
+            20,
+            20,
+            4,
+            4,
+            4,
+            0,
+            20,
+            1_000,
+            280,
+            0,
+            0,
+        );
+        // Previous raid 2: 4 eligible members + 1 leaver (5 attacks)
+        const prevRaid2 = makeRaidStats(
+            1_708_790_400,
+            112_500,
+            5,
+            15,
+            20,
+            3,
+            4,
+            2,
+            1,
+            21,
+            1_050,
+            290,
+            5,
+            1,
+        );
+
+        const data: RaidComparisonData = {
+            ...buildRaidComparisonData(currentRaid, [prevRaid1, prevRaid2]),
+            clanTag: '#2J8PJ9VLG',
+            clanName: 'aurus',
+        };
+
+        const report = RaidsComparisonFormatter.buildReport(data);
+        expectMatchesGolden(report, 'raidsComparison', 'external-leaver-and-guest-context');
+
+        // Invariant: no percentage anywhere in the report exceeds 100.0%
+        const percentageMatches = [...report.matchAll(/(\d+(?:\.\d+)?)%/g)];
+        expect(percentageMatches.length).toBeGreaterThan(0);
+        for (const match of percentageMatches) {
+            expect(Number(match[1])).toBeLessThanOrEqual(100.0);
+        }
+    });
+
+    it('omits external attacks context line when absent and shows it only in sections with external attacks', () => {
+        const currentNoExternal = makeRaidStats(
+            1_710_000_000,
+            100_000,
+            5,
+            20,
+            20,
+            4,
+            4,
+            4,
+            0,
+            20,
+            1_000,
+            280,
+            0,
+            0,
+        );
+        const prev1NoExternal = makeRaidStats(
+            1_709_395_200,
+            95_000,
+            5,
+            18,
+            20,
+            4,
+            4,
+            3,
+            0,
+            19,
+            980,
+            270,
+            0,
+            0,
+        );
+        const prev2WithExternal = makeRaidStats(
+            1_708_790_400,
+            110_000,
+            5,
+            15,
+            20,
+            3,
+            4,
+            2,
+            1,
+            20,
+            1_020,
+            275,
+            5,
+            1,
+        );
+
+        // No external attacks anywhere => line completely absent
+        const cleanReport = RaidsComparisonFormatter.buildReport({
+            ...buildRaidComparisonData(currentNoExternal, [prev1NoExternal]),
+            clanTag: '#2J8PJ9VLG',
+            clanName: 'aurus',
+        });
+        expect(cleanReport).not.toContain('Атаки вне основного состава');
+
+        // External attacks only in older historical raid (prev2) => absent in previous-raid section, present in historical section
+        const historicalOnlyReport = RaidsComparisonFormatter.buildReport({
+            ...buildRaidComparisonData(currentNoExternal, [prev1NoExternal, prev2WithExternal]),
+            clanTag: '#2J8PJ9VLG',
+            clanName: 'aurus',
+        });
+        const [previousSection, historicalSection] = historicalOnlyReport.split(
+            '📉 <b>СРАВНЕНИЕ СО СРЕДНИМ',
+        );
+        expect(previousSection).not.toContain('Атаки вне основного состава');
+        expect(historicalSection).toContain(
+            'ℹ️ Атаки вне основного состава (не входят в доли): 2.5 → 0 (игроков: 0.5 → 0)',
+        );
     });
 
     it('accepts ClansRepo and RaidRepo structurally as readers', () => {
