@@ -22,6 +22,7 @@ const EXPECTED_MIGRATION_VERSIONS = [
     '010_sync_outages.sql',
     '011_domain_events.sql',
     '012_legacy_notification_idempotency.sql',
+    '013_notification_claim_status.sql',
 ];
 
 function createTempDir(prefix: string): string {
@@ -110,7 +111,7 @@ describe('MigratorManager', () => {
         }
     });
 
-    it('applies all 12 migrations to a fresh :memory: database in lexicographical order', () => {
+    it('applies all 13 migrations to a fresh :memory: database in lexicographical order', () => {
         const db = trackDb(new Database(':memory:'));
         const transactions = new TransactionManager(db);
         const migrator = new MigratorManager(db, transactions);
@@ -143,11 +144,36 @@ describe('MigratorManager', () => {
             expect(tableExists(db, table), `expected table ${table} to exist`).toBe(true);
         }
         expect(hasColumn(db, 'clans', 'tracking_enabled')).toBe(true);
+        expect(hasColumn(db, 'notifications', 'claimed_at')).toBe(true);
+
+        // Migration 013 allows 'sending' status and rejects unknown statuses
+        db.exec(`
+            INSERT INTO notifications (event_type, event_id, chat_id, message_thread_id, message_text, status, claimed_at)
+                VALUES ('war_ended', 'fresh-sending', -1001, 0, 'in flight', 'sending', 1700000000);
+        `);
+        expect(() => {
+            db.exec(`
+                INSERT INTO notifications (event_type, event_id, chat_id, message_thread_id, message_text, status)
+                    VALUES ('war_ended', 'fresh-invalid', -1001, 0, 'bad', 'invalid_status');
+            `);
+        }).toThrow();
+
+        const indexNames = db.connection
+            .prepare<[], { name: string }>(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'notifications';",
+            )
+            .all()
+            .map((row) => row.name);
+        expect(indexNames).toContain('idx_notifications_pending');
+        expect(indexNames).toContain('idx_notifications_domain_destination');
+        expect(indexNames).toContain('idx_notifications_legacy_event_destination');
+        expect(indexNames).toContain('idx_notifications_sending');
+
         expect(foreignKeysEnabled(db)).toBe(true);
         expect(foreignKeysValid(db)).toBe(true);
     });
 
-    it('applies all 12 migrations to a file-backed WAL database and is idempotent on rerun', () => {
+    it('applies all 13 migrations to a file-backed WAL database and is idempotent on rerun', () => {
         const dir = trackDir('clashbot-migrate-wal-');
         const dbPath = path.join(dir, 'clashbot.sqlite');
 
@@ -283,15 +309,161 @@ describe('MigratorManager', () => {
         });
 
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(12);
+        expect(rowCount(db, 'schema_migrations')).toBe(13);
 
-        // Migration 012 partial unique index prevents duplicate legacy notification insert
+        // Migration 012 partial unique index (recreated in 013) prevents duplicate legacy notification insert
         const insertResult = db.connection
             .prepare(
                 "INSERT OR IGNORE INTO notifications (event_type, event_id, chat_id, message_thread_id, message_text) VALUES ('old_report', 'historic-1', -1001, 7, 'duplicate');",
             )
             .run();
         expect(insertResult.changes).toBe(0);
+        expect(hasColumn(db, 'notifications', 'claimed_at')).toBe(true);
+        expect(foreignKeysValid(db)).toBe(true);
+        expect(foreignKeysEnabled(db)).toBe(true);
+    });
+
+    it('upgrades populated v012 database through 013 preserving all notifications, IDs, FKs, and indexes', () => {
+        const through012 = trackDir('clashbot-mig-012-');
+        copyRealMigrationsUpTo(through012, 12);
+
+        const db = trackDb(new Database(':memory:'));
+        const transactions = new TransactionManager(db);
+        const migrator = new MigratorManager(db, transactions);
+
+        migrator.migrate(through012);
+        expect(rowCount(db, 'schema_migrations')).toBe(12);
+        expect(hasColumn(db, 'notifications', 'claimed_at')).toBe(false);
+
+        // Populate v012 DB with active subscriptions, domain events, durable notifications (all v012 statuses), and legacy notification
+        db.exec(`
+            INSERT INTO clans (tag, name) VALUES ('#V12', 'Populated Clan');
+            INSERT INTO telegram_chats (chat_id, message_thread_id, title) VALUES (-10012, 0, 'Main');
+            INSERT INTO clan_subscriptions (subscription_id, clan_tag, chat_id, message_thread_id, audience)
+                VALUES (42, '#V12', -10012, 0, 'players');
+            INSERT INTO domain_events (id, event_type, event_id, event_payload, payload_version, clan_tag)
+                VALUES (100, 'war_ended', 'w-12', '{}', 1, '#V12');
+            INSERT INTO domain_event_destinations (id, domain_event_id, chat_id, message_thread_id, audience, subscription_id, status)
+                VALUES (200, 100, -10012, 0, 'players', 42, 'materialized');
+            INSERT INTO notifications (id, domain_event_destination_id, event_type, event_id, chat_id, message_thread_id, message_text, status, attempts, next_attempt_at, last_error, created_at, sent_at)
+                VALUES
+                    (10, 200, 'war_ended', 'w-12', -10012, 0, 'Pending durable', 'pending', 0, 1700000000, NULL, 1700000000, NULL),
+                    (11, 200, 'war_comparison', 'w-12', -10012, 0, 'Sent durable', 'sent', 1, NULL, NULL, 1700000001, 1700000010),
+                    (12, 200, 'war_violations', 'w-12', -10012, 0, 'Failed durable', 'failed', 4, NULL, 'HTTP 403', 1700000002, NULL),
+                    (13, 200, 'war_roster_reliability', 'w-12', -10012, 0, 'Cancelled durable', 'cancelled', 0, NULL, 'subscription cancelled', 1700000003, NULL),
+                    (25, NULL, 'legacy_evt', 'leg-1', -10012, 0, 'Legacy pending', 'pending', 0, 1700000004, NULL, 1700000004, NULL);
+        `);
+
+        // Before 013, 'sending' is rejected by CHECK constraint
+        expect(() => {
+            db.exec("UPDATE notifications SET status = 'sending' WHERE id = 10;");
+        }).toThrow();
+
+        // Upgrade to v013
+        migrator.migrate(REAL_MIGRATIONS_PATH);
+        expect(rowCount(db, 'schema_migrations')).toBe(13);
+        expect(hasColumn(db, 'notifications', 'claimed_at')).toBe(true);
+
+        const rows = db.connection
+            .prepare<
+                [],
+                {
+                    id: number;
+                    domain_event_destination_id: number | null;
+                    event_type: string;
+                    status: string;
+                    claimed_at: number | null;
+                    attempts: number;
+                    last_error: string | null;
+                    sent_at: number | null;
+                }
+            >(
+                'SELECT id, domain_event_destination_id, event_type, status, claimed_at, attempts, last_error, sent_at FROM notifications ORDER BY id ASC;',
+            )
+            .all();
+
+        expect(rows).toEqual([
+            {
+                id: 10,
+                domain_event_destination_id: 200,
+                event_type: 'war_ended',
+                status: 'pending',
+                claimed_at: null,
+                attempts: 0,
+                last_error: null,
+                sent_at: null,
+            },
+            {
+                id: 11,
+                domain_event_destination_id: 200,
+                event_type: 'war_comparison',
+                status: 'sent',
+                claimed_at: null,
+                attempts: 1,
+                last_error: null,
+                sent_at: 1700000010,
+            },
+            {
+                id: 12,
+                domain_event_destination_id: 200,
+                event_type: 'war_violations',
+                status: 'failed',
+                claimed_at: null,
+                attempts: 4,
+                last_error: 'HTTP 403',
+                sent_at: null,
+            },
+            {
+                id: 13,
+                domain_event_destination_id: 200,
+                event_type: 'war_roster_reliability',
+                status: 'cancelled',
+                claimed_at: null,
+                attempts: 0,
+                last_error: 'subscription cancelled',
+                sent_at: null,
+            },
+            {
+                id: 25,
+                domain_event_destination_id: null,
+                event_type: 'legacy_evt',
+                status: 'pending',
+                claimed_at: null,
+                attempts: 0,
+                last_error: null,
+                sent_at: null,
+            },
+        ]);
+
+        // After 013, 'sending' with claimed_at is allowed
+        db.exec(
+            "UPDATE notifications SET status = 'sending', claimed_at = 1700000100 WHERE id = 10;",
+        );
+        const claimed = db.connection
+            .prepare<[], { status: string; claimed_at: number | null }>(
+                'SELECT status, claimed_at FROM notifications WHERE id = 10;',
+            )
+            .get();
+        expect(claimed).toEqual({ status: 'sending', claimed_at: 1700000100 });
+
+        // Both durable UNIQUE constraint and legacy partial unique index remain enforced
+        const dupDurable = db.connection
+            .prepare(
+                "INSERT OR IGNORE INTO notifications (domain_event_destination_id, event_type, event_id, chat_id, message_thread_id, message_text) VALUES (200, 'war_ended', 'w-12', -10012, 0, 'dup');",
+            )
+            .run();
+        expect(dupDurable.changes).toBe(0);
+
+        const dupLegacy = db.connection
+            .prepare(
+                "INSERT OR IGNORE INTO notifications (event_type, event_id, chat_id, message_thread_id, message_text) VALUES ('legacy_evt', 'leg-1', -10012, 0, 'dup');",
+            )
+            .run();
+        expect(dupLegacy.changes).toBe(0);
+
+        // Idempotent rerun after upgrade
+        migrator.migrate(REAL_MIGRATIONS_PATH);
+        expect(rowCount(db, 'schema_migrations')).toBe(13);
         expect(foreignKeysValid(db)).toBe(true);
         expect(foreignKeysEnabled(db)).toBe(true);
     });

@@ -156,26 +156,26 @@ SyncService / ClanManager
                                                      ▼ (commit; worker опрашивает раз в 1 с или по notify)
 DomainEventWorker
   └─► TransactionManager.retryInTransaction()
-        ├─ перепроверка pending-статуса destination
+        ├─ условный атомарный захват destination: markMaterialized (WHERE status = 'pending', changes === 1)
         ├─ десериализация payload (zod) → NotificationService.materialize() (форматтеры + аналитика)
-        ├─ запись в outbox notifications (ON CONFLICT DO NOTHING)
-        └─ markMaterialized(destinationId) ──► пробуждение NotificationWorker.notify()
+        └─ запись в outbox notifications (ON CONFLICT DO NOTHING) ──► commit ──► пробуждение NotificationWorker.notify()
                                                      │
-                                                     ▼ (commit; вне транзакции)
+                                                     ▼ (вне транзакции)
 NotificationWorker
-  ├─ перепроверка pending-статуса уведомления
+  ├─ восстановление зависших sending-записей (при старте — всех; перед батчем — по TTL claimed_at <= now - claimTtlSeconds)
+  ├─ атомарный захват записи: claimForSending (status = 'sending', claimed_at = now WHERE status = 'pending')
   ├─ HTTP sendMessage через TelegramGateway (grammY Api)
-  └─ markAsSent / reschedule (exponential + retry_after) / markAsFailed
+  └─ markAsSent / reschedule (или cancel при неактивной подписке) / markAsFailed (только из status = 'sending')
 ```
 
 Ключевые системные инварианты:
 - **Атомарность событий и снимка получателей**: `domain_events` и `domain_event_destinations` (включая `subscription_id` поколения подписки) сохраняются в той же транзакции, что и изменение состояния клана/войны/рейда/сбоя.
 - **Чистые транзакции**: транзакции в `TransactionManager` строго синхронны (`better-sqlite3`, проверка на `PromiseLike` на уровне типов и в runtime); сетевые вызовы CoC API и Telegram выполняются только за пределами транзакций.
-- **Один активный процесс на файл БД**: ни `DomainEventWorker`, ни `NotificationWorker` не имеют распределённого `lease/claim` механизма. Одновременно должен запускаться только один процесс ClashBot на один файл SQLite.
-- **Семантика доставки `at-least-once`**: при падении процесса после успешного `sendMessage`, но до `markAsSent`, уведомление может быть отправлено повторно; отмена подписки через `/unlink` отменяет `pending` записи по `subscription_id`, но не отзывает уже отправленный HTTP-запрос.
+- **Один активный процесс на файл БД**: межпроцессной блокировки нет, поэтому одновременно должен запускаться только один процесс ClashBot на один файл SQLite. Внутри процесса гонки между `/unlink` и воркерами закрыты условным атомарным захватом (`markMaterialized` в `DomainEventWorker`, `claimForSending` со статусом `'sending'` и `claimed_at` в `NotificationWorker`), а зависшие `'sending'`-записи восстанавливаются при старте воркера и по TTL (`claimTtlSeconds = 60` по умолчанию) с проверкой активности `subscription_id` в `clan_subscriptions`.
+- **Семантика доставки `at-least-once`**: при падении процесса или сбое БД после успешного `sendMessage`, но до `markAsSent`, запись остаётся в `'sending'` и после восстановления (при рестарте или по истечении `claimTtlSeconds`) будет поставлена в `'pending'` и отправлена повторно (если подписка всё ещё активна). Отмена подписки через `/unlink` отменяет `pending`-записи по `subscription_id` и не допускает нового захвата или новой попытки повтора; уже захваченный (`'sending'`) HTTP-запрос считается in-flight и может завершиться.
 
 Детальные контракты слоёв вынесены в SSOT-документы:
-- схема SQLite, миграции `001`–`012`, `PRAGMA` и контракты репозиториев → [`docs/database.md`](database.md);
+- схема SQLite, миграции `001`–`013`, `PRAGMA` и контракты репозиториев → [`docs/database.md`](database.md);
 - каталог `ApplicationEvent`, payload, матрица доставки по аудиториям, контрольные точки, форматтеры и дедупликация → [`docs/reports.md`](reports.md);
 - входящий бот `TelegramBotService`, команды `/start`, `/link`, `/unlink`, права, форумные темы и `TelegramGateway` → [`docs/telegram.md`](telegram.md).
 

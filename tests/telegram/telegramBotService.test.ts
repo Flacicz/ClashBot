@@ -1090,8 +1090,12 @@ describe('TelegramBotService', () => {
             const pendingNotification = findNotification('pending_report');
             const sentNotification = findNotification('sent_report');
             const failedNotification = findNotification('failed_report');
-            notificationRepo.markAsSent(sentNotification);
-            notificationRepo.markAsFailed(failedNotification, 'permanent failure');
+            expect(notificationRepo.claimForSending(sentNotification, 1_700_000_000)).toBe(true);
+            expect(notificationRepo.markAsSent(sentNotification)).toBe(true);
+            expect(notificationRepo.claimForSending(failedNotification, 1_700_000_000)).toBe(true);
+            expect(notificationRepo.markAsFailed(failedNotification, 'permanent failure')).toBe(
+                true,
+            );
 
             transport.chatMembers.set(memberKey(chatId, userId), 'administrator');
 
@@ -1389,7 +1393,8 @@ describe('TelegramBotService', () => {
             if (pendingNotif === undefined || sentNotif === undefined) {
                 throw new Error('Expected seeded notifications');
             }
-            notificationRepo.markAsSent(sentNotif.id);
+            expect(notificationRepo.claimForSending(sentNotif.id, 1_700_000_000)).toBe(true);
+            expect(notificationRepo.markAsSent(sentNotif.id)).toBe(true);
 
             transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
             transport.chatMembers.set(memberKey(chatId, memberId), 'member');

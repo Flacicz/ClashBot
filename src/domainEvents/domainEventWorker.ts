@@ -197,7 +197,7 @@ export class DomainEventWorker {
 
             try {
                 const materialized = this.transactionManager.retryInTransaction(() => {
-                    if (!this.domainEventsRepo.isDestinationPending(destination.destinationId)) {
+                    if (!this.domainEventsRepo.markMaterialized(destination.destinationId)) {
                         return false;
                     }
 
@@ -209,7 +209,7 @@ export class DomainEventWorker {
                     );
 
                     this.materializer.materialize(deserialized, destination);
-                    return this.domainEventsRepo.markMaterialized(destination.destinationId);
+                    return true;
                 });
 
                 if (materialized) {
