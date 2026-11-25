@@ -173,7 +173,9 @@ export class NotificationWorker implements WakeableNotificationWorker {
             return;
         }
 
-        this.recoverStaleSending(this.clock.nowEpochSeconds());
+        const nowEpochSeconds = this.clock.nowEpochSeconds();
+        this.recoverStaleSending(nowEpochSeconds);
+        this.cancelExpiredPending(nowEpochSeconds);
 
         let remaining = this.batchSize;
 
@@ -195,6 +197,15 @@ export class NotificationWorker implements WakeableNotificationWorker {
                 }
 
                 const claimedAt = this.clock.nowEpochSeconds();
+                if (notification.expiresAt !== null && claimedAt >= notification.expiresAt) {
+                    this.cancelExpiredPendingNotification(
+                        notification.id,
+                        notification.expiresAt,
+                        claimedAt,
+                    );
+                    continue;
+                }
+
                 if (!this.notificationRepo.claimForSending(notification.id, claimedAt)) {
                     continue;
                 }
@@ -282,6 +293,33 @@ export class NotificationWorker implements WakeableNotificationWorker {
         return this.clock.nowEpochSeconds() + delaySeconds;
     }
 
+    private cancelExpiredPending(nowEpochSeconds: number): void {
+        const cancelled = this.notificationRepo.cancelExpiredPending(nowEpochSeconds);
+        if (cancelled > 0) {
+            this.logger?.info(
+                { cancelled, nowEpochSeconds },
+                '[NotificationWorker] Cancelled expired pending notifications',
+            );
+        }
+    }
+
+    private cancelExpiredPendingNotification(
+        notificationId: number,
+        expiresAt: number,
+        nowEpochSeconds: number,
+    ): void {
+        const cancelled = this.notificationRepo.cancelPendingIfExpired(
+            notificationId,
+            nowEpochSeconds,
+        );
+        if (cancelled) {
+            this.logger?.info(
+                { notificationId, expiresAt, nowEpochSeconds },
+                `[NotificationWorker] Cancelled expired pending notification ${String(notificationId)} before sending`,
+            );
+        }
+    }
+
     private recoverStaleSending(nowEpochSeconds: number): void {
         const staleCutoffEpochSeconds = nowEpochSeconds - this.claimTtlSeconds;
         const recovered = this.notificationRepo.recoverStaleSending(staleCutoffEpochSeconds);
@@ -348,6 +386,22 @@ export class NotificationWorker implements WakeableNotificationWorker {
             }
 
             const scheduledAt = this.nextAttemptAt(nextAttempt, retryAfterSeconds);
+            if (
+                notification.expiresAt !== null &&
+                this.notificationRepo.cancelSendingIfExpired(notification.id, scheduledAt)
+            ) {
+                this.logger?.info(
+                    {
+                        notificationId: notification.id,
+                        expiresAt: notification.expiresAt,
+                        scheduledAt,
+                        error: errorMessage,
+                    },
+                    `[NotificationWorker] Notification ${String(notification.id)} cancelled instead of retrying because it expires before the next attempt`,
+                );
+                return;
+            }
+
             this.notificationRepo.reschedule(notification.id, scheduledAt, errorMessage);
             this.logger?.warn(
                 {

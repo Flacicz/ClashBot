@@ -55,6 +55,7 @@ export {
 } from './domainEventsRepo.js';
 export {
     DEFAULT_PENDING_NOTIFICATIONS_LIMIT,
+    NOTIFICATION_EXPIRED_ERROR,
     NotificationRepo,
     type ClaimReleaseOutcome,
     type NotificationRecoveryResult,

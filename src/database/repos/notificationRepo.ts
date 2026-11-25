@@ -1,6 +1,7 @@
 import { type DatabaseSource, getConnection, runRepoQuery } from './repoHelpers.js';
 
 export const DEFAULT_PENDING_NOTIFICATIONS_LIMIT = 100;
+export const NOTIFICATION_EXPIRED_ERROR = 'notification expired';
 
 export type NotificationStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'cancelled';
 
@@ -21,6 +22,7 @@ export interface PendingNotification {
     readonly partIndex: number;
     readonly partCount: number;
     readonly attempts: number;
+    readonly expiresAt: number | null;
 }
 
 interface IdRow {
@@ -45,6 +47,7 @@ interface PendingNotificationRow {
     readonly part_index: number;
     readonly part_count: number;
     readonly attempts: number;
+    readonly expires_at: number | null;
 }
 
 interface FailedNotificationIdentityRow {
@@ -74,14 +77,18 @@ export class NotificationRepo {
         messageThreadId: number,
         partIndex = 1,
         partCount = 1,
+        expiresAt: number | null = null,
     ): boolean {
         return runRepoQuery(
             REPO_NAME,
             'enqueue notification',
-            { eventType, eventId, chatId, messageThreadId, partIndex, partCount },
+            { eventType, eventId, chatId, messageThreadId, partIndex, partCount, expiresAt },
             () => {
                 const row = getConnection(this.source)
-                    .prepare<[string, string, number, number, string, number, number], IdRow>(
+                    .prepare<
+                        [string, string, number, number, string, number, number, number | null],
+                        IdRow
+                    >(
                         `INSERT INTO notifications (
                              event_type,
                              event_id,
@@ -89,9 +96,10 @@ export class NotificationRepo {
                              message_thread_id,
                              message_text,
                              part_index,
-                             part_count
+                             part_count,
+                             expires_at
                          )
-                         VALUES (?, ?, ?, ?, ?, ?, ?)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                          ON CONFLICT (
                              event_type,
                              event_id,
@@ -109,6 +117,7 @@ export class NotificationRepo {
                         message,
                         partIndex,
                         partCount,
+                        expiresAt,
                     );
                 return row !== undefined;
             },
@@ -124,15 +133,26 @@ export class NotificationRepo {
         messageThreadId: number,
         partIndex = 1,
         partCount = 1,
+        expiresAt: number | null = null,
     ): boolean {
         return runRepoQuery(
             REPO_NAME,
             'enqueue notification for domain event destination',
-            { domainEventDestinationId, eventType, eventId, chatId, messageThreadId },
+            { domainEventDestinationId, eventType, eventId, chatId, messageThreadId, expiresAt },
             () => {
                 const row = getConnection(this.source)
                     .prepare<
-                        [number, string, string, number, number, string, number, number],
+                        [
+                            number,
+                            string,
+                            string,
+                            number,
+                            number,
+                            string,
+                            number,
+                            number,
+                            number | null,
+                        ],
                         IdRow
                     >(
                         `INSERT INTO notifications (
@@ -143,9 +163,10 @@ export class NotificationRepo {
                              message_thread_id,
                              message_text,
                              part_index,
-                             part_count
+                             part_count,
+                             expires_at
                          )
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                          ON CONFLICT (
                              domain_event_destination_id,
                              event_type,
@@ -163,6 +184,7 @@ export class NotificationRepo {
                         message,
                         partIndex,
                         partCount,
+                        expiresAt,
                     );
                 return row !== undefined;
             },
@@ -183,7 +205,10 @@ export class NotificationRepo {
             { limit, ...(nowEpochSeconds !== undefined ? { nowEpochSeconds } : {}) },
             () => {
                 const rows = getConnection(this.source)
-                    .prepare<[number | null, number | null, number], PendingNotificationRow>(
+                    .prepare<
+                        [number | null, number | null, number | null, number],
+                        PendingNotificationRow
+                    >(
                         `SELECT n.id,
                                 n.event_type,
                                 n.event_id,
@@ -192,7 +217,8 @@ export class NotificationRepo {
                                 n.message_text,
                                 n.part_index,
                                 n.part_count,
-                                n.attempts
+                                n.attempts,
+                                n.expires_at
                          FROM notifications n
                          WHERE n.status = 'pending'
                            AND (n.next_attempt_at IS NULL
@@ -200,6 +226,8 @@ export class NotificationRepo {
                                     AND n.next_attempt_at <= MAX(COALESCE(?, 0), CAST(strftime('%s', 'now') AS INTEGER)))
                                 OR (n.attempts > 0
                                     AND n.next_attempt_at <= COALESCE(?, CAST(strftime('%s', 'now') AS INTEGER))))
+                           AND (n.expires_at IS NULL
+                                OR n.expires_at > COALESCE(?, CAST(strftime('%s', 'now') AS INTEGER)))
                            AND (
                                n.part_index = 1
                                OR NOT EXISTS (
@@ -225,7 +253,12 @@ export class NotificationRepo {
                          ORDER BY n.created_at, n.id
                          LIMIT ?;`,
                     )
-                    .all(nowEpochSeconds ?? null, nowEpochSeconds ?? null, limit);
+                    .all(
+                        nowEpochSeconds ?? null,
+                        nowEpochSeconds ?? null,
+                        nowEpochSeconds ?? null,
+                        limit,
+                    );
 
                 return rows.map((row) => ({
                     id: row.id,
@@ -237,6 +270,7 @@ export class NotificationRepo {
                     partIndex: row.part_index,
                     partCount: row.part_count,
                     attempts: row.attempts,
+                    expiresAt: row.expires_at,
                 }));
             },
         );
@@ -270,14 +304,84 @@ export class NotificationRepo {
             { notificationId, claimedAt },
             () => {
                 const result = getConnection(this.source)
-                    .prepare<[number, number]>(
+                    .prepare<[number, number, number]>(
                         `UPDATE notifications
                          SET status = 'sending',
                              claimed_at = ?
                          WHERE id = ?
-                           AND status = 'pending';`,
+                           AND status = 'pending'
+                           AND (expires_at IS NULL OR expires_at > ?);`,
                     )
-                    .run(claimedAt, notificationId);
+                    .run(claimedAt, notificationId, claimedAt);
+                return result.changes === 1;
+            },
+        );
+    }
+
+    cancelExpiredPending(nowEpochSeconds: number): number {
+        return runRepoQuery(
+            REPO_NAME,
+            'cancel expired pending notifications',
+            { nowEpochSeconds },
+            () => {
+                const result = getConnection(this.source)
+                    .prepare<[string, number]>(
+                        `UPDATE notifications
+                         SET status = 'cancelled',
+                             next_attempt_at = NULL,
+                             last_error = ?
+                         WHERE status = 'pending'
+                           AND expires_at IS NOT NULL
+                           AND expires_at <= ?;`,
+                    )
+                    .run(NOTIFICATION_EXPIRED_ERROR, nowEpochSeconds);
+                return result.changes;
+            },
+        );
+    }
+
+    cancelPendingIfExpired(notificationId: number, nowEpochSeconds: number): boolean {
+        return runRepoQuery(
+            REPO_NAME,
+            'cancel expired pending notification by id',
+            { notificationId, nowEpochSeconds },
+            () => {
+                const result = getConnection(this.source)
+                    .prepare<[string, number, number]>(
+                        `UPDATE notifications
+                         SET status = 'cancelled',
+                             next_attempt_at = NULL,
+                             last_error = ?
+                         WHERE id = ?
+                           AND status = 'pending'
+                           AND expires_at IS NOT NULL
+                           AND expires_at <= ?;`,
+                    )
+                    .run(NOTIFICATION_EXPIRED_ERROR, notificationId, nowEpochSeconds);
+                return result.changes === 1;
+            },
+        );
+    }
+
+    cancelSendingIfExpired(notificationId: number, effectiveEpochSeconds: number): boolean {
+        return runRepoQuery(
+            REPO_NAME,
+            'cancel claimed notification that expired before retry',
+            { notificationId, effectiveEpochSeconds },
+            () => {
+                const result = getConnection(this.source)
+                    .prepare<[string, number, number]>(
+                        `UPDATE notifications
+                         SET status = 'cancelled',
+                             claimed_at = NULL,
+                             next_attempt_at = NULL,
+                             last_error = ?
+                         WHERE id = ?
+                           AND status = 'sending'
+                           AND expires_at IS NOT NULL
+                           AND expires_at <= ?;`,
+                    )
+                    .run(NOTIFICATION_EXPIRED_ERROR, notificationId, effectiveEpochSeconds);
                 return result.changes === 1;
             },
         );

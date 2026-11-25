@@ -1355,12 +1355,23 @@ describe('ClanwarLeagueService', () => {
         });
         worker.processPending();
 
-        const notifications = notificationRepo.getPending(10, clock.nowEpochSeconds());
-        expect(notifications).toHaveLength(2);
-        expect(notifications[0]?.messageText).toContain(
+        const allMaterialized = db.connection
+            .prepare<[], { event_id: string; message_text: string }>(
+                'SELECT event_id, message_text FROM notifications ORDER BY id;',
+            )
+            .all();
+        expect(allMaterialized).toHaveLength(2);
+        expect(allMaterialized[0]?.message_text).toContain(
             'До окончания раунда ЛВК осталась 21 минута',
         );
-        expect(notifications[1]?.messageText).toContain(
+        expect(allMaterialized[1]?.message_text).toContain(
+            'До окончания раунда ЛВК осталось 4 часа 10 минут',
+        );
+
+        // At round 2 clock time, round 1 has already ended so only round 2's reminder is still deliverable
+        const deliverable = notificationRepo.getPending(10, clock.nowEpochSeconds());
+        expect(deliverable).toHaveLength(1);
+        expect(deliverable[0]?.messageText).toContain(
             'До окончания раунда ЛВК осталось 4 часа 10 минут',
         );
     });

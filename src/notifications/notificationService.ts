@@ -40,6 +40,7 @@ import {
     SystemAlertReportFormatter,
     WarReminderFormatter,
 } from '../reports/index.js';
+import { getRaidReminderExpiresAt, getWarReminderExpiresAt } from '../services/reminders.js';
 import type { Audience } from '../telegram/validation.js';
 import { DEFAULT_TELEGRAM_MAX_VISIBLE_LENGTH, splitHtmlMessage } from './htmlMessageSplitter.js';
 
@@ -415,6 +416,7 @@ export class NotificationService implements DomainEventMaterializer {
             }
             case APPLICATION_EVENT_TYPES.warReminder: {
                 const message = WarReminderFormatter.format(event);
+                const expiresAt = getWarReminderExpiresAt(event.endTime, event.kind);
                 this.enqueueToDestinations(
                     event.clanTag,
                     NOTIFICATION_EVENT_TYPES.warReminder,
@@ -422,11 +424,13 @@ export class NotificationService implements DomainEventMaterializer {
                     'WarReminderEvent',
                     message,
                     'players',
+                    expiresAt,
                 );
                 return;
             }
             case APPLICATION_EVENT_TYPES.raidReminder: {
                 const message = RaidReminderFormatter.format(event);
+                const expiresAt = getRaidReminderExpiresAt(event.endTime, event.kind);
                 this.enqueueToDestinations(
                     event.clanTag,
                     NOTIFICATION_EVENT_TYPES.raidReminder,
@@ -434,6 +438,7 @@ export class NotificationService implements DomainEventMaterializer {
                     'RaidReminderEvent',
                     message,
                     'players',
+                    expiresAt,
                 );
                 return;
             }
@@ -592,7 +597,13 @@ export class NotificationService implements DomainEventMaterializer {
         }
 
         const message = WarReminderFormatter.format(event);
-        this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.warReminder);
+        const expiresAt = getWarReminderExpiresAt(event.endTime, event.kind);
+        this.enqueueDomainEvent(
+            message,
+            destination,
+            NOTIFICATION_EVENT_TYPES.warReminder,
+            expiresAt,
+        );
     }
 
     private materializeRaidReminder(
@@ -604,13 +615,20 @@ export class NotificationService implements DomainEventMaterializer {
         }
 
         const message = RaidReminderFormatter.format(event);
-        this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.raidReminder);
+        const expiresAt = getRaidReminderExpiresAt(event.endTime, event.kind);
+        this.enqueueDomainEvent(
+            message,
+            destination,
+            NOTIFICATION_EVENT_TYPES.raidReminder,
+            expiresAt,
+        );
     }
 
     private enqueueDomainEvent(
         message: string,
         destination: PendingDomainEventDestination,
         eventType: NotificationEventType,
+        expiresAt: number | null = null,
     ): void {
         const parts = splitHtmlMessage(message, {
             maxVisibleLength: this.maxMessageLength,
@@ -632,6 +650,7 @@ export class NotificationService implements DomainEventMaterializer {
                 destination.messageThreadId,
                 partIndex,
                 partCount,
+                expiresAt,
             );
 
             if (!inserted) {
@@ -657,6 +676,7 @@ export class NotificationService implements DomainEventMaterializer {
         eventName: string,
         message: string,
         audience: Audience,
+        expiresAt: number | null = null,
     ): void {
         const subscriptionRepo = requireDep(this.subscriptionRepo, 'subscriptionRepo');
         const transactionManager = requireDep(this.transactionManager, 'transactionManager');
@@ -684,6 +704,7 @@ export class NotificationService implements DomainEventMaterializer {
                             messageThreadId,
                             partIndex,
                             partCount,
+                            expiresAt,
                         );
 
                         if (!inserted) {

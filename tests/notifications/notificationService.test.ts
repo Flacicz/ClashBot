@@ -60,6 +60,7 @@ interface NotificationRow {
     readonly part_index: number;
     readonly part_count: number;
     readonly status: string;
+    readonly expires_at: number | null;
 }
 
 interface TestContext {
@@ -89,7 +90,8 @@ function getAllNotificationRows(db: Database): NotificationRow[] {
                     message_text,
                     part_index,
                     part_count,
-                    status
+                    status,
+                    expires_at
              FROM notifications
              ORDER BY id;`,
         )
@@ -645,6 +647,13 @@ describe('NotificationService & DomainEventMaterializer', () => {
             expect(row.status).toBe('pending');
             expect(row.message_text.length).toBeGreaterThan(0);
             expect(row.domain_event_destination_id).not.toBeNull();
+            if (row.event_type === NOTIFICATION_EVENT_TYPES.warReminder) {
+                expect(row.expires_at).toBe(1_700_186_400 - 3600);
+            } else if (row.event_type === NOTIFICATION_EVENT_TYPES.raidReminder) {
+                expect(row.expires_at).toBe(1_701_059_200 - 6 * 3600);
+            } else {
+                expect(row.expires_at).toBeNull();
+            }
         }
 
         // Verify audience routing by chat_id / thread_id
@@ -855,7 +864,29 @@ describe('NotificationService & DomainEventMaterializer', () => {
             kind: RAID_REMINDER_KINDS.started,
         });
 
-        expect(getAllNotificationRows(ctx.db)).toHaveLength(6 + 5);
+        const reminderRows = getAllNotificationRows(ctx.db);
+        expect(reminderRows).toHaveLength(6 + 5);
+        const byEventKey = new Map(reminderRows.map((r) => [`${r.event_type}:${r.event_id}`, r]));
+        expect(byEventKey.get('war_reminder:11:started')?.expires_at).toBe(
+            1_700_000_000 - 6 * 3600,
+        );
+        expect(byEventKey.get('war_reminder:12:six_hours_left')?.expires_at).toBe(
+            1_700_000_000 - 3600,
+        );
+        expect(byEventKey.get('war_reminder:13:one_hour_left')?.expires_at).toBe(1_700_000_000);
+        expect(byEventKey.get('raid_reminder:77:started')?.expires_at).toBe(
+            1_700_000_000 - 48 * 3600,
+        );
+        expect(byEventKey.get('raid_reminder:77:forty_eight_hours_left')?.expires_at).toBe(
+            1_700_000_000 - 24 * 3600,
+        );
+        expect(byEventKey.get('raid_reminder:77:twenty_four_hours_left')?.expires_at).toBe(
+            1_700_000_000 - 6 * 3600,
+        );
+        expect(byEventKey.get('raid_reminder:77:six_hours_left')?.expires_at).toBe(
+            1_700_000_000 - 3600,
+        );
+        expect(byEventKey.get('raid_reminder:77:one_hour_left')?.expires_at).toBe(1_700_000_000);
         expect(ctx.wakeSpy).toHaveBeenCalled();
     });
 

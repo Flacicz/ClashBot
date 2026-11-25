@@ -183,15 +183,21 @@ describe('Drop-in compatibility with C++-generated v012 SQLite database', () => 
         });
 
         try {
-            // 1. Verify schema_migrations preserved all 12 C++ migrations and applied 013-014 cleanly
+            // 1. Verify schema_migrations preserved all 12 C++ migrations and applied 013-015 cleanly
             const appliedMigrations = app.db.connection
                 .prepare('SELECT version FROM schema_migrations ORDER BY version ASC;')
                 .all() as { version: string }[];
-            expect(appliedMigrations).toHaveLength(14);
+            expect(appliedMigrations).toHaveLength(15);
             expect(appliedMigrations[0]?.version).toBe('001_initial_schema.sql');
             expect(appliedMigrations[11]?.version).toBe('012_legacy_notification_idempotency.sql');
             expect(appliedMigrations[12]?.version).toBe('013_notification_claim_status.sql');
             expect(appliedMigrations[13]?.version).toBe('014_history_completeness.sql');
+            expect(appliedMigrations[14]?.version).toBe('015_notification_expiry.sql');
+
+            const notificationColumns = app.db.connection.pragma(
+                'table_info(notifications)',
+            ) as readonly { name: string }[];
+            expect(notificationColumns.some((col) => col.name === 'expires_at')).toBe(true);
 
             const backfilledWar = app.db.connection
                 .prepare('SELECT state, is_complete, last_observed_at FROM wars WHERE war_id = 1;')

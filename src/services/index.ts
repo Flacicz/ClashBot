@@ -31,6 +31,8 @@ export {
     WAR_REMINDER_SIX_HOURS_SECONDS,
     getActiveRaidReminderKinds,
     getActiveWarReminderKinds,
+    getRaidReminderExpiresAt,
+    getWarReminderExpiresAt,
     selectRaidReminders,
     selectWarReminders,
     type ReminderSelection,

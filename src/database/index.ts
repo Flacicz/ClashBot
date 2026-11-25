@@ -55,6 +55,7 @@ export {
     DEFAULT_PENDING_NOTIFICATIONS_LIMIT,
     DomainEventsRepo,
     GENERAL_CHAT_THREAD_ID,
+    NOTIFICATION_EXPIRED_ERROR,
     NotificationRepo,
     RaidRepo,
     SYNC_SERVICE_NAMES,

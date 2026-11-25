@@ -28,9 +28,11 @@
    (`DomainEventPayloadDeserializer`) и вызывает `NotificationService.materialize`. При ошибке вся транзакция откатывается;
    при успехе будит `NotificationWorker`.
 4. `NotificationWorker` восстанавливает зависшие `'sending'`-записи (при старте — все, перед батчем — по TTL
-   `claimTtlSeconds = 60`), читает `pending`-уведомления из outbox `notifications`, атомарно захватывает каждую запись в
-   статус `'sending'` с `claimed_at` до внешнего HTTP-вызова, отправляет HTML-текст через `TelegramGateway` и завершает
-   запись из `'sending'` в `sent`, `pending` (reschedule), `cancelled` (если подписка отменена к моменту повтора) или `failed`.
+   `claimTtlSeconds = 60`), отменяет просроченные `pending`-напоминания (`expires_at <= now` → `'cancelled'`,
+   `last_error = 'notification expired'`), читает актуальные `pending`-уведомления из outbox `notifications`, атомарно
+   захватывает каждую запись в статус `'sending'` с `claimed_at` до внешнего HTTP-вызова, отправляет HTML-текст через
+   `TelegramGateway` и завершает запись из `'sending'` в `sent`, `pending` (reschedule), `cancelled` (если подписка
+   отменена или истёк `expires_at` до следующей попытки) или `failed`.
 
 Legacy-метод `NotificationService.handle` сохраняется для обратной совместимости (пишет в `notifications` напрямую с
 `domain_event_destination_id = NULL`), но в основном runtime-потоке не используется.
@@ -163,6 +165,17 @@ order_num ASC`) с нормализованными позициями (`ROW_NUM
   `formatRemainingTimePhrase` (`src/common/formatUtils.ts`) с корректным склонением (`остался 1 час`,
   `осталось 3 часа 45 минут`, `осталась 21 минута`, `осталось менее минуты` для `< 60` с); при отсутствии
   `remaining_seconds` в историческом payload используется номинальное значение контрольной точки.
+- **Срок актуальности (`expires_at`) в outbox**: при материализации `war_reminder` и `raid_reminder` (и в legacy-пути
+  `NotificationService.handle`) для каждой записи вычисляется `expires_at` (`getWarReminderExpiresAt` /
+  `getRaidReminderExpiresAt` в `src/services/reminders.ts`), равный порогу следующей контрольной точки того же события
+  (для `war_reminder`: `started` → `endTime - 6h`, `six_hours_left` → `endTime - 1h`, `one_hour_left` → `endTime`; для
+  `raid_reminder`: `started` → `endTime - 48h`, `forty_eight_hours_left` → `endTime - 24h`, `twenty_four_hours_left` →
+  `endTime - 6h`, `six_hours_left` → `endTime - 1h`, `one_hour_left` → `endTime`). Если на момент доставки наступила
+  следующая контрольная точка или событие уже завершилось (`now >= expires_at`), напоминание переводится в
+  `status = 'cancelled'` (`last_error = 'notification expired'`) и не отправляется в `TelegramGateway` (включая случаи
+  просрочки между выборкой батча и `claimForSending`, а также при планировании ретрая, если `next_attempt_at >= expires_at`).
+  Итоговые и сравнительные отчёты, отчёты нарушений, события состава и системные алерты сохраняются с `expires_at = NULL`
+  и доставляются без ограничения срока.
 - Время окончания в напоминаниях (и дата рейда в сравнении рейдов) форматируется через `formatUnixToMoscowDateTime`
   (`UTC+3`, `DD.MM.YYYY HH:MM`; при значении `<= 0` или нечисловом — `"неизвестно"`). Так как цикл синхронизации
   работает с интервалом 15 минут, каждое актуальное напоминание приходит в первом цикле после наступления порога и
