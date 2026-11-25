@@ -63,14 +63,18 @@ function detectMembershipChanges(
     };
 }
 
-function detectRoleChanges(
+export function detectRoleChanges(
     clanTag: string,
     currentSnapshots: readonly PlayerSnapshot[],
     latestPlayerStates: readonly LatestPlayerState[],
+    activeMemberships: readonly ActiveMembership[],
 ): RoleChanges {
+    const activeMemberTags = new Set(activeMemberships.map((membership) => membership.player.tag));
     const oldPlayers = new Map<string, LatestPlayerState>();
     for (const player of latestPlayerStates) {
-        oldPlayers.set(player.playerTag, player);
+        if (activeMemberTags.has(player.playerTag)) {
+            oldPlayers.set(player.playerTag, player);
+        }
     }
 
     const changes: RoleChange[] = [];
@@ -225,8 +229,13 @@ export class ClanInfoService implements SyncService {
                 const isInitialSync =
                     activeMemberships.length === 0 && latestPlayerStates.length === 0;
 
-                const roleChanges = detectRoleChanges(clanTag, playerSnapshots, latestPlayerStates);
                 const membershipChanges = detectMembershipChanges(activeMemberships, players);
+                const roleChanges = detectRoleChanges(
+                    clanTag,
+                    playerSnapshots,
+                    latestPlayerStates,
+                    activeMemberships,
+                );
 
                 const savedClanData = this.clansRepo.saveCompleteClanData(
                     clan,

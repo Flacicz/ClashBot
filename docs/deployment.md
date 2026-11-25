@@ -25,9 +25,9 @@ Multi-stage сборка на базе `node:24-slim` (контекст огра
 | Этап | База | Что выполняется |
 | --- | --- | --- |
 | `builder` | `node:24-slim` | Ставит `python3`, `make`, `g++`, `ca-certificates` (для нативного `better-sqlite3`) и `pnpm@12.21.0`; выполняет `pnpm install --frozen-lockfile`, `pnpm build` и `pnpm prune --prod` |
-| `runtime` | `node:24-slim` | `NODE_ENV=production`, `WORKDIR /app`; копирует `package.json`, production `node_modules`, `dist/`, `migrations/`, `resources/telegram/attack_guides.json`; создаёт `/app/data`; `ENTRYPOINT ["node", "dist/cli.js"]`, `CMD ["config.json"]` |
+| `runtime` | `node:24-slim` | `NODE_ENV=production`, `WORKDIR /app`; копирует `package.json`, production `node_modules`, `dist/`, `migrations/`, `resources/telegram/attack_guides.json`; создаёт `/app/data` с владельцем `node:node` и переключается на `USER node` (UID/GID `1000:1000`); `ENTRYPOINT ["node", "dist/cli.js"]`, `CMD ["config.json"]` |
 
-> **Примечание AS-IS:** директива `USER` в [`Dockerfile`](../Dockerfile) не задана — процесс внутри контейнера работает от стандартного пользователя `root`. Учитывайте это при настройке прав доступа и `cron` на хосте.
+> **Права контейнера:** процесс внутри контейнера работает от непривилегированного встроенного пользователя `node` (UID/GID `1000:1000`). Каталог `./data` на хосте должен быть доступен на запись для `1000:1000`, а `./config.json` — на чтение (`644`).
 
 ### Сервис в [`docker-compose.yml`](../docker-compose.yml)
 
@@ -48,7 +48,7 @@ Multi-stage сборка на базе `node:24-slim` (контекст огра
 2. **`ts-checks`**: на Node.js 24 и `pnpm` выполняет `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test`.
 3. **`ts-docker`**: собирает образ (`docker build -t clashbot-ts:ci .`) и прогоняет smoke-тест контейнера:
    - поднимает локальную TCP-заглушку для `api.telegram.org:443` (`--network host`, `--add-host api.telegram.org:127.0.0.1`) с тестовыми токенами и временными `config.json` и `data/`;
-   - ждёт в логах `[Main] Bot is running`, отправляет `docker stop -t 15` и проверяет остановку за `<= 15` секунд с `ExitCode=0`;
+   - ждёт в логах `[Main] Bot is running`, проверяет запуск процесса от непривилегированного пользователя (`id -u` == `1000`), отправляет `docker stop -t 15` и проверяет остановку за `<= 15` секунд с `ExitCode=0`;
    - проверяет пустой `stderr`, валидный JSON `pino` в `stdout`, наличие маркеров старта, миграций и остановки, отсутствие утечки токенов;
    - проверяет на созданной БД `PRAGMA integrity_check` (`ok`) и 12 применённых миграций (`012_*`).
 4. **`publish`** (только на `push` в `main` репозитория `Flacicz/ClashBot` после успеха всех проверок): публикует проверенный образ в `ghcr.io/flacicz/clashbot` с двумя тегами — `sha-<7chars>` и `latest`.
@@ -84,11 +84,13 @@ cd /opt/clashbot
 - [`.env.example`](../.env.example) → `.env`
 - [`scripts/backup-sqlite.sh`](../scripts/backup-sqlite.sh) → `scripts/backup-sqlite.sh`
 
-Выдайте права:
+Выдайте права (контейнер работает от `USER node` с UID/GID `1000:1000`):
 
 ```bash
 chmod +x scripts/backup-sqlite.sh
 chmod 600 .env
+chmod 644 config.json
+sudo chown -R 1000:1000 /opt/clashbot/data
 ```
 
 Заполните `.env` в формате `KEY=value` без кавычек и с окончаниями строк LF:
@@ -125,6 +127,16 @@ docker compose pull
 docker compose up -d
 ```
 
+> **Одноразовая миграция прав при обновлении со старого образа (где контейнер работал от `root`):** чтобы `better-sqlite3` не получил ошибку `SQLITE_READONLY` на существующей базе, остановите контейнер, передайте владельца каталога `./data` пользователю `1000:1000` и запустите контейнер снова:
+>
+> ```bash
+> cd /opt/clashbot
+> docker compose stop clashbot
+> sudo chown -R 1000:1000 ./data
+> docker compose pull
+> docker compose up -d
+> ```
+
 Откат на предыдущую сборку (при неизменной схеме БД): задайте `CLASHBOT_IMAGE_TAG=sha-<short>` в `.env` (или перед командой) и выполните `docker compose pull && docker compose up -d`. Если более новая версия уже применила несовместимую миграцию, дополнительно восстановите предрелизный снимок БД по процедуре Recovery Drill.
 
 ## 5. Резервное копирование SQLite (`scripts/backup-sqlite.sh`)
@@ -159,7 +171,7 @@ cd /opt/clashbot
 RCLONE_REMOTE="gdrive:clashbot-backups" ./scripts/backup-sqlite.sh
 ```
 
-Ежедневный запуск через `cron` (настройте в `crontab` пользователя с правами на `/opt/clashbot/data`, например `sudo crontab -e`, если контейнер работает от `root`):
+Ежедневный запуск через `cron` (настройте в `crontab` пользователя с правами на `/opt/clashbot/data`, например пользователя с UID `1000` или через `sudo crontab -e`):
 
 ```cron
 0 3 * * * cd /opt/clashbot && DB_PATH=/opt/clashbot/data/database.sqlite BACKUP_DIR=/opt/clashbot/backups RCLONE_REMOTE=gdrive:clashbot-backups /opt/clashbot/scripts/backup-sqlite.sh >> /var/log/clashbot-backup.log 2>&1
@@ -193,6 +205,7 @@ RCLONE_REMOTE="gdrive:clashbot-backups" ./scripts/backup-sqlite.sh
    mv data/database.sqlite data/database.sqlite.before-restore
    rm -f data/database.sqlite-wal data/database.sqlite-shm
    cp /tmp/restored.sqlite data/database.sqlite
+   sudo chown 1000:1000 data/database.sqlite
    ```
 
 4. Запустите контейнер и проверьте результат:

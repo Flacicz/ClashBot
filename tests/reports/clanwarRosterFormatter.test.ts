@@ -270,6 +270,65 @@ describe('ClanwarRosterFormatter (golden parity)', () => {
         expectMatchesGolden(first, 'clanwarRoster', 'only-stable-and-absent');
     });
 
+    it('formats last participation for lastWarOffset=0, positive offsets, and null fallback', () => {
+        const data: ClanwarRosterReportData = {
+            warsCount: 4,
+            players: [
+                {
+                    playerTag: '#P1',
+                    playerName: 'RecentPlayer',
+                    includedWars: 2,
+                    lastWarOffset: 0,
+                    attacksUsed: 4,
+                    averageStarsPerAttack: 2.5,
+                    averageDestructionPerAttack: 90.0,
+                    warsWithoutAttacks: 0,
+                    warsWithOneAttack: 0,
+                    firstAttacksNotOnMirror: 0,
+                },
+                {
+                    playerTag: '#P2',
+                    playerName: 'OlderPlayer',
+                    includedWars: 1,
+                    lastWarOffset: 3,
+                    attacksUsed: 2,
+                    averageStarsPerAttack: 2.0,
+                    averageDestructionPerAttack: 80.0,
+                    warsWithoutAttacks: 0,
+                    warsWithOneAttack: 0,
+                    firstAttacksNotOnMirror: 0,
+                },
+                {
+                    playerTag: '#P3',
+                    playerName: 'MissingOffsetPlayer',
+                    includedWars: 1,
+                    lastWarOffset: null,
+                    attacksUsed: 2,
+                    averageStarsPerAttack: 3.0,
+                    averageDestructionPerAttack: 100.0,
+                    warsWithoutAttacks: 0,
+                    warsWithOneAttack: 0,
+                    firstAttacksNotOnMirror: 0,
+                },
+            ],
+        };
+
+        const first = ClanwarRosterFormatter.buildReport(data);
+        const second = ClanwarRosterFormatter.buildReport(data);
+
+        expect(first).toBe(second);
+        expect(first).toContain(
+            '• RecentPlayer — состав 2/4 · атаки 4 · ⭐ 2.50 · 💥 90.00% · в последней КВ',
+        );
+        expect(first).toContain(
+            '• OlderPlayer — состав 1/4 · атаки 2 · ⭐ 2.00 · 💥 80.00% · посл. 3 КВ назад',
+        );
+        expect(first).toContain(
+            '• MissingOffsetPlayer — состав 1/4 · атаки 2 · ⭐ 3.00 · 💥 100.00% · не участвовал',
+        );
+        expect(first).not.toContain('посл. 0 КВ');
+    });
+
     it('accepts ClansRepo and ClanwarRepo structurally as readers', () => {
         const assertClans = (repo: ClansRepo): ActiveMembersReader => repo;
         const assertClanwar = (repo: ClanwarRepo): ClanwarRosterReader => repo;

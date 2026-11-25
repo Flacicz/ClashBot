@@ -458,6 +458,15 @@ describe('CoC API zod schemas and domain mappers', () => {
             });
         });
 
+        it('returns null for empty items array (clan without raid history)', () => {
+            const result = parseRaidSeasonsResponse(
+                { items: [] },
+                '#CLAN',
+                '/clans/%23CLAN/capitalraidseasons?limit=1',
+            );
+            expect(result).toBeNull();
+        });
+
         it('returns null for scheduled raid season even without members array', () => {
             const result = parseRaidSeasonsResponse(
                 { items: [{ state: 'scheduled' }] },
@@ -467,21 +476,27 @@ describe('CoC API zod schemas and domain mappers', () => {
             expect(result).toBeNull();
         });
 
-        it('throws CocApiError(invalid_schema) for empty items, missing members, or wrong types', () => {
+        it('throws CocApiError(invalid_schema) for missing items, missing members, or wrong types', () => {
             for (const bad of [
                 {},
-                { items: [] },
+                { items: 'not-an-array' },
                 { items: [{ state: 'ongoing' }] },
                 { items: [{ state: 1, members: [] }] },
                 { items: [{ state: 'ongoing', members: [{ attacks: '6' }] }] },
             ]) {
-                expect(() =>
+                let caught: unknown;
+                try {
                     parseRaidSeasonsResponse(
                         bad,
                         '#CLAN',
                         '/clans/%23CLAN/capitalraidseasons?limit=1',
-                    ),
-                ).toThrow(CocApiError);
+                    );
+                } catch (err) {
+                    caught = err;
+                }
+                expect(caught).toBeInstanceOf(CocApiError);
+                expect((caught as CocApiError).kind).toBe('invalid_schema');
+                expect((caught as CocApiError).retryable).toBe(false);
             }
         });
     });

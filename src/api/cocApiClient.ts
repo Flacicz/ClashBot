@@ -13,6 +13,7 @@ import {
     type CompleteClanData,
     type CompleteClanwarData,
     type CompleteClanwarsLeagueData,
+    type CompleteClanwarsLeagueRoundData,
     type CompleteRaidData,
 } from './models.js';
 import {
@@ -344,9 +345,10 @@ export class CocApiClient implements ClashOfClansApi {
             return null;
         }
 
-        const warDetails: CompleteClanwarData[] = [];
-        for (const roundWarTags of group.rounds) {
+        const warDetails: CompleteClanwarsLeagueRoundData[] = [];
+        for (const [roundIndex, roundWarTags] of group.rounds.entries()) {
             this.throwIfAborted(endpoint, signal);
+            const roundNumber = roundIndex + 1;
 
             for (const warTag of roundWarTags) {
                 if (warTag === '#0' || warTag.length < 2) {
@@ -355,7 +357,14 @@ export class CocApiClient implements ClashOfClansApi {
 
                 const roundWar = await this.getLeagueWarRound(warTag, clanTag, signal);
                 if (roundWar !== null) {
-                    warDetails.push(roundWar);
+                    warDetails.push({
+                        ...roundWar,
+                        clanwar: {
+                            ...roundWar.clanwar,
+                            roundNumber,
+                        },
+                        roundNumber,
+                    });
                     break;
                 }
             }

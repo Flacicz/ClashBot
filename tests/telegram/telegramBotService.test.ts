@@ -502,6 +502,137 @@ describe('TelegramBotService', () => {
             expect(sent).toHaveLength(1);
             expect(sent[0]?.message_thread_id).toBeUndefined();
         });
+
+        it('ignores /start, /link, and /unlink addressed to another bot without side effects', async () => {
+            const { service, transport, subscriptionRepo } = createHarness();
+            const chatId = -1001;
+            const userId = 42;
+            transport.chatMembers.set(memberKey(chatId, userId), 'administrator');
+
+            // Seed an existing subscription so /unlink@OtherBot proves it does not remove it.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 1,
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Clan chat',
+                    userId,
+                    text: '/link #2PPLQ',
+                }),
+            );
+            const subscriptionIdBefore = subscriptionRepo.getSubscriptionId(
+                chatId,
+                0,
+                '#2PPLQ',
+                'players',
+            );
+            expect(subscriptionIdBefore).not.toBeNull();
+
+            const callsBefore = transport.calls.length;
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 2,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/start@OtherBot',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 3,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/link@OtherBot #2PP',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 4,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/link@OtherBot',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 5,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/link@OtherBot #INVALID',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 6,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/unlink@OtherBot #2PPLQ',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 7,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/unlink@OtherBot #2PPLQ',
+                }),
+            );
+
+            expect(transport.calls).toHaveLength(callsBefore);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PP', 'players')).toBe(false);
+            expect(subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ', 'players')).toBe(
+                subscriptionIdBefore,
+            );
+        });
+
+        it('executes /start, /link, and /unlink addressed to own bot username case-insensitively', async () => {
+            const { service, transport, subscriptionRepo } = createHarness();
+            const chatId = -1002;
+            const userId = 43;
+            transport.chatMembers.set(memberKey(chatId, userId), 'administrator');
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 10,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/start@clashtestbot',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 11,
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Clan chat',
+                    userId,
+                    text: '/link@CLASHTESTBOT #2PPLQ',
+                }),
+            );
+
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ', 'players')).toBe(true);
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 12,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/unlink@cLaShTeStBoT #2PPLQ',
+                }),
+            );
+
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ', 'players')).toBe(false);
+            expect(transport.sentMessages()).toHaveLength(3);
+        });
     });
 
     describe('command: /link', () => {
@@ -1263,30 +1394,42 @@ describe('TelegramBotService', () => {
             transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
             transport.chatMembers.set(memberKey(chatId, memberId), 'member');
 
-            // Non-admin is rejected
+            // Non-admin is rejected via personal alert without overwriting the shared menu
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
+                    queryId: 'non-admin-unlink',
                     data: 'clans:unlink',
                     chatId,
                     chatType: 'group',
                     userId: memberId,
                 }),
             );
-            expect(String(transport.editedMessages()[0]?.text)).toContain('Только администратор');
+            expect(transport.editedMessages()).toHaveLength(0);
+            expect(transport.answeredCallbackQueries()).toEqual([
+                {
+                    callback_query_id: 'non-admin-unlink',
+                    text: 'Только администратор группы может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+            ]);
 
             // Admin sees list of linked clans
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
+                    queryId: 'admin-unlink-list',
                     data: 'clans:unlink',
                     chatId,
                     chatType: 'group',
                     userId: adminId,
                 }),
             );
-            expect(transport.editedMessages()[1]?.text).toBe('Выберите клан для отключения:');
-            expect(getInlineKeyboard(transport.editedMessages()[1])[0]?.[0]?.callback_data).toBe(
+            expect(transport.editedMessages()[0]?.text).toBe('Выберите клан для отключения:');
+            expect(getInlineKeyboard(transport.editedMessages()[0])[0]?.[0]?.callback_data).toBe(
                 'clans:unlink:#2PPLQ',
             );
+            expect(transport.answeredCallbackQueries()[1]).toEqual({
+                callback_query_id: 'admin-unlink-list',
+            });
 
             // Admin clicks unlink button
             await service.bot.handleUpdate(
@@ -1304,7 +1447,7 @@ describe('TelegramBotService', () => {
             );
             expect(rowStatus(db, 'notifications', pendingNotif.id)).toBe('cancelled');
             expect(rowStatus(db, 'notifications', sentNotif.id)).toBe('sent');
-            expect(String(transport.editedMessages()[2]?.text)).toContain(
+            expect(String(transport.editedMessages()[1]?.text)).toContain(
                 'Готово! Клан #2PPLQ отключён.',
             );
 
@@ -1317,7 +1460,7 @@ describe('TelegramBotService', () => {
                     userId: adminId,
                 }),
             );
-            expect(String(transport.editedMessages()[3]?.text)).toContain(
+            expect(String(transport.editedMessages()[2]?.text)).toContain(
                 'Этот чат не привязан к клану #2PPLQ.',
             );
 
@@ -1330,7 +1473,7 @@ describe('TelegramBotService', () => {
                     userId: adminId,
                 }),
             );
-            expect(transport.editedMessages()[4]?.text).toBe(
+            expect(transport.editedMessages()[3]?.text).toBe(
                 'В этом чате нет подключённых кланов.',
             );
 
@@ -1343,12 +1486,14 @@ describe('TelegramBotService', () => {
                     userId: adminId,
                 }),
             );
-            expect(String(transport.editedMessages()[5]?.text)).toContain('не поддерживается');
+            expect(String(transport.editedMessages()[4]?.text)).toContain('не поддерживается');
 
-            // getChatMember error
+            // getChatMember error responds via personal alert without overwriting the shared menu
+            const editsBeforePermissionError = transport.editedMessages().length;
             transport.failGetChatMember = true;
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
+                    queryId: 'perm-check-error',
                     data: 'clans:unlink',
                     chatId,
                     chatType: 'group',
@@ -1356,7 +1501,12 @@ describe('TelegramBotService', () => {
                 }),
             );
             transport.failGetChatMember = false;
-            expect(String(transport.editedMessages()[6]?.text)).toContain('проверить права');
+            expect(transport.editedMessages()).toHaveLength(editsBeforePermissionError);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'perm-check-error',
+                text: 'Не удалось проверить права пользователя. Попробуйте ещё раз позже.',
+                show_alert: true,
+            });
 
             // DB error during inline unlink
             const txSpy = vi
@@ -1373,9 +1523,116 @@ describe('TelegramBotService', () => {
                 }),
             );
             txSpy.mockRestore();
-            expect(String(transport.editedMessages()[7]?.text)).toContain(
+            expect(String(transport.editedMessages()[5]?.text)).toContain(
                 'Не удалось отключить клан',
             );
+        });
+
+        it('keeps shared group inline menu intact on repeated non-admin and permission-error unlink callbacks', async () => {
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness();
+            const chatId = -4100;
+            const adminId = 700;
+            const memberId = 701;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.saveTelegramChat(chatId, 15, 'Forum clan chat');
+            subscriptionRepo.subscribeToChat(chatId, 15, '#2PPLQ', 'players');
+            transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
+            transport.chatMembers.set(memberKey(chatId, memberId), 'member');
+
+            // Repeated non-admin clicks on both clans:unlink and clans:unlink:#TAG
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-member-1',
+                    data: 'clans:unlink',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: memberId,
+                    messageThreadId: 15,
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-member-2',
+                    data: 'clans:unlink:#2PPLQ',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: memberId,
+                    messageThreadId: 15,
+                }),
+            );
+
+            // Permission check API error on clans:unlink:#TAG
+            transport.failGetChatMember = true;
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-perm-err',
+                    data: 'clans:unlink:#2PPLQ',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: 15,
+                }),
+            );
+            transport.failGetChatMember = false;
+
+            // Failure in answerCallbackQuery during denial does not throw or overwrite the menu
+            transport.failAnswerCallbackQuery = true;
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-member-fail-answer',
+                    data: 'clans:unlink',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: memberId,
+                    messageThreadId: 15,
+                }),
+            );
+            transport.failAnswerCallbackQuery = false;
+
+            expect(transport.editedMessages()).toHaveLength(0);
+            expect(transport.sentMessages()).toHaveLength(0);
+            expect(subscriptionRepo.hasSubscription(chatId, 15, '#2PPLQ', 'players')).toBe(true);
+            expect(transport.answeredCallbackQueries()).toEqual([
+                {
+                    callback_query_id: 'q-member-1',
+                    text: 'Только администратор группы может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-member-2',
+                    text: 'Только администратор группы может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-perm-err',
+                    text: 'Не удалось проверить права пользователя. Попробуйте ещё раз позже.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-member-fail-answer',
+                    text: 'Только администратор группы может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+            ]);
+
+            // Admin can still use the untouched menu right after
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-admin-ok',
+                    data: 'clans:unlink',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: 15,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(1);
+            expect(transport.editedMessages()[0]?.text).toBe('Выберите клан для отключения:');
+            expect(transport.answeredCallbackQueries()).toHaveLength(5);
+            expect(transport.answeredCallbackQueries()[4]).toEqual({
+                callback_query_id: 'q-admin-ok',
+            });
         });
 
         it('navigates all attack guide screens (TH7-TH18 -> strategies -> guides -> two HTML messages)', async () => {
@@ -1469,6 +1726,99 @@ describe('TelegramBotService', () => {
             await service.bot.handleUpdate(makeCallbackUpdate({ data: 'help:main' }));
             expect(transport.editedMessages()).toHaveLength(1);
             expect(String(transport.editedMessages()[0]?.text)).toContain('Помощь');
+        });
+
+        it('escapes HTML special characters in guide title and youtubeUrl before sending', async () => {
+            const { db, clansRepo, subscriptionRepo, domainEventsRepo, transactionManager } =
+                createHarness();
+            const transport = createFakeTelegramTransport(db);
+            const htmlCatalog = AttackGuideCatalog.fromJson({
+                guides: [
+                    {
+                        id: 'html_special_guide',
+                        army_id: 'zap_dragons',
+                        army_title: 'Zap & Dragons',
+                        variant_id: 'classic',
+                        variant_title: 'Classic',
+                        title: 'TH14 <Zap> & Dragons',
+                        town_halls: [14],
+                        youtube_url: 'https://www.youtube.com/watch?v=abc123&t=42',
+                        sort_order: 1,
+                        enabled: true,
+                    },
+                ],
+            });
+            const service = new TelegramBotService({
+                telegramToken: 'test-bot-token',
+                attackGuideCatalog: htmlCatalog,
+                clansRepo,
+                subscriptionRepo,
+                domainEventsRepo,
+                transactionManager,
+                logger: createLogger({ level: 'silent' }),
+                botConfig: { botInfo: TEST_BOT_INFO },
+            });
+            transport.install(service);
+
+            // Repeat twice to verify deterministic, idempotent escaping
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'html-guide-1',
+                    data: 'guides:guide:14:html_special_guide',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'html-guide-2',
+                    data: 'guides:guide:14:html_special_guide',
+                }),
+            );
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(4);
+            expect(sent[0]?.parse_mode).toBe('HTML');
+            expect(sent[0]?.text).toBe(
+                'TH14 &lt;Zap&gt; &amp; Dragons\nhttps://www.youtube.com/watch?v=abc123&amp;t=42',
+            );
+            expect(sent[2]?.text).toBe(sent[0]?.text);
+        });
+
+        it('ignores guide callback when guide is incompatible with callback townHall and allows universal guides', async () => {
+            const { service, transport } = createHarness();
+
+            // zap_dragons_th14 is only for TH14; requesting it under TH15 must be ignored
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'mismatch-1',
+                    data: 'guides:guide:15:zap_dragons_th14',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'mismatch-2',
+                    data: 'guides:guide:15:zap_dragons_th14',
+                }),
+            );
+
+            expect(transport.answeredCallbackQueries()).toHaveLength(2);
+            expect(transport.sentMessages()).toHaveLength(0);
+            expect(transport.editedMessages()).toHaveLength(0);
+
+            // Universal guide (empty town_halls) is compatible with any valid TH (e.g. TH15)
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'universal-th15',
+                    data: 'guides:guide:15:universal_funnel',
+                }),
+            );
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(2);
+            expect(sent[0]?.text).toBe(
+                'Универсальный гайд по фаннелингу\nhttps://youtube.example/funnel',
+            );
+            const navKeyboard = getInlineKeyboard(sent[1]);
+            expect(navKeyboard[0]?.[0]?.callback_data).toBe('guides:strategy:15:fundamentals');
         });
     });
 

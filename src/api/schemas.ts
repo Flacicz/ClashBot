@@ -386,7 +386,7 @@ export const raidSeasonSchema = z.object({
 });
 
 export const raidSeasonsResponseSchema = z.object({
-    items: z.array(raidSeasonSchema).min(1),
+    items: z.array(raidSeasonSchema),
 });
 
 export function parseRaidSeasonsResponse(
@@ -402,17 +402,7 @@ export function parseRaidSeasonsResponse(
     );
 
     const latest = parsed.items[0];
-    if (latest === undefined) {
-        throw new CocApiError(
-            `[CocApiClient] Invalid capital raid seasons response (endpoint = ${endpoint}): items is empty`,
-            {
-                kind: 'invalid_schema',
-                endpoint,
-            },
-        );
-    }
-
-    if (latest.state === 'scheduled') {
+    if (latest === undefined || latest.state === 'scheduled') {
         return null;
     }
 

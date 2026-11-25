@@ -48,7 +48,9 @@ COPY --from=builder /app/dist ./dist
 COPY migrations ./migrations
 COPY resources/telegram/attack_guides.json ./resources/telegram/attack_guides.json
 
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data && chown -R node:node /app/data
+
+USER node
 
 ENTRYPOINT ["node", "dist/cli.js"]
 CMD ["config.json"]

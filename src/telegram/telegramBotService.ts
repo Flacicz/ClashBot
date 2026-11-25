@@ -7,6 +7,7 @@ import type {
 } from 'grammy/types';
 
 import { DatabaseError, isAbortError } from '../common/errors.js';
+import { escapeHtml } from '../common/formatUtils.js';
 import type {
     ClansRepo,
     DomainEventsRepo,
@@ -271,7 +272,7 @@ export class TelegramBotService {
             if (this.activeSignal?.aborted) {
                 return;
             }
-            await this.handleMessage(ctx.api, ctx.message);
+            await this.handleMessage(ctx.api, ctx.message, ctx.me.username);
         });
 
         this.bot.on('callback_query', async (ctx) => {
@@ -338,13 +339,13 @@ export class TelegramBotService {
         );
     }
 
-    private async safeAnswerCallbackQuery(api: Context['api'], queryId: string): Promise<void> {
+    private async safeAnswerCallbackQuery(
+        api: Context['api'],
+        queryId: string,
+        other?: Parameters<Context['api']['answerCallbackQuery']>[1],
+    ): Promise<void> {
         try {
-            await api.answerCallbackQuery(
-                queryId,
-                undefined,
-                toGrammyAbortSignal(this.activeSignal),
-            );
+            await api.answerCallbackQuery(queryId, other, toGrammyAbortSignal(this.activeSignal));
         } catch (error: unknown) {
             if (this.isCancelledError(error)) {
                 return;
@@ -353,10 +354,21 @@ export class TelegramBotService {
         }
     }
 
-    private async handleMessage(api: Context['api'], message: Message): Promise<void> {
+    private async handleMessage(
+        api: Context['api'],
+        message: Message,
+        ownBotUsername: string,
+    ): Promise<void> {
         const text = 'text' in message && typeof message.text === 'string' ? message.text : '';
         const command = parseBotCommand(text);
         if (command === null) {
+            return;
+        }
+
+        if (
+            command.botUsername !== undefined &&
+            command.botUsername.toLowerCase() !== ownBotUsername.toLowerCase()
+        ) {
             return;
         }
 
@@ -662,15 +674,21 @@ export class TelegramBotService {
             return;
         }
 
-        await this.safeAnswerCallbackQuery(api, context.queryId);
-
-        if (this.activeSignal?.aborted) {
+        const callbackData = parseKnownCallbackData(context.data);
+        if (callbackData === null) {
+            await this.safeAnswerCallbackQuery(api, context.queryId);
+            this.logger.warn({ callbackData: context.data }, 'Ignoring invalid callback data');
             return;
         }
 
-        const callbackData = parseKnownCallbackData(context.data);
-        if (callbackData === null) {
-            this.logger.warn({ callbackData: context.data }, 'Ignoring invalid callback data');
+        if (callbackData.kind === 'clans:unlink') {
+            await this.handleUnlinkCallback(api, context, callbackData.clanTag);
+            return;
+        }
+
+        await this.safeAnswerCallbackQuery(api, context.queryId);
+
+        if (this.activeSignal?.aborted) {
             return;
         }
 
@@ -686,9 +704,6 @@ export class TelegramBotService {
                 break;
             case 'clans:list':
                 await this.handleMyClansCallback(api, context);
-                break;
-            case 'clans:unlink':
-                await this.handleUnlinkCallback(api, context, callbackData.clanTag);
                 break;
             case 'guides:townhalls':
                 await this.handleTownHallListCallback(api, context);
@@ -827,6 +842,10 @@ export class TelegramBotService {
     ): Promise<void> {
         const audience = resolveAudience(context.chatType);
         if (audience === null) {
+            await this.safeAnswerCallbackQuery(api, context.queryId);
+            if (this.activeSignal?.aborted) {
+                return;
+            }
             await this.editHtmlMessage(
                 api,
                 context.chatId,
@@ -854,13 +873,10 @@ export class TelegramBotService {
                 { err: error, chatId: context.chatId },
                 'Failed to check permissions for unlink callback',
             );
-            await this.editHtmlMessage(
-                api,
-                context.chatId,
-                context.messageId,
-                PERMISSION_CHECK_ERROR_TEXT,
-                makeStartMenuKeyboard(),
-            );
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text: PERMISSION_CHECK_ERROR_TEXT,
+                show_alert: true,
+            });
             return;
         }
 
@@ -869,13 +885,16 @@ export class TelegramBotService {
         }
 
         if (!canManage) {
-            await this.editHtmlMessage(
-                api,
-                context.chatId,
-                context.messageId,
-                ONLY_ADMIN_TEXT,
-                makeStartMenuKeyboard(),
-            );
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text: ONLY_ADMIN_TEXT,
+                show_alert: true,
+            });
+            return;
+        }
+
+        await this.safeAnswerCallbackQuery(api, context.queryId);
+
+        if (this.activeSignal?.aborted) {
             return;
         }
 
@@ -1020,16 +1039,19 @@ export class TelegramBotService {
         townHall: number,
         guideId: string,
     ): Promise<void> {
-        const guide = this.attackGuideCatalog.findById(guideId);
+        const guide = this.attackGuideCatalog.findById(guideId, townHall);
         if (guide === null) {
-            this.logger.warn({ townHall, guideId }, 'Guide not found for callback');
+            this.logger.warn(
+                { townHall, guideId },
+                'Guide not found or not available for town hall callback',
+            );
             return;
         }
 
         await this.sendHtmlMessage(
             api,
             context.chatId,
-            `${guide.title}\n${guide.youtubeUrl}`,
+            `${escapeHtml(guide.title)}\n${escapeHtml(guide.youtubeUrl)}`,
             context.messageThreadId,
         );
 

@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 import { parseTownHall } from './validation.js';
 
+export const MAX_CALLBACK_DATA_BYTES = 64;
+
 export const CALLBACK_COMMANDS = {
     MENU_START: 'menu:start',
     HELP_MAIN: 'help:main',

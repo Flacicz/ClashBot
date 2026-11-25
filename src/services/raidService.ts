@@ -133,9 +133,11 @@ export class RaidService implements SyncService {
         throwIfAborted(signal, serviceName);
 
         if (completeRaidData === null) {
-            const message = `[Service: ${serviceName}] Raid data is currently unavailable for ${clanTag}`;
-            this.logger?.warn({ service: serviceName, clanTag }, message);
-            return createSyncError(serviceName, clanTag, message);
+            this.logger?.info(
+                { service: serviceName, clanTag },
+                'No active or historical capital raid data for clan',
+            );
+            return createSyncSuccess(serviceName, clanTag);
         }
 
         const { clanRaid, playerRaidSnapshots } = completeRaidData;

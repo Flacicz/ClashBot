@@ -218,36 +218,54 @@ describe('RaidService', () => {
         );
     });
 
-    it('treats unavailable raid (null) as SyncResult error so retry triggers, without modifying DB', async () => {
+    it('treats absent raid (null) as successful empty SyncResult without modifying DB, including repeated runs', async () => {
         const { db, clansRepo, apiClient, service } = setup();
         clansRepo.insertMinimalClan(CLAN_TAG);
         apiClient.raidData = null;
 
-        const result = await service.updateData(CLAN_TAG);
+        const first = await service.updateData(CLAN_TAG);
+        const second = await service.updateData(CLAN_TAG);
 
-        expect(result.successFlag).toBe(false);
-        expect(result.serviceName).toBe('RaidService');
-        expect(result.clanTag).toBe(CLAN_TAG);
-        expect(result.events).toHaveLength(0);
-        expect(result.errorMsg).toContain('unavailable');
+        for (const result of [first, second]) {
+            expect(result.successFlag).toBe(true);
+            expect(result.serviceName).toBe('RaidService');
+            expect(result.clanTag).toBe(CLAN_TAG);
+            expect(result.events).toHaveLength(0);
+            expect(result.errorMsg).toBe('');
+        }
         expect(tableRowCount(db, 'clan_raids')).toBe(0);
         expect(tableRowCount(db, 'player_raid_snapshots')).toBe(0);
         expect(tableRowCount(db, 'domain_events')).toBe(0);
     });
 
-    it('returns SyncResult error on API failure and rethrows AbortError on cancellation', async () => {
+    it('returns SyncResult error on API failure (5xx, network, invalid_schema) and rethrows AbortError on cancellation', async () => {
         const { db, clansRepo, apiClient, service } = setup();
         clansRepo.insertMinimalClan(CLAN_TAG);
 
-        apiClient.errorToThrow = new CocApiError('HTTP 503', {
-            kind: 'server_error',
-            statusCode: 503,
-            endpoint: '/clans/%232PPLQ/capitalraidseasons?limit=1',
-        });
-        const errorResult = await service.updateData(CLAN_TAG);
-        expect(errorResult.successFlag).toBe(false);
-        expect(errorResult.errorMsg).toContain('HTTP 503');
-        expect(errorResult.events).toHaveLength(0);
+        for (const error of [
+            new CocApiError('HTTP 503', {
+                kind: 'server_error',
+                statusCode: 503,
+                retryable: true,
+                endpoint: '/clans/%232PPLQ/capitalraidseasons?limit=1',
+            }),
+            new CocApiError('Network error: ECONNRESET', {
+                kind: 'network',
+                retryable: true,
+                endpoint: '/clans/%232PPLQ/capitalraidseasons?limit=1',
+            }),
+            new CocApiError('Invalid capital raid seasons response', {
+                kind: 'invalid_schema',
+                retryable: false,
+                endpoint: '/clans/%232PPLQ/capitalraidseasons?limit=1',
+            }),
+        ]) {
+            apiClient.errorToThrow = error;
+            const errorResult = await service.updateData(CLAN_TAG);
+            expect(errorResult.successFlag).toBe(false);
+            expect(errorResult.errorMsg).toContain(error.message);
+            expect(errorResult.events).toHaveLength(0);
+        }
 
         apiClient.errorToThrow = new AbortError('Raid sync aborted');
         await expect(service.updateData(CLAN_TAG)).rejects.toBeInstanceOf(AbortError);
