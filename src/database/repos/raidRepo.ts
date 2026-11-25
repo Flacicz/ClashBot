@@ -241,8 +241,10 @@ export class RaidRepo extends BaseRepository {
 
                 (
                     SELECT COALESCE(SUM(prs.attacks_count), 0)
-                    FROM player_raid_snapshots AS prs
-                    WHERE prs.raid_id = r.id
+                    FROM eligible_members AS em
+                    JOIN player_raid_snapshots AS prs
+                        ON prs.raid_id = r.id
+                       AND prs.player_tag = em.player_tag
                 ) AS used_attacks,
 
                 (
@@ -258,9 +260,11 @@ export class RaidRepo extends BaseRepository {
 
                 (
                     SELECT COUNT(*)
-                    FROM player_raid_snapshots AS prs
-                    WHERE prs.raid_id = r.id
-                      AND prs.attacks_count > 0
+                    FROM eligible_members AS em
+                    JOIN player_raid_snapshots AS prs
+                        ON prs.raid_id = r.id
+                       AND prs.player_tag = em.player_tag
+                    WHERE prs.attacks_count > 0
                 ) AS active_participants,
 
                 (
@@ -270,9 +274,11 @@ export class RaidRepo extends BaseRepository {
 
                 (
                     SELECT COUNT(*)
-                    FROM player_raid_snapshots AS prs
-                    WHERE prs.raid_id = r.id
-                      AND prs.attacks_count > 0
+                    FROM eligible_members AS em
+                    JOIN player_raid_snapshots AS prs
+                        ON prs.raid_id = r.id
+                       AND prs.player_tag = em.player_tag
+                    WHERE prs.attacks_count > 0
                       AND prs.attacks_count >= 5 + prs.bonus_attacks
                 ) AS participants_with_all_attacks_used,
 
@@ -284,6 +290,26 @@ export class RaidRepo extends BaseRepository {
                        AND prs.player_tag = em.player_tag
                     WHERE COALESCE(prs.attacks_count, 0) <= 0
                 ) AS participants_without_attacks,
+
+                (
+                    SELECT COALESCE(SUM(prs.attacks_count), 0)
+                    FROM player_raid_snapshots AS prs
+                    LEFT JOIN eligible_members AS em
+                        ON em.player_tag = prs.player_tag
+                    WHERE prs.raid_id = r.id
+                      AND em.player_tag IS NULL
+                      AND prs.attacks_count > 0
+                ) AS external_used_attacks,
+
+                (
+                    SELECT COUNT(*)
+                    FROM player_raid_snapshots AS prs
+                    LEFT JOIN eligible_members AS em
+                        ON em.player_tag = prs.player_tag
+                    WHERE prs.raid_id = r.id
+                      AND em.player_tag IS NULL
+                      AND prs.attacks_count > 0
+                ) AS external_participants,
 
                 r.enemy_districts_destroyed,
                 r.offensive_reward,
@@ -308,6 +334,8 @@ export class RaidRepo extends BaseRepository {
                     'participants_with_all_attacks_used',
                 ),
                 participantsWithoutAttacks: getNumber(row, 'participants_without_attacks'),
+                externalUsedAttacks: getNumber(row, 'external_used_attacks'),
+                externalParticipants: getNumber(row, 'external_participants'),
                 enemyDistrictsDestroyed: getNumber(row, 'enemy_districts_destroyed'),
                 offensiveReward: getNumber(row, 'offensive_reward'),
                 defensiveReward: getNumber(row, 'defensive_reward'),

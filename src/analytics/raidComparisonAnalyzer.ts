@@ -12,6 +12,8 @@ export interface RaidHistoricalAverages {
     readonly averageParticipantsWithoutAttacks: number;
     readonly averageUsedAttacks: number;
     readonly averageAvailableAttacks: number;
+    readonly averageExternalUsedAttacks: number;
+    readonly averageExternalParticipants: number;
     readonly averageTotalLoot: number;
     readonly averageRaidsCompleted: number;
     readonly averageEnemyDistrictsDestroyed: number;
@@ -57,8 +59,12 @@ function calculateRate(value: number, total: number): number {
     return value / total;
 }
 
+function calculateTotalUsedAttacks(raid: RaidComparisonStats): number {
+    return raid.usedAttacks + raid.externalUsedAttacks;
+}
+
 function calculateLootPerUsedAttack(raid: RaidComparisonStats): number {
-    return calculateRate(raid.totalLoot, raid.usedAttacks);
+    return calculateRate(raid.totalLoot, calculateTotalUsedAttacks(raid));
 }
 
 export function calculateRaidHistoricalAverages(
@@ -70,6 +76,9 @@ export function calculateRaidHistoricalAverages(
 
     let totalLoot = 0;
     let totalUsedAttacks = 0;
+    let totalAllUsedAttacks = 0;
+    let totalExternalUsedAttacks = 0;
+    let totalExternalParticipants = 0;
     let totalActiveParticipants = 0;
     let totalEligibleParticipants = 0;
     let totalParticipantsWithAllAttacksUsed = 0;
@@ -84,6 +93,9 @@ export function calculateRaidHistoricalAverages(
     for (const raid of previousRaids) {
         totalLoot += raid.totalLoot;
         totalUsedAttacks += raid.usedAttacks;
+        totalAllUsedAttacks += calculateTotalUsedAttacks(raid);
+        totalExternalUsedAttacks += raid.externalUsedAttacks;
+        totalExternalParticipants += raid.externalParticipants;
         totalActiveParticipants += raid.activeParticipants;
         totalEligibleParticipants += raid.eligibleParticipants;
         totalParticipantsWithAllAttacksUsed += raid.participantsWithAllAttacksUsed;
@@ -100,7 +112,7 @@ export function calculateRaidHistoricalAverages(
 
     return {
         raidsCount,
-        averageLootPerUsedAttack: calculateRate(totalLoot, totalUsedAttacks),
+        averageLootPerUsedAttack: calculateRate(totalLoot, totalAllUsedAttacks),
         averageParticipantsWithAllAttacksUsedRate: calculateRate(
             totalParticipantsWithAllAttacksUsed,
             totalActiveParticipants,
@@ -116,6 +128,8 @@ export function calculateRaidHistoricalAverages(
         averageParticipantsWithoutAttacks: totalParticipantsWithoutAttacks / raidsCount,
         averageUsedAttacks: totalUsedAttacks / raidsCount,
         averageAvailableAttacks: totalAvailableAttacks / raidsCount,
+        averageExternalUsedAttacks: totalExternalUsedAttacks / raidsCount,
+        averageExternalParticipants: totalExternalParticipants / raidsCount,
         averageTotalLoot: totalLoot / raidsCount,
         averageRaidsCompleted: totalRaidsCompleted / raidsCount,
         averageEnemyDistrictsDestroyed: totalEnemyDistrictsDestroyed / raidsCount,
