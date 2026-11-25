@@ -320,6 +320,74 @@ describe('RaidRepo', () => {
         expect(raidRepo.getBestRaidMembers(emptyRef)).toEqual([]);
     });
 
+    it('returns API player names for guest participants without clan roster snapshots and preserves known names on empty updates', () => {
+        const { clansRepo, raidRepo } = createMigratedDb();
+
+        clansRepo.insertMinimalClan('#CLAN1');
+        // Guest with API name (no clan_memberships, no player_snapshots)
+        clansRepo.insertMinimal('#GUEST_NAMED', 'Guest Striker');
+        // Guest initially saved without name, then resolved from raid API
+        clansRepo.insertMinimal('#GUEST_RESOLVED');
+        clansRepo.insertMinimal('#GUEST_RESOLVED', 'Resolved Guest');
+        // Brand-new guest without name falls back to Unknown Player
+        clansRepo.insertMinimal('#GUEST_NAMELESS');
+
+        const raidRef = raidRepo.saveCompleteRaidData(makeRaid(), [
+            {
+                playerTag: '#GUEST_NAMED',
+                playerName: 'Guest Striker',
+                attacksCount: 6,
+                bonusAttack: 1,
+                totalLoot: 32_000,
+            },
+            {
+                playerTag: '#GUEST_RESOLVED',
+                playerName: 'Resolved Guest',
+                attacksCount: 5,
+                bonusAttack: 0,
+                totalLoot: 24_000,
+            },
+            {
+                playerTag: '#GUEST_NAMELESS',
+                attacksCount: 5,
+                bonusAttack: 0,
+                totalLoot: 18_000,
+            },
+        ]);
+
+        expect(raidRepo.getBestRaidMembers(raidRef)).toEqual([
+            {
+                playerTag: '#GUEST_NAMED',
+                playerName: 'Guest Striker',
+                attacksCount: 6,
+                bonusAttacks: 1,
+                totalLoot: 32_000,
+            },
+            {
+                playerTag: '#GUEST_RESOLVED',
+                playerName: 'Resolved Guest',
+                attacksCount: 5,
+                bonusAttacks: 0,
+                totalLoot: 24_000,
+            },
+            {
+                playerTag: '#GUEST_NAMELESS',
+                playerName: 'Unknown Player',
+                attacksCount: 5,
+                bonusAttacks: 0,
+                totalLoot: 18_000,
+            },
+        ]);
+
+        // Updating known guest name updates reported current name; blank/missing name preserves it
+        clansRepo.insertMinimal('#GUEST_NAMED', 'Guest Renamed');
+        clansRepo.insertMinimal('#GUEST_NAMED');
+        clansRepo.insertMinimal('#GUEST_NAMED', '');
+        clansRepo.insertMinimal('#GUEST_NAMED', '   ');
+
+        expect(raidRepo.getBestRaidMembers(raidRef)[0]?.playerName).toBe('Guest Renamed');
+    });
+
     it('computes raid slackers and comparison stats using membership at raid start_time through end_time', () => {
         const { db, clansRepo, raidRepo } = createMigratedDb();
 

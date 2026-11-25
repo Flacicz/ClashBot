@@ -64,7 +64,20 @@ export class ClansRepo extends BaseRepository {
         );
     }
 
-    insertMinimal(tag: string): void {
+    insertMinimal(tag: string, name?: string): void {
+        const normalizedName = name?.trim();
+        if (normalizedName !== undefined && normalizedName.length > 0) {
+            const sql = `
+                INSERT INTO players(tag, name)
+                VALUES (?, ?)
+                ON CONFLICT(tag) DO UPDATE SET
+                    name = excluded.name;
+            `;
+
+            this.execute(sql, 'save minimal info', `player_tag = ${tag}`, tag, normalizedName);
+            return;
+        }
+
         const sql = `
             INSERT OR IGNORE INTO players(tag, name)
             VALUES (?, 'Unknown Player');

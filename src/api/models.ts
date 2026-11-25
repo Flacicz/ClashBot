@@ -141,6 +141,7 @@ export interface ClanRaid {
 
 export interface PlayerRaidSnapshot {
     readonly playerTag: string;
+    readonly playerName?: string;
     readonly attacksCount: number;
     readonly bonusAttack: number;
     readonly totalLoot: number;
