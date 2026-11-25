@@ -6,6 +6,7 @@ import { FakeClock } from '../../src/common/clock.js';
 import { AbortError } from '../../src/common/errors.js';
 import {
     ClansRepo,
+    ClanType,
     ClanwarRepo,
     ClanwarsLeagueRepo,
     Database,
@@ -16,6 +17,7 @@ import {
     RetryPolicy,
     SubscriptionRepo,
     TransactionManager,
+    WarTypes,
 } from '../../src/database/index.js';
 import {
     DomainEventPayloadDeserializer,
@@ -26,10 +28,13 @@ import {
 import { APPLICATION_EVENT_TYPES, type ApplicationEvent } from '../../src/events/index.js';
 import { createLogger } from '../../src/logging/index.js';
 import {
+    DEFAULT_TELEGRAM_MAX_VISIBLE_LENGTH,
     NotificationService,
     NotificationWorker,
+    TELEGRAM_HARD_MAX_VISIBLE_LENGTH,
     TelegramDeliveryError,
     TelegramGateway,
+    countTelegramHtmlVisibleLength,
 } from '../../src/notifications/index.js';
 import { type LoopbackServer, startLoopbackServer } from '../api/helpers/loopbackServer.js';
 
@@ -198,6 +203,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
             tx,
             clock,
             clansRepo,
+            clanwarRepo,
             subscriptionRepo,
             domainEventsRepo,
             notificationRepo,
@@ -975,5 +981,418 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         expect(h.domainEventWorker.isStopRequested()).toBe(true);
         expect(h.notificationWorker.isStopRequested()).toBe(true);
         await Promise.all([domainRun, notificationRun]);
+    });
+
+    it('delivers multi-part notifications in strict 1->2->3 order when part 1 suffers a transient failure without blocking other chats', async () => {
+        const h = createHarness();
+        h.subscriptionRepo.saveTelegramChat(-1001, 0, 'Report Chat');
+        h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'management');
+        const subId = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'management') ?? 1;
+
+        h.domainEventsRepo.appendEvent(
+            {
+                eventType: 'war_ended',
+                eventId: 'multi-transient',
+                payload: '{}',
+                payloadVersion: 1,
+                clanTag: CLAN_TAG,
+            },
+            [{ chatId: -1001, messageThreadId: 0, audience: 'management', subscriptionId: subId }],
+        );
+        const destId = h.domainEventsRepo.getPendingDestinations(10)[0]?.destinationId ?? 0;
+
+        h.notificationRepo.enqueueDomainEventIfAbsent(
+            'Report Part 1/3',
+            destId,
+            'war_roster_reliability',
+            'multi-transient',
+            -1001,
+            0,
+            1,
+            3,
+        );
+        h.notificationRepo.enqueueDomainEventIfAbsent(
+            'Report Part 2/3',
+            destId,
+            'war_roster_reliability',
+            'multi-transient',
+            -1001,
+            0,
+            2,
+            3,
+        );
+        h.notificationRepo.enqueueDomainEventIfAbsent(
+            'Report Part 3/3',
+            destId,
+            'war_roster_reliability',
+            'multi-transient',
+            -1001,
+            0,
+            3,
+            3,
+        );
+        h.notificationRepo.enqueueIfAbsent('Other Chat Msg', 'war_ended', 'other-chat', -2002, 0);
+
+        let part1Attempts = 0;
+        h.setSendResponder(async (chatId, text, messageThreadId) => {
+            await Promise.resolve();
+            if (text === 'Report Part 1/3') {
+                part1Attempts += 1;
+                if (part1Attempts === 1) {
+                    throw new TelegramDeliveryError('HTTP 500 Temporary Error', {
+                        kind: 'transient',
+                        statusCode: 500,
+                        retryable: true,
+                    });
+                }
+            }
+            h.sentMessages.push({ chatId, text, messageThreadId });
+        });
+
+        // First cycle: Part 1 fails transiently -> Parts 2 & 3 MUST wait; other chat still delivers!
+        await h.notificationWorker.processPending();
+        expect(h.sentMessages).toEqual([
+            { chatId: -2002, text: 'Other Chat Msg', messageThreadId: 0 },
+        ]);
+
+        const statesAfterFirstAttempt = h.db.connection
+            .prepare<[number], { part_index: number; status: string; attempts: number }>(
+                `SELECT part_index, status, attempts
+                 FROM notifications
+                 WHERE domain_event_destination_id = ?
+                 ORDER BY part_index;`,
+            )
+            .all(destId);
+        expect(statesAfterFirstAttempt).toEqual([
+            { part_index: 1, status: 'pending', attempts: 1 },
+            { part_index: 2, status: 'pending', attempts: 0 },
+            { part_index: 3, status: 'pending', attempts: 0 },
+        ]);
+
+        // Before backoff elapses, nothing is sent
+        await h.notificationWorker.processPending();
+        expect(h.sentMessages).toHaveLength(1);
+
+        // After 1s backoff, Part 1 succeeds and unlocks Part 2 -> Part 3 in strict order
+        h.clock.advance(1_000);
+        await h.notificationWorker.processPending();
+
+        expect(h.sentMessages.map((m) => m.text)).toEqual([
+            'Other Chat Msg',
+            'Report Part 1/3',
+            'Report Part 2/3',
+            'Report Part 3/3',
+        ]);
+
+        const finalStates = h.db.connection
+            .prepare<[number], { part_index: number; status: string }>(
+                `SELECT part_index, status
+                 FROM notifications
+                 WHERE domain_event_destination_id = ?
+                 ORDER BY part_index;`,
+            )
+            .all(destId);
+        expect(finalStates).toEqual([
+            { part_index: 1, status: 'sent' },
+            { part_index: 2, status: 'sent' },
+            { part_index: 3, status: 'sent' },
+        ]);
+    });
+
+    it('cascades failed status to remaining pending parts on permanent error or exhausted retries of part 1', async () => {
+        const h = createHarness();
+        h.subscriptionRepo.saveTelegramChat(-1001, 0, 'Permanent Chat');
+        h.subscriptionRepo.saveTelegramChat(-1002, 0, 'Exhausted Chat');
+        h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'management');
+        h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'management');
+        const sub1 = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'management') ?? 1;
+        const sub2 = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'management') ?? 2;
+
+        h.domainEventsRepo.appendEvent(
+            {
+                eventType: 'war_ended',
+                eventId: 'multi-fail',
+                payload: '{}',
+                payloadVersion: 1,
+                clanTag: CLAN_TAG,
+            },
+            [
+                { chatId: -1001, messageThreadId: 0, audience: 'management', subscriptionId: sub1 },
+                { chatId: -1002, messageThreadId: 0, audience: 'management', subscriptionId: sub2 },
+            ],
+        );
+        const dests = h.domainEventsRepo.getPendingDestinations(10);
+        const destPerm = dests.find((d) => d.chatId === -1001)?.destinationId ?? 0;
+        const destExhaust = dests.find((d) => d.chatId === -1002)?.destinationId ?? 0;
+
+        for (let part = 1; part <= 3; part += 1) {
+            h.notificationRepo.enqueueDomainEventIfAbsent(
+                `Perm Part ${String(part)}/3`,
+                destPerm,
+                'war_roster_reliability',
+                'multi-fail',
+                -1001,
+                0,
+                part,
+                3,
+            );
+            h.notificationRepo.enqueueDomainEventIfAbsent(
+                `Exhaust Part ${String(part)}/3`,
+                destExhaust,
+                'war_roster_reliability',
+                'multi-fail',
+                -1002,
+                0,
+                part,
+                3,
+            );
+        }
+
+        const attemptedTexts: string[] = [];
+        h.setSendResponder(async (chatId, text) => {
+            await Promise.resolve();
+            attemptedTexts.push(text);
+            if (chatId === -1001) {
+                throw new TelegramDeliveryError('Bad Request: chat not found', {
+                    kind: 'permanent',
+                    statusCode: 400,
+                    retryable: false,
+                });
+            }
+            throw new TelegramDeliveryError('Internal Server Error', {
+                kind: 'transient',
+                statusCode: 500,
+                retryable: true,
+            });
+        });
+
+        // Attempt 1: permanent chat fails immediately and cascades parts 2..3; exhausted chat retries
+        await h.notificationWorker.processPending();
+
+        const permStates = h.db.connection
+            .prepare<[number], { part_index: number; status: string; attempts: number }>(
+                `SELECT part_index, status, attempts
+                 FROM notifications
+                 WHERE domain_event_destination_id = ?
+                 ORDER BY part_index;`,
+            )
+            .all(destPerm);
+        expect(permStates).toEqual([
+            { part_index: 1, status: 'failed', attempts: 1 },
+            { part_index: 2, status: 'failed', attempts: 0 },
+            { part_index: 3, status: 'failed', attempts: 0 },
+        ]);
+
+        // Attempts 2, 3, 4 for exhausted chat (delays 1s, 1s, 2s)
+        h.clock.advance(1_000);
+        await h.notificationWorker.processPending();
+        h.clock.advance(1_000);
+        await h.notificationWorker.processPending();
+        h.clock.advance(2_000);
+        await h.notificationWorker.processPending();
+
+        const exhaustStates = h.db.connection
+            .prepare<[number], { part_index: number; status: string; attempts: number }>(
+                `SELECT part_index, status, attempts
+                 FROM notifications
+                 WHERE domain_event_destination_id = ?
+                 ORDER BY part_index;`,
+            )
+            .all(destExhaust);
+        expect(exhaustStates).toEqual([
+            { part_index: 1, status: 'failed', attempts: 4 },
+            { part_index: 2, status: 'failed', attempts: 0 },
+            { part_index: 3, status: 'failed', attempts: 0 },
+        ]);
+
+        // Parts 2 and 3 were NEVER attempted for either destination; zero pending orphans remain
+        expect(attemptedTexts.every((text) => text.includes('Part 1/3'))).toBe(true);
+        expect(h.notificationRepo.getPending(10, h.clock.nowEpochSeconds())).toHaveLength(0);
+    });
+
+    it('recovers remaining parts independently without re-sending already sent earlier parts', async () => {
+        const h = createHarness();
+        h.subscriptionRepo.saveTelegramChat(-1001, 0, 'Recovery Chat');
+        h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'management');
+        const subId = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'management') ?? 1;
+
+        h.domainEventsRepo.appendEvent(
+            {
+                eventType: 'war_ended',
+                eventId: 'multi-recovery',
+                payload: '{}',
+                payloadVersion: 1,
+                clanTag: CLAN_TAG,
+            },
+            [{ chatId: -1001, messageThreadId: 0, audience: 'management', subscriptionId: subId }],
+        );
+        const destId = h.domainEventsRepo.getPendingDestinations(10)[0]?.destinationId ?? 0;
+
+        for (let part = 1; part <= 3; part += 1) {
+            h.notificationRepo.enqueueDomainEventIfAbsent(
+                `Recovery Part ${String(part)}/3`,
+                destId,
+                'war_roster_reliability',
+                'multi-recovery',
+                -1001,
+                0,
+                part,
+                3,
+            );
+        }
+
+        let part2Attempts = 0;
+        h.setSendResponder(async (chatId, text, messageThreadId) => {
+            await Promise.resolve();
+            if (text === 'Recovery Part 2/3') {
+                part2Attempts += 1;
+                if (part2Attempts === 1) {
+                    throw new TelegramDeliveryError('HTTP 502 Bad Gateway', {
+                        kind: 'transient',
+                        statusCode: 502,
+                        retryable: true,
+                    });
+                }
+            }
+            h.sentMessages.push({ chatId, text, messageThreadId });
+        });
+
+        // Cycle 1: Part 1 succeeds, Part 2 fails transiently, Part 3 waits
+        await h.notificationWorker.processPending();
+        expect(h.sentMessages.map((m) => m.text)).toEqual(['Recovery Part 1/3']);
+
+        // Simulate restart with a fresh NotificationWorker instance after backoff
+        h.clock.advance(1_000);
+        const restartedWorker = new NotificationWorker({
+            notificationRepo: h.notificationRepo,
+            telegramGateway: h.fakeGateway,
+            clock: h.clock,
+            logger: createLogger({ level: 'silent' }),
+        });
+
+        await restartedWorker.processPending();
+
+        // Part 1 is NOT re-sent; Parts 2 and 3 recover and deliver in order
+        expect(h.sentMessages.map((m) => m.text)).toEqual([
+            'Recovery Part 1/3',
+            'Recovery Part 2/3',
+            'Recovery Part 3/3',
+        ]);
+    });
+
+    it('materializes and delivers an end-to-end 50-player war roster report across multiple Telegram messages in order', async () => {
+        const h = createHarness();
+        h.subscriptionRepo.saveTelegramChat(5001, 0, 'Leader Private');
+        h.subscriptionRepo.subscribeToChat(5001, 0, CLAN_TAG, 'management');
+
+        const players = Array.from({ length: 50 }, (_, index) => {
+            const num = String(index + 1).padStart(2, '0');
+            return {
+                tag: `#E2E${num}`,
+                name: `🏆 Игрок_${num}_<Супер & Клан> 《Боец 🔥》`,
+                clanTag: CLAN_TAG,
+            };
+        });
+        h.clansRepo.savePlayers(players);
+        const insertMembership = h.db.connection.prepare<[string, string, number]>(
+            'INSERT INTO clan_memberships (clan_tag, player_tag, joined_at, left_at) VALUES (?, ?, ?, NULL);',
+        );
+        for (const player of players) {
+            insertMembership.run(CLAN_TAG, player.tag, 1_600_000_000);
+        }
+
+        const warRef = h.clanwarRepo.saveCompleteClanwarData(
+            {
+                warUID: 'e2e-war-50',
+                clanTag: CLAN_TAG,
+                state: 'warEnded',
+                warType: WarTypes.Regular,
+                teamSize: 50,
+                attacksPerMember: 2,
+                preparationStartTime: 1_700_100_000,
+                startTime: 1_700_186_400,
+                endTime: 1_700_272_800,
+                seasonId: null,
+                roundNumber: null,
+            },
+            {
+                home: {
+                    side: ClanType.Home,
+                    clanTag: CLAN_TAG,
+                    clanName: 'Alpha Clan',
+                    clanLevel: 15,
+                    attacksCount: 50,
+                    stars: 120,
+                    destructionPercentage: 90.0,
+                },
+                opponent: {
+                    side: ClanType.Opponent,
+                    clanTag: '#E2EOPP',
+                    clanName: 'Enemy 50',
+                    clanLevel: 15,
+                    attacksCount: 50,
+                    stars: 100,
+                    destructionPercentage: 75.0,
+                },
+            },
+            players.slice(0, 25).map((player, index) => ({
+                attackerTag: player.tag,
+                defenderTag: `#E2EE${String(index + 1).padStart(2, '0')}`,
+                attackerClanTag: CLAN_TAG,
+                defenderClanTag: '#E2EOPP',
+                attackerPosition: index + 1,
+                defenderPosition: index + 1,
+                orderNum: index + 1,
+                stars: 3,
+                destructionPercentage: 100.0,
+                duration: 120,
+            })),
+            {
+                home: players.map((player, index) => ({
+                    clanTag: CLAN_TAG,
+                    playerTag: player.tag,
+                    playerName: player.name,
+                    townhallLevel: 16,
+                    mapPosition: index + 1,
+                })),
+                opponent: players.map((_, index) => ({
+                    clanTag: '#E2EOPP',
+                    playerTag: `#E2EE${String(index + 1).padStart(2, '0')}`,
+                    playerName: `Enemy ${String(index + 1)}`,
+                    townhallLevel: 16,
+                    mapPosition: index + 1,
+                })),
+            },
+        );
+
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.warEnded,
+                    clanTag: CLAN_TAG,
+                    warReference: warRef,
+                },
+            ]);
+        });
+
+        h.domainEventWorker.processPending();
+        await h.notificationWorker.processPending();
+
+        // Expect war_violations (1+ parts) and war_roster_reliability (2+ parts), all <= 3900 <= 4096 visible chars
+        const rosterMessages = h.sentMessages.filter(
+            (m) => m.text.includes('НАДЁЖНОСТЬ СОСТАВА') || m.text.includes('Игрок_'),
+        );
+        expect(rosterMessages.length).toBeGreaterThanOrEqual(2);
+        for (const msg of h.sentMessages) {
+            const visibleLen = countTelegramHtmlVisibleLength(msg.text);
+            expect(visibleLen).toBeLessThanOrEqual(DEFAULT_TELEGRAM_MAX_VISIBLE_LENGTH);
+            expect(visibleLen).toBeLessThanOrEqual(TELEGRAM_HARD_MAX_VISIBLE_LENGTH);
+        }
+
+        // Verify all 50 players were delivered in the roster messages
+        const combinedRoster = rosterMessages.map((m) => m.text).join('\n');
+        for (let i = 1; i <= 50; i += 1) {
+            expect(combinedRoster).toContain(`Игрок_${String(i).padStart(2, '0')}_`);
+        }
     });
 });

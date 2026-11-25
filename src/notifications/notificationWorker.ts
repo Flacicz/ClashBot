@@ -147,63 +147,88 @@ export class NotificationWorker implements WakeableNotificationWorker {
             return;
         }
 
-        const notifications = this.notificationRepo.getPending(
-            this.batchSize,
-            this.clock.nowEpochSeconds(),
-        );
+        let remaining = this.batchSize;
 
-        for (const notification of notifications) {
-            if (this.shouldStop(signal)) {
+        while (remaining > 0 && !this.shouldStop(signal)) {
+            const notifications = this.notificationRepo.getPending(
+                remaining,
+                this.clock.nowEpochSeconds(),
+            );
+
+            if (notifications.length === 0) {
                 return;
             }
 
-            if (!this.notificationRepo.isPending(notification.id)) {
-                continue;
-            }
+            let unlockedNextPart = false;
 
-            const { signal: requestSignal, cleanup } = this.createRequestSignal(signal);
-
-            try {
-                await this.telegramGateway.sendMessage(
-                    notification.chatId,
-                    notification.messageText,
-                    notification.messageThreadId,
-                    requestSignal,
-                );
-            } catch (error: unknown) {
-                const classification = classifyTelegramError(error, requestSignal);
-                if (classification.kind === 'aborted' || this.shouldStop(signal)) {
+            for (const notification of notifications) {
+                if (this.shouldStop(signal)) {
                     return;
                 }
 
-                this.handleFailure(
-                    notification,
-                    classification.message,
-                    classification.retryable,
-                    classification.retryAfterSeconds,
-                );
+                if (!this.notificationRepo.isPending(notification.id)) {
+                    continue;
+                }
+
+                remaining -= 1;
+
+                const { signal: requestSignal, cleanup } = this.createRequestSignal(signal);
+
+                try {
+                    await this.telegramGateway.sendMessage(
+                        notification.chatId,
+                        notification.messageText,
+                        notification.messageThreadId,
+                        requestSignal,
+                    );
+                } catch (error: unknown) {
+                    const classification = classifyTelegramError(error, requestSignal);
+                    if (classification.kind === 'aborted' || this.shouldStop(signal)) {
+                        return;
+                    }
+
+                    this.handleFailure(
+                        notification,
+                        classification.message,
+                        classification.retryable,
+                        classification.retryAfterSeconds,
+                    );
+
+                    if (this.shouldStop(signal)) {
+                        return;
+                    }
+                    continue;
+                } finally {
+                    cleanup();
+                }
+
+                let markedAsSent = false;
+                try {
+                    markedAsSent = this.notificationRepo.markAsSent(notification.id);
+                } catch (error: unknown) {
+                    this.logger?.error(
+                        {
+                            err: error,
+                            notificationId: notification.id,
+                        },
+                        `[NotificationWorker] Failed to mark notification ${String(notification.id)} as sent`,
+                    );
+                }
 
                 if (this.shouldStop(signal)) {
                     return;
                 }
-                continue;
-            } finally {
-                cleanup();
+
+                if (markedAsSent && notification.partIndex < notification.partCount) {
+                    unlockedNextPart = true;
+                    if (remaining === 0) {
+                        this.wakeRequested = true;
+                    }
+                    break;
+                }
             }
 
-            try {
-                this.notificationRepo.markAsSent(notification.id);
-            } catch (error: unknown) {
-                this.logger?.error(
-                    {
-                        err: error,
-                        notificationId: notification.id,
-                    },
-                    `[NotificationWorker] Failed to mark notification ${String(notification.id)} as sent`,
-                );
-            }
-
-            if (this.shouldStop(signal)) {
+            if (!unlockedNextPart) {
                 return;
             }
         }
