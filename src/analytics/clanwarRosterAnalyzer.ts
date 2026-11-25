@@ -44,6 +44,7 @@ export interface ClanwarRosterPlayerReport {
 export interface ClanwarRosterReportData {
     readonly warsCount: number;
     readonly players: readonly ClanwarRosterPlayerReport[];
+    readonly skippedIncompleteWarsCount?: number;
 }
 
 interface MutablePlayerRosterStats {

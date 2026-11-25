@@ -146,14 +146,14 @@ export class RaidService implements SyncService {
             const syncResult = this.transactionManager.retryInTransaction(() => {
                 this.ensurePlayersExist(playerRaidSnapshots);
 
-                const reference = this.raidRepo.saveCompleteRaidData(clanRaid, playerRaidSnapshots);
-
-                const events = generateEvents(
-                    clanTag,
+                const nowEpochSeconds = this.clock.nowEpochSeconds();
+                const reference = this.raidRepo.saveCompleteRaidData(
                     clanRaid,
-                    reference,
-                    this.clock.nowEpochSeconds(),
+                    playerRaidSnapshots,
+                    nowEpochSeconds,
                 );
+
+                const events = generateEvents(clanTag, clanRaid, reference, nowEpochSeconds);
 
                 if (events.length > 0) {
                     this.domainEventRecorder.recordAll(events);

@@ -182,11 +182,17 @@ const SAVE_CLANWAR_SQL = `
     INSERT INTO wars(
         war_uid, clan_tag, state, war_type, team_size,
         attacks_per_member, preparation_start_time,
-        start_time, end_time, season_id, round_number
+        start_time, end_time, season_id, round_number,
+        is_complete, last_observed_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CAST(strftime('%s', 'now') AS INTEGER)))
     ON CONFLICT(war_uid) DO UPDATE SET
-        state = excluded.state
+        state = CASE
+            WHEN wars.is_complete = 1 AND wars.state = 'warEnded' THEN wars.state
+            ELSE excluded.state
+        END,
+        is_complete = MAX(wars.is_complete, excluded.is_complete),
+        last_observed_at = excluded.last_observed_at
     RETURNING war_id;
 `;
 
@@ -503,6 +509,8 @@ const GET_PREVIOUS_CLANWARS_SQL = `
         JOIN current_war AS cw
             ON cw.clan_tag = w.clan_tag
         WHERE w.war_type = 'regular'
+          AND w.state = 'warEnded'
+          AND w.is_complete = 1
           AND w.war_id <> cw.war_id
           AND w.preparation_start_time < cw.preparation_start_time
         ORDER BY w.preparation_start_time DESC
@@ -521,6 +529,53 @@ const GET_PREVIOUS_CLANWARS_SQL = `
         ON opponent.war_id = pw.war_id
        AND opponent.side = 'opponent'
     ORDER BY pw.preparation_start_time DESC;
+`;
+
+const COUNT_SKIPPED_INCOMPLETE_CLANWARS_SQL = `
+    WITH current_war AS (
+        SELECT
+            war_id,
+            clan_tag,
+            preparation_start_time
+        FROM wars
+        WHERE war_id = ?
+          AND clan_tag = ?
+          AND war_type = 'regular'
+    ),
+    included_complete_wars AS (
+        SELECT
+            w.war_id,
+            w.preparation_start_time
+        FROM wars AS w
+        JOIN current_war AS cw
+            ON cw.clan_tag = w.clan_tag
+        WHERE w.war_type = 'regular'
+          AND w.state = 'warEnded'
+          AND w.is_complete = 1
+          AND w.war_id <> cw.war_id
+          AND w.preparation_start_time < cw.preparation_start_time
+        ORDER BY w.preparation_start_time DESC
+        LIMIT ?
+    ),
+    window_bounds AS (
+        SELECT
+            COUNT(*) AS included_count,
+            MIN(preparation_start_time) AS oldest_included_prep_time
+        FROM included_complete_wars
+    )
+    SELECT COUNT(*) AS skipped_count
+    FROM wars AS w
+    JOIN current_war AS cw
+        ON cw.clan_tag = w.clan_tag
+    CROSS JOIN window_bounds AS wb
+    WHERE w.war_type = 'regular'
+      AND (w.is_complete = 0 OR w.state <> 'warEnded')
+      AND w.war_id <> cw.war_id
+      AND w.preparation_start_time < cw.preparation_start_time
+      AND (
+          wb.included_count < ?
+          OR w.preparation_start_time >= wb.oldest_included_prep_time
+      );
 `;
 
 const GET_HOME_MEMBER_TAGS_SQL = `
@@ -553,13 +608,14 @@ export class ClanwarRepo {
         clans: ClanwarClansInput,
         attacks: readonly ClanwarAttack[],
         members: ClanwarMembersInput,
+        observedAt?: number,
     ): ClanwarReference {
         const homeClan = 'home' in clans ? clans.home : clans[0];
         const opponentClan = 'opponent' in clans ? clans.opponent : clans[1];
         const homeMembers = 'home' in members ? members.home : members[0];
         const opponentMembers = 'opponent' in members ? members.opponent : members[1];
 
-        const warId = this.saveClanwar(war);
+        const warId = this.saveClanwar(war, observedAt);
         const homeClanId = this.saveClanwarDetails(warId, homeClan);
         const opponentClanId = this.saveClanwarDetails(warId, opponentClan);
 
@@ -577,7 +633,9 @@ export class ClanwarRepo {
         return reference;
     }
 
-    saveClanwar(clanwar: Clanwar): number {
+    saveClanwar(clanwar: Clanwar, observedAt?: number): number {
+        const isComplete = clanwar.state === 'warEnded' ? 1 : 0;
+
         try {
             const row = this.connection
                 .prepare<
@@ -592,6 +650,8 @@ export class ClanwarRepo {
                         number,
                         number,
                         number | null,
+                        number | null,
+                        number,
                         number | null,
                     ],
                     { war_id: number }
@@ -608,6 +668,8 @@ export class ClanwarRepo {
                     clanwar.endTime,
                     clanwar.seasonId ?? null,
                     clanwar.roundNumber ?? null,
+                    isComplete,
+                    observedAt ?? null,
                 );
 
             if (row === undefined) {
@@ -1078,6 +1140,28 @@ export class ClanwarRepo {
             throw toDatabaseError(
                 error,
                 `[ClanwarRepo] Failed to load previous clanwars (clan_tag = ${currentWar.clanTag}, current_war_id = ${String(currentWar.warId)}, limit = ${String(limit)})`,
+                { clanTag: currentWar.clanTag, currentWarId: currentWar.warId, limit },
+            );
+        }
+    }
+
+    countSkippedIncompleteClanwars(currentWar: ClanwarReference, limit: number): number {
+        if (limit <= 0) {
+            return 0;
+        }
+
+        try {
+            const row = this.connection
+                .prepare<[number, string, number, number], { skipped_count: number }>(
+                    COUNT_SKIPPED_INCOMPLETE_CLANWARS_SQL,
+                )
+                .get(currentWar.warId, currentWar.clanTag, limit, limit);
+
+            return row?.skipped_count ?? 0;
+        } catch (error: unknown) {
+            throw toDatabaseError(
+                error,
+                `[ClanwarRepo] Failed to count skipped incomplete clanwars (clan_tag = ${currentWar.clanTag}, current_war_id = ${String(currentWar.warId)}, limit = ${String(limit)})`,
                 { clanTag: currentWar.clanTag, currentWarId: currentWar.warId, limit },
             );
         }

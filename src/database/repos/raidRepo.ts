@@ -18,27 +18,35 @@ export class RaidRepo extends BaseRepository {
     saveCompleteRaidData(
         clanRaid: ClanRaid,
         playerRaidSnapshots: readonly PlayerRaidSnapshot[],
+        observedAt?: number,
     ): RaidReference {
-        const reference = this.saveRaid(clanRaid);
+        const reference = this.saveRaid(clanRaid, observedAt);
         this.saveRaidPlayerSnapshots(reference, playerRaidSnapshots);
         return reference;
     }
 
-    saveRaid(clanRaid: ClanRaid): RaidReference {
+    saveRaid(clanRaid: ClanRaid, observedAt?: number): RaidReference {
+        const isComplete = clanRaid.state === 'ended' ? 1 : 0;
         const sql = `
             INSERT INTO clan_raids(clan_tag, start_time, end_time, state,
                                    total_loot, raids_completed, total_attacks,
-                                   enemy_districts_destroyed, offensive_reward, defensive_reward)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   enemy_districts_destroyed, offensive_reward, defensive_reward,
+                                   is_complete, last_observed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CAST(strftime('%s', 'now') AS INTEGER)))
             ON CONFLICT(clan_tag, start_time) DO UPDATE SET
                 end_time = excluded.end_time,
-                state = excluded.state,
+                state = CASE
+                    WHEN clan_raids.is_complete = 1 AND clan_raids.state = 'ended' THEN clan_raids.state
+                    ELSE excluded.state
+                END,
                 total_loot = excluded.total_loot,
                 raids_completed = excluded.raids_completed,
                 total_attacks = excluded.total_attacks,
                 enemy_districts_destroyed = excluded.enemy_districts_destroyed,
                 offensive_reward = excluded.offensive_reward,
-                defensive_reward = excluded.defensive_reward
+                defensive_reward = excluded.defensive_reward,
+                is_complete = MAX(clan_raids.is_complete, excluded.is_complete),
+                last_observed_at = excluded.last_observed_at
             RETURNING id;
         `;
 
@@ -57,6 +65,8 @@ export class RaidRepo extends BaseRepository {
             clanRaid.enemyDistrictsDestroyed,
             clanRaid.offensiveReward,
             clanRaid.defensiveReward,
+            isComplete,
+            observedAt ?? null,
         );
     }
 
@@ -299,6 +309,8 @@ export class RaidRepo extends BaseRepository {
                 JOIN current_raid AS cr
                     ON cr.clan_tag = r.clan_tag
                 WHERE r.id <> cr.id
+                  AND r.state = 'ended'
+                  AND r.is_complete = 1
                   AND r.start_time < cr.start_time
                 ORDER BY r.start_time DESC
                 LIMIT ?
@@ -314,6 +326,62 @@ export class RaidRepo extends BaseRepository {
             `current_raid_id = ${String(currentRaid.raidId)}, limit = ${String(limit)}`,
             (row): RaidReference => ({ raidId: getNumber(row, 'id') }),
             currentRaid.raidId,
+            limit,
+        );
+    }
+
+    countSkippedIncompleteRaids(currentRaid: RaidReference, limit: number): number {
+        if (limit <= 0) {
+            return 0;
+        }
+
+        const sql = `
+            WITH current_raid AS (
+                SELECT id, clan_tag, start_time
+                FROM clan_raids
+                WHERE id = ?
+            ),
+            included_complete_raids AS (
+                SELECT
+                    r.id,
+                    r.start_time
+                FROM clan_raids AS r
+                JOIN current_raid AS cr
+                    ON cr.clan_tag = r.clan_tag
+                WHERE r.id <> cr.id
+                  AND r.state = 'ended'
+                  AND r.is_complete = 1
+                  AND r.start_time < cr.start_time
+                ORDER BY r.start_time DESC
+                LIMIT ?
+            ),
+            window_bounds AS (
+                SELECT
+                    COUNT(*) AS included_count,
+                    MIN(start_time) AS oldest_included_start_time
+                FROM included_complete_raids
+            )
+            SELECT COUNT(*) AS skipped_count
+            FROM clan_raids AS r
+            JOIN current_raid AS cr
+                ON cr.clan_tag = r.clan_tag
+            CROSS JOIN window_bounds AS wb
+            WHERE r.id <> cr.id
+              AND (r.is_complete = 0 OR r.state <> 'ended')
+              AND r.start_time < cr.start_time
+              AND (
+                  wb.included_count < ?
+                  OR r.start_time >= wb.oldest_included_start_time
+              );
+        `;
+
+        return this.queryOne(
+            sql,
+            'count skipped incomplete raids',
+            `current_raid_id = ${String(currentRaid.raidId)}, limit = ${String(limit)}`,
+            (row): number => getNumber(row, 'skipped_count'),
+            currentRaid.raidId,
+            limit,
             limit,
         );
     }

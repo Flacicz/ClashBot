@@ -22,6 +22,7 @@ export interface ActiveMembersReader {
 
 export interface ClanwarRosterReader {
     getPreviousClanwars(currentWar: ClanwarReference, limit: number): ClanwarReference[];
+    countSkippedIncompleteClanwars?(currentWar: ClanwarReference, limit: number): number;
     getHomeMemberTags(reference: ClanwarReference): string[];
     getHomeClanwarAttackResults(reference: ClanwarReference): ClanwarPlayerAttack[];
     getSlackersWithNoAttacks(reference: ClanwarReference): ClanwarSlacker[];
@@ -71,6 +72,26 @@ function formatViolations(player: ClanwarRosterPlayerReport): string {
     return `без атак ${String(player.warsWithoutAttacks)} · одна атака ${String(player.warsWithOneAttack)} · не по зеркалу ${String(player.firstAttacksNotOnMirror)}`;
 }
 
+function formatSkippedIncompleteWarsNote(skippedCount: number): string {
+    const absoluteValue = Math.abs(skippedCount);
+    const lastTwoDigits = absoluteValue % 100;
+    const lastDigit = absoluteValue % 10;
+
+    if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+        return `Примечание: в окне истории пропущено ${String(skippedCount)} неполных КВ (исключены из расчёта).`;
+    }
+
+    if (lastDigit === 1) {
+        return `Примечание: в окне истории пропущена ${String(skippedCount)} неполная КВ (исключена из расчёта).`;
+    }
+
+    if (lastDigit >= 2 && lastDigit <= 4) {
+        return `Примечание: в окне истории пропущены ${String(skippedCount)} неполные КВ (исключены из расчёта).`;
+    }
+
+    return `Примечание: в окне истории пропущено ${String(skippedCount)} неполных КВ (исключены из расчёта).`;
+}
+
 export class ClanwarRosterFormatter {
     static readonly EventType = 'war_roster_reliability';
 
@@ -87,6 +108,11 @@ export class ClanwarRosterFormatter {
             event.warReference,
             PREVIOUS_WARS_FOR_ROSTER,
         );
+        const skippedIncompleteWarsCount =
+            this.#clanwarRepo.countSkippedIncompleteClanwars?.(
+                event.warReference,
+                PREVIOUS_WARS_FOR_ROSTER,
+            ) ?? 0;
         const currentMembership = this.#clansRepo.getActiveMembers(event.clanTag);
 
         const wars: ClanwarReference[] = [event.warReference, ...previousWars];
@@ -141,6 +167,7 @@ export class ClanwarRosterFormatter {
         return ClanwarRosterFormatter.buildReport({
             warsCount: warMemberTags.length,
             players,
+            skippedIncompleteWarsCount,
         });
     }
 
@@ -162,8 +189,14 @@ export class ClanwarRosterFormatter {
             }
         }
 
+        const skippedIncompleteWarsCount = reportData.skippedIncompleteWarsCount ?? 0;
+
         let report = '📋 <b>НАДЁЖНОСТЬ СОСТАВА</b>\n';
-        report += `Статистика за последние ${String(reportData.warsCount)} КВ\n\n`;
+        report += `Статистика за последние ${String(reportData.warsCount)} КВ\n`;
+        if (skippedIncompleteWarsCount > 0) {
+            report += `ℹ️ ${formatSkippedIncompleteWarsNote(skippedIncompleteWarsCount)}\n`;
+        }
+        report += '\n';
 
         report += `Всего игроков: ${String(reportData.players.length)}\n`;
         report += `✅ Стабильные: ${String(stablePlayers)}\n`;

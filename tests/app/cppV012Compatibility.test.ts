@@ -183,14 +183,29 @@ describe('Drop-in compatibility with C++-generated v012 SQLite database', () => 
         });
 
         try {
-            // 1. Verify schema_migrations preserved all 12 C++ migrations and applied 013 cleanly
+            // 1. Verify schema_migrations preserved all 12 C++ migrations and applied 013-014 cleanly
             const appliedMigrations = app.db.connection
                 .prepare('SELECT version FROM schema_migrations ORDER BY version ASC;')
                 .all() as { version: string }[];
-            expect(appliedMigrations).toHaveLength(13);
+            expect(appliedMigrations).toHaveLength(14);
             expect(appliedMigrations[0]?.version).toBe('001_initial_schema.sql');
             expect(appliedMigrations[11]?.version).toBe('012_legacy_notification_idempotency.sql');
             expect(appliedMigrations[12]?.version).toBe('013_notification_claim_status.sql');
+            expect(appliedMigrations[13]?.version).toBe('014_history_completeness.sql');
+
+            const backfilledWar = app.db.connection
+                .prepare('SELECT state, is_complete, last_observed_at FROM wars WHERE war_id = 1;')
+                .get() as { state: string; is_complete: number; last_observed_at: number | null };
+            expect(backfilledWar.is_complete).toBe(backfilledWar.state === 'warEnded' ? 1 : 0);
+            expect(backfilledWar.last_observed_at).not.toBeNull();
+
+            const backfilledRaid = app.db.connection
+                .prepare(
+                    'SELECT state, is_complete, last_observed_at FROM clan_raids WHERE id = 1;',
+                )
+                .get() as { state: string; is_complete: number; last_observed_at: number | null };
+            expect(backfilledRaid.is_complete).toBe(backfilledRaid.state === 'ended' ? 1 : 0);
+            expect(backfilledRaid.last_observed_at).not.toBeNull();
 
             // 2. Verify C++ history (clans, wars, raids, subscriptions) is readable via TS repositories
             const clansRepo = new ClansRepo(app.db);

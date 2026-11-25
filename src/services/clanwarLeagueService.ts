@@ -157,6 +157,7 @@ export class ClanwarLeagueService implements SyncService {
                         clans,
                         attacks,
                         members,
+                        nowEpochSeconds,
                     );
 
                     const roundEvents = generateRoundEvents(

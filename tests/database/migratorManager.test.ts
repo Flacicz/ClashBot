@@ -23,6 +23,7 @@ const EXPECTED_MIGRATION_VERSIONS = [
     '011_domain_events.sql',
     '012_legacy_notification_idempotency.sql',
     '013_notification_claim_status.sql',
+    '014_history_completeness.sql',
 ];
 
 function createTempDir(prefix: string): string {
@@ -111,7 +112,7 @@ describe('MigratorManager', () => {
         }
     });
 
-    it('applies all 13 migrations to a fresh :memory: database in lexicographical order', () => {
+    it('applies all 14 migrations to a fresh :memory: database in lexicographical order', () => {
         const db = trackDb(new Database(':memory:'));
         const transactions = new TransactionManager(db);
         const migrator = new MigratorManager(db, transactions);
@@ -145,6 +146,41 @@ describe('MigratorManager', () => {
         }
         expect(hasColumn(db, 'clans', 'tracking_enabled')).toBe(true);
         expect(hasColumn(db, 'notifications', 'claimed_at')).toBe(true);
+        expect(hasColumn(db, 'wars', 'is_complete')).toBe(true);
+        expect(hasColumn(db, 'wars', 'last_observed_at')).toBe(true);
+        expect(hasColumn(db, 'clan_raids', 'is_complete')).toBe(true);
+        expect(hasColumn(db, 'clan_raids', 'last_observed_at')).toBe(true);
+
+        // Migration 014 enforces CHECK (is_complete IN (0, 1)) on wars and clan_raids
+        db.exec("INSERT INTO clans (tag, name) VALUES ('#M14', 'Migration 14 Clan');");
+        expect(() => {
+            db.exec(`
+                INSERT INTO wars (war_uid, clan_tag, state, war_type, team_size, preparation_start_time, is_complete)
+                    VALUES ('bad-war', '#M14', 'warEnded', 'regular', 10, 1000, 2);
+            `);
+        }).toThrow();
+        expect(() => {
+            db.exec(`
+                INSERT INTO clan_raids (clan_tag, start_time, end_time, state, is_complete)
+                    VALUES ('#M14', 1000, 2000, 'ended', 2);
+            `);
+        }).toThrow();
+
+        const warIndexNames = db.connection
+            .prepare<[], { name: string }>(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'wars';",
+            )
+            .all()
+            .map((row) => row.name);
+        expect(warIndexNames).toContain('idx_wars_regular_history');
+
+        const raidIndexNames = db.connection
+            .prepare<[], { name: string }>(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'clan_raids';",
+            )
+            .all()
+            .map((row) => row.name);
+        expect(raidIndexNames).toContain('idx_clan_raids_history');
 
         // Migration 013 allows 'sending' status and rejects unknown statuses
         db.exec(`
@@ -173,7 +209,7 @@ describe('MigratorManager', () => {
         expect(foreignKeysValid(db)).toBe(true);
     });
 
-    it('applies all 13 migrations to a file-backed WAL database and is idempotent on rerun', () => {
+    it('applies all 14 migrations to a file-backed WAL database and is idempotent on rerun', () => {
         const dir = trackDir('clashbot-migrate-wal-');
         const dbPath = path.join(dir, 'clashbot.sqlite');
 
@@ -309,7 +345,7 @@ describe('MigratorManager', () => {
         });
 
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(13);
+        expect(rowCount(db, 'schema_migrations')).toBe(14);
 
         // Migration 012 partial unique index (recreated in 013) prevents duplicate legacy notification insert
         const insertResult = db.connection
@@ -361,7 +397,7 @@ describe('MigratorManager', () => {
 
         // Upgrade to v013
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(13);
+        expect(rowCount(db, 'schema_migrations')).toBe(14);
         expect(hasColumn(db, 'notifications', 'claimed_at')).toBe(true);
 
         const rows = db.connection
@@ -463,7 +499,113 @@ describe('MigratorManager', () => {
 
         // Idempotent rerun after upgrade
         migrator.migrate(REAL_MIGRATIONS_PATH);
+        expect(rowCount(db, 'schema_migrations')).toBe(14);
+        expect(foreignKeysValid(db)).toBe(true);
+        expect(foreignKeysEnabled(db)).toBe(true);
+    });
+
+    it('upgrades populated v013 database through 014 backfilling is_complete and last_observed_at for wars and clan_raids', () => {
+        const through013 = trackDir('clashbot-mig-013-');
+        copyRealMigrationsUpTo(through013, 13);
+
+        const db = trackDb(new Database(':memory:'));
+        const transactions = new TransactionManager(db);
+        const migrator = new MigratorManager(db, transactions);
+
+        migrator.migrate(through013);
         expect(rowCount(db, 'schema_migrations')).toBe(13);
+        expect(hasColumn(db, 'wars', 'is_complete')).toBe(false);
+        expect(hasColumn(db, 'wars', 'last_observed_at')).toBe(false);
+        expect(hasColumn(db, 'clan_raids', 'is_complete')).toBe(false);
+        expect(hasColumn(db, 'clan_raids', 'last_observed_at')).toBe(false);
+
+        db.exec(`
+            INSERT INTO clans (tag, name) VALUES ('#V13', 'Populated v013 Clan');
+            INSERT INTO wars (war_uid, clan_tag, state, war_type, team_size, preparation_start_time, start_time, end_time, created_at)
+                VALUES
+                    ('w-ended', '#V13', 'warEnded', 'regular', 10, 1000, 1100, 1200, 1700001000),
+                    ('w-inwar', '#V13', 'inWar', 'regular', 10, 2000, 2100, 2200, 1700002000),
+                    ('w-prep', '#V13', 'preparation', 'regular', 10, 3000, 3100, 3200, 1700003000);
+            INSERT INTO clan_raids (clan_tag, start_time, end_time, state, created_at)
+                VALUES
+                    ('#V13', 1000, 1500, 'ended', 1700011000),
+                    ('#V13', 2000, 2500, 'ongoing', 1700012000),
+                    ('#V13', 3000, 3500, 'scheduled', 1700013000);
+        `);
+
+        migrator.migrate(REAL_MIGRATIONS_PATH);
+        expect(rowCount(db, 'schema_migrations')).toBe(14);
+        expect(hasColumn(db, 'wars', 'is_complete')).toBe(true);
+        expect(hasColumn(db, 'wars', 'last_observed_at')).toBe(true);
+        expect(hasColumn(db, 'clan_raids', 'is_complete')).toBe(true);
+        expect(hasColumn(db, 'clan_raids', 'last_observed_at')).toBe(true);
+
+        const warRows = db.connection
+            .prepare<
+                [],
+                { war_uid: string; state: string; is_complete: number; last_observed_at: number }
+            >(
+                'SELECT war_uid, state, is_complete, last_observed_at FROM wars ORDER BY preparation_start_time ASC;',
+            )
+            .all();
+        expect(warRows).toEqual([
+            {
+                war_uid: 'w-ended',
+                state: 'warEnded',
+                is_complete: 1,
+                last_observed_at: 1700001000,
+            },
+            {
+                war_uid: 'w-inwar',
+                state: 'inWar',
+                is_complete: 0,
+                last_observed_at: 1700002000,
+            },
+            {
+                war_uid: 'w-prep',
+                state: 'preparation',
+                is_complete: 0,
+                last_observed_at: 1700003000,
+            },
+        ]);
+
+        const raidRows = db.connection
+            .prepare<
+                [],
+                {
+                    start_time: number;
+                    state: string;
+                    is_complete: number;
+                    last_observed_at: number;
+                }
+            >(
+                'SELECT start_time, state, is_complete, last_observed_at FROM clan_raids ORDER BY start_time ASC;',
+            )
+            .all();
+        expect(raidRows).toEqual([
+            {
+                start_time: 1000,
+                state: 'ended',
+                is_complete: 1,
+                last_observed_at: 1700011000,
+            },
+            {
+                start_time: 2000,
+                state: 'ongoing',
+                is_complete: 0,
+                last_observed_at: 1700012000,
+            },
+            {
+                start_time: 3000,
+                state: 'scheduled',
+                is_complete: 0,
+                last_observed_at: 1700013000,
+            },
+        ]);
+
+        // Idempotent rerun after upgrade
+        migrator.migrate(REAL_MIGRATIONS_PATH);
+        expect(rowCount(db, 'schema_migrations')).toBe(14);
         expect(foreignKeysValid(db)).toBe(true);
         expect(foreignKeysEnabled(db)).toBe(true);
     });
