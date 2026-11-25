@@ -7,9 +7,11 @@ export {
     DatabaseError,
     DomainError,
     ExternalApiError,
+    InstanceLockError,
     ValidationError,
     isAbortError,
     type AppErrorOptions,
     type DatabaseErrorOptions,
     type ExternalApiErrorOptions,
+    type InstanceLockErrorOptions,
 } from './errors.js';

@@ -3,6 +3,10 @@ import { createCocApiClientFromConfig } from '../api/cocApiClient.js';
 import { SystemClock, type Clock } from '../common/clock.js';
 import { type AppConfig } from '../config/configSchema.js';
 import { Database } from '../database/database.js';
+import {
+    acquireDatabaseInstanceLock,
+    type DatabaseInstanceLock,
+} from '../database/instanceLock.js';
 import { MigratorManager } from '../database/migratorManager.js';
 import {
     ClansRepo,
@@ -68,6 +72,7 @@ export interface ApplicationOptions {
 
 export interface Application {
     readonly coordinator: ShutdownCoordinator;
+    readonly instanceLock: DatabaseInstanceLock;
     readonly db: Database;
     readonly cocApiClient: ClosableCocApiClient;
     readonly clanManager: ClanManager;
@@ -82,7 +87,7 @@ export interface Application {
 type Cleanup = () => void | Promise<void>;
 
 /**
- * Composition root: одно соединение SQLite, миграции, сервисы, воркеры и Telegram (ADR-0002).
+ * Composition root: single-instance lock, одно соединение SQLite, миграции, сервисы, воркеры и Telegram (ADR-0002).
  * При ошибке инициализации уже созданные ресурсы закрываются, исключение пробрасывается выше.
  */
 export async function createApplication(
@@ -95,6 +100,11 @@ export async function createApplication(
     const cleanups: Cleanup[] = [];
 
     try {
+        const instanceLock = acquireDatabaseInstanceLock(config.databasePath, { logger });
+        cleanups.push(() => {
+            instanceLock.release();
+        });
+
         const db = new Database(config.databasePath, { logger });
         cleanups.push(() => {
             db.close();
@@ -202,6 +212,9 @@ export async function createApplication(
                 logger,
             });
 
+        coordinator.addCloser('instanceLock', () => {
+            instanceLock.release();
+        });
         coordinator.addCloser('sqlite', () => {
             db.close();
         });
@@ -218,6 +231,7 @@ export async function createApplication(
 
         return {
             coordinator,
+            instanceLock,
             db,
             cocApiClient,
             clanManager,

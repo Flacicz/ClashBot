@@ -20,7 +20,7 @@ ClashBot — автономный сервис мониторинга клано
 | `src/api/` | HTTP-клиент CoC API (`cocApiClient.ts`), ошибки, схемы `zod`, мапперы и парсер времени | Не знает о SQLite и Telegram; преобразует ответы API в доменные модели |
 | `src/models/` | Типы предметной области (`clan.ts`, `raid.ts`) | Чистые структуры данных; реэкспортирует базовые модели из `src/api/models.ts` |
 | `src/services/` | Оркестрация синхронизации (`ClanManager`, `SyncService`, 4 сервиса, `reminders.ts`) | Вызывает API вне транзакций, пишет в БД через репозитории и `DomainEventRecorder` внутри транзакции |
-| `src/database/` | `Database`, `TransactionManager`, `MigratorManager`, `ForeignKeysGuard`, `RetryPolicy` | Инкапсулирует соединение `better-sqlite3`, `PRAGMA`, транзакции и миграции |
+| `src/database/` | `Database`, `DatabaseInstanceLock`, `TransactionManager`, `MigratorManager`, `ForeignKeysGuard`, `RetryPolicy` | Инкапсулирует соединение `better-sqlite3`, single-instance lock (`<dbPath>.lock`), `PRAGMA`, транзакции и миграции |
 | `src/database/repos/` | 8 предметных репозиториев, `BaseRepository`, `repoHelpers.ts` | Единственный слой с SQL-запросами; преобразует ошибки SQLite в `DatabaseError` |
 | `src/events/` | Дискриминируемое объединение `ApplicationEvent` и стабильные ключи `getApplicationEventKey` | Чистые типы и функции ключей дедупликации; не зависят от БД и форматтеров |
 | `src/domainEvents/` | Сериализация/десериализация payload, `eventNotificationPolicy`, `DomainEventRecorder`, `DomainEventWorker` | Записывает доменные события в одной транзакции с источником; материализует их в outbox |
@@ -39,6 +39,7 @@ ClashBot — автономный сервис мониторинга клано
 2. `main()` создаёт корневой логгер (`createLogger()`), `ShutdownCoordinator` и подписывается на сигналы `SIGINT` и `SIGTERM`.
 3. `loadConfigFromArgs()` читает `config.json` (или путь из `argv[0]`) и `.env`.
 4. `createApplication()` инициализирует компоненты в строгом порядке (при ошибке уже открытые ресурсы закрываются в обратном порядке через `cleanups`):
+   - захватывает эксклюзивную блокировку единственного экземпляра `acquireDatabaseInstanceLock()` на sidecar-файле `<database.path>.lock` (пропускается для `:memory:`); при активном другом экземпляре немедленно завершается с `InstanceLockError` до открытия БД и запуска циклов;
    - открывает единственное соединение `Database` и применяет миграции `MigratorManager.migrate()`;
    - загружает каталог видео-гайдов `loadAttackGuideCatalog()`;
    - создаёт `CocApiClient` с привязкой к `coordinator.signal`;
@@ -46,7 +47,7 @@ ClashBot — автономный сервис мониторинга клано
    - собирает `NotificationWorker`, `NotificationService`, `DomainEventWorker` и `DomainEventRecorder`;
    - создаёт сервисы синхронизации в фиксированном порядке: `ClanInfoService`, `ClanwarService`, `RaidService`, `ClanwarLeagueService`;
    - создаёт `ClanManager` и `TelegramBotService`;
-   - регистрирует `closers` (`sqlite`, `cocHttpPool`) и `stopActions` (`domainEventWorker`, `telegramBotService`, `notificationWorker`).
+   - регистрирует `closers` (`instanceLock`, `sqlite`, `cocHttpPool`) и `stopActions` (`domainEventWorker`, `telegramBotService`, `notificationWorker`).
 5. `app.start()` запускает 4 асинхронных цикла через `coordinator.startLoop()`:
    - `syncLoop` → `clanManager.syncAll(signal)`
    - `notificationWorker` → `notificationWorker.run(signal)`
@@ -59,7 +60,7 @@ ClashBot — автономный сервис мониторинга клано
 
 1. При `SIGINT`, `SIGTERM`, вызове `shutdown()` или необработанной ошибке любого цикла (`crashed = true`) отменяется общий `AbortSignal`.
 2. Одновременно запускаются зарегистрированные `stopActions` (`domainEventWorker.requestStop()`, `telegramBotService.stop()`, `notificationWorker.requestStop()`) и ожидание завершения всех 4 циклов.
-3. После завершения циклов последовательно вызываются `closers` в обратном порядке регистрации: сначала `cocHttpPool` (`cocApiClient.close()`), затем `sqlite` (`db.close()`).
+3. После завершения циклов последовательно вызываются `closers` в обратном порядке регистрации: сначала `cocHttpPool` (`cocApiClient.close()`), затем `sqlite` (`db.close()`), затем `instanceLock` (`instanceLock.release()`).
 4. При превышении 15-секундного бюджета координатор пишет запись уровня `fatal`, сбрасывает буфер логгера (`logger.flush()`) и принудительно завершает процесс с кодом `1`.
 
 ## Конфигурация и секреты (`src/config/`)
@@ -171,7 +172,7 @@ NotificationWorker
 Ключевые системные инварианты:
 - **Атомарность событий и снимка получателей**: `domain_events` и `domain_event_destinations` (включая `subscription_id` поколения подписки) сохраняются в той же транзакции, что и изменение состояния клана/войны/рейда/сбоя.
 - **Чистые транзакции**: транзакции в `TransactionManager` строго синхронны (`better-sqlite3`, проверка на `PromiseLike` на уровне типов и в runtime); сетевые вызовы CoC API и Telegram выполняются только за пределами транзакций.
-- **Один активный процесс на файл БД**: межпроцессной блокировки нет, поэтому одновременно должен запускаться только один процесс ClashBot на один файл SQLite. Внутри процесса гонки между `/unlink` и воркерами закрыты условным атомарным захватом (`markMaterialized` в `DomainEventWorker`, `claimForSending` со статусом `'sending'` и `claimed_at` в `NotificationWorker`), а зависшие `'sending'`-записи восстанавливаются при старте воркера и по TTL (`claimTtlSeconds = 60` по умолчанию) с проверкой активности `subscription_id` в `clan_subscriptions`.
+- **Один активный процесс на файл БД**: запуск второго экземпляра ClashBot поверх той же файловой SQLite-базы программно блокируется на старте в `createApplication()` через эксклюзивную блокировку ОС на sidecar-файле `<database.path>.lock` (`acquireDatabaseInstanceLock` в `src/database/instanceLock.ts`, ошибка `InstanceLockError` до запуска фоновых циклов). Блокировка использует отдельный файл и не конфликтует с WAL и онлайн-бэкапом `scripts/backup-sqlite.sh`; при штатной остановке снимается после `db.close()`, а при аварийном падении автоматически освобождается ядром ОС без ручной очистки. Внутри процесса гонки между `/unlink` и воркерами закрыты условным атомарным захватом (`markMaterialized` в `DomainEventWorker`, `claimForSending` со статусом `'sending'` и `claimed_at` в `NotificationWorker`), а зависшие `'sending'`-записи восстанавливаются при старте воркера и по TTL (`claimTtlSeconds = 60` по умолчанию) с проверкой активности `subscription_id` в `clan_subscriptions`.
 - **Семантика доставки `at-least-once`**: при падении процесса или сбое БД после успешного `sendMessage`, но до `markAsSent`, запись остаётся в `'sending'` и после восстановления (при рестарте или по истечении `claimTtlSeconds`) будет поставлена в `'pending'` и отправлена повторно (если подписка всё ещё активна). Отмена подписки через `/unlink` отменяет `pending`-записи по `subscription_id` и не допускает нового захвата или новой попытки повтора; уже захваченный (`'sending'`) HTTP-запрос считается in-flight и может завершиться.
 
 Детальные контракты слоёв вынесены в SSOT-документы:
@@ -182,7 +183,7 @@ NotificationWorker
 ## Логирование и обработка ошибок
 
 - **Логирование (`src/logging/logger.ts`)**: `pino` пишет структурированные логи в `stdout` (JSON по умолчанию для контейнера, `pino-pretty` при `LOG_FORMAT=pretty`). Настроено редактирование полей (`supercellToken`, `telegramToken`, `authorization`, `headers.authorization` и вложенных вариантов) и санитизация секретов (`Bearer ...`, `bot<id>:<token>`, актуальных значений `SUPERCELL_TOKEN` / `TELEGRAM_TOKEN`) в сериализаторах `err` / `error`.
-- **Иерархия ошибок (`src/common/errors.ts`)**: базовый `AppError` (`code`, `context`, `cause`) и специализированные `ConfigError`, `ValidationError`, `AbortError`, `DatabaseError` (с `sqliteCode` и `isBusy()`), `DomainError`, `ExternalApiError` (`statusCode`, `retryable`).
+- **Иерархия ошибок (`src/common/errors.ts`)**: базовый `AppError` (`code`, `context`, `cause`) и специализированные `ConfigError`, `ValidationError`, `AbortError`, `DatabaseError` (с `sqliteCode` и `isBusy()`), `InstanceLockError` (`databasePath`, `lockPath`), `DomainError`, `ExternalApiError` (`statusCode`, `retryable`).
 - **Реакция на сбои**: ошибка отдельного сервиса синхронизации не валит приложение — она фиксируется в `SyncResult` и `sync_outages`. Неперехваченное исключение в любом из 4 фоновых циклов (`syncLoop`, `domainEventWorker`, `notificationWorker`, `telegramBotService`) логируется с уровнем `fatal` и инициирует остановку процесса с кодом возврата `1`.
 - **Восстановление в воркерах**: `DomainEventWorker` (пачки до 100, опрос раз в 1 с) при ошибке материализации переносит destination экспоненциальным backoff (от 1 с до 3600 с), на 5-й ошибке пишет алерт уровня `error`, но оставляет строку `pending` для дальнейших повторов. Политика доставки `NotificationWorker` описана в [`docs/reports.md`](reports.md) и [`docs/telegram.md`](telegram.md).
 
