@@ -290,7 +290,12 @@ function mapWarAttacks(raw: ParsedActiveWar): ClanwarAttack[] {
     return attacks;
 }
 
-function mapClanwarHeader(raw: ParsedActiveWar, warType: WarType, clanTag: string): Clanwar {
+function mapClanwarHeader(
+    raw: ParsedActiveWar,
+    warType: WarType,
+    clanTag: string,
+    endpoint: string,
+): Clanwar {
     const prepTime = extractApiTime(raw.preparationStartTime);
     const startTime = extractApiTime(raw.startTime);
     const endTime = extractApiTime(raw.endTime);
@@ -301,8 +306,18 @@ function mapClanwarHeader(raw: ParsedActiveWar, warType: WarType, clanTag: strin
         [tag1, tag2] = [tag2, tag1];
     }
 
-    const warUID = `${tag1}_${tag2}_${prepTime}`;
-    const resolvedClanTag = tag1 === clanTag ? tag1 : tag2;
+    if (clanTag !== tag1 && clanTag !== tag2) {
+        throw new CocApiError(
+            `[CocApiClient] Invalid ${warType} war response (endpoint = ${endpoint}): tracked clan tag ${clanTag} does not match war participants (${raw.clan.tag}, ${raw.opponent.tag})`,
+            {
+                kind: 'invalid_schema',
+                endpoint,
+            },
+        );
+    }
+
+    const resolvedClanTag = clanTag === tag1 ? tag1 : tag2;
+    const warUID = `${resolvedClanTag}_${tag1}_${tag2}_${prepTime}`;
 
     return {
         warUID,
@@ -330,14 +345,17 @@ export function parseCurrentWarResponse(
     }
 
     const parsed = parseWithSchema(activeWarResponseSchema, raw, endpoint, 'currentwar response');
+    const clanwar = mapClanwarHeader(parsed, WAR_TYPES.regular, clanTag, endpoint);
+
+    const clanIsTarget = parsed.clan.tag === clanTag;
+    const homeRaw = clanIsTarget ? parsed.clan : parsed.opponent;
+    const opponentRaw = clanIsTarget ? parsed.opponent : parsed.clan;
+
     return {
-        clanwar: mapClanwarHeader(parsed, WAR_TYPES.regular, clanTag),
-        clans: [
-            mapWarClan(parsed.clan, CLAN_SIDES.home),
-            mapWarClan(parsed.opponent, CLAN_SIDES.opponent),
-        ],
+        clanwar,
+        clans: [mapWarClan(homeRaw, CLAN_SIDES.home), mapWarClan(opponentRaw, CLAN_SIDES.opponent)],
         attacks: mapWarAttacks(parsed),
-        members: [mapWarMembers(parsed.clan), mapWarMembers(parsed.opponent)],
+        members: [mapWarMembers(homeRaw), mapWarMembers(opponentRaw)],
     };
 }
 
@@ -358,7 +376,7 @@ export function parseCwlWarResponse(
     const opponentRaw = clanIsTarget ? parsed.opponent : parsed.clan;
 
     return {
-        clanwar: mapClanwarHeader(parsed, WAR_TYPES.cwl, targetClanTag),
+        clanwar: mapClanwarHeader(parsed, WAR_TYPES.cwl, targetClanTag, endpoint),
         clans: [mapWarClan(homeRaw, CLAN_SIDES.home), mapWarClan(opponentRaw, CLAN_SIDES.opponent)],
         attacks: mapWarAttacks(parsed),
         members: [mapWarMembers(homeRaw), mapWarMembers(opponentRaw)],
