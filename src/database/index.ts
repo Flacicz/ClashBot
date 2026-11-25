@@ -5,6 +5,13 @@ export {
     type SqliteConnection,
 } from './database.js';
 export {
+    INSTANCE_LOCK_SUFFIX,
+    acquireDatabaseInstanceLock,
+    resolveInstanceLockPath,
+    type DatabaseInstanceLock,
+    type DatabaseInstanceLockOptions,
+} from './instanceLock.js';
+export {
     ForeignKeysGuard,
     isForeignKeysEnabled,
     requireForeignKeysEnabled,

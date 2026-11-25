@@ -58,6 +58,31 @@ export class DatabaseError extends AppError {
     }
 }
 
+export interface InstanceLockErrorOptions extends AppErrorOptions {
+    readonly message?: string;
+}
+
+export class InstanceLockError extends AppError {
+    readonly databasePath: string;
+    readonly lockPath: string;
+
+    constructor(databasePath: string, lockPath: string, options?: InstanceLockErrorOptions) {
+        const message =
+            options?.message ??
+            `[Lock] Another ClashBot instance is already using database "${databasePath}" (lock file: "${lockPath}"). Stop the running instance before starting a new one.`;
+        super('INSTANCE_LOCK_ERROR', message, {
+            ...(options?.cause !== undefined ? { cause: options.cause } : {}),
+            context: {
+                databasePath,
+                lockPath,
+                ...options?.context,
+            },
+        });
+        this.databasePath = databasePath;
+        this.lockPath = lockPath;
+    }
+}
+
 export class DomainError extends AppError {
     constructor(message: string, options?: AppErrorOptions) {
         super('DOMAIN_ERROR', message, options);

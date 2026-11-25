@@ -116,7 +116,7 @@ docker compose ps
 docker compose logs -f clashbot
 ```
 
-При пустом `./data` приложение создаёт `data/database.sqlite` и применяет SQL-миграции из `/app/migrations` внутри контейнера. `pino` пишет структурированный JSON в `stdout`; сообщения в Telegram форматируют даты в `UTC+3`.
+При пустом `./data` приложение создаёт `data/database.sqlite` (и пустой sidecar-файл блокировки `data/database.sqlite.lock` для программной защиты от запуска второго экземпляра на той же БД) и применяет SQL-миграции из `/app/migrations` внутри контейнера. `pino` пишет структурированный JSON в `stdout`; сообщения в Telegram форматируют даты в `UTC+3`. Блокировка `data/database.sqlite.lock` опирается на файловые блокировки ядра ОС: она не мешает онлайн-бэкапу `scripts/backup-sqlite.sh` и режиму `WAL` и не требует ручного удаления после штатной остановки или аварийного падения контейнера.
 
 Штатное обновление:
 
@@ -199,7 +199,7 @@ RCLONE_REMOTE="gdrive:clashbot-backups" ./scripts/backup-sqlite.sh
    docker compose stop clashbot
    ```
 
-3. Сохраните текущую БД и **обязательно удалите файлы `-wal` и `-shm`** (иначе SQLite при старте применит старый WAL поверх восстановленного снимка):
+3. Сохраните текущую БД и **обязательно удалите файлы `-wal` и `-shm`** (иначе SQLite при старте применит старый WAL поверх восстановленного снимка; пустой файл `data/database.sqlite.lock` не содержит данных БД и удалять его вручную не требуется):
 
    ```bash
    mv data/database.sqlite data/database.sqlite.before-restore
