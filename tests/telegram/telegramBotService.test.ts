@@ -15,6 +15,7 @@ import {
     TransactionManager,
 } from '../../src/database/index.js';
 import { createLogger } from '../../src/logging/index.js';
+import type { WakeableClanManager } from '../../src/services/index.js';
 import {
     AttackGuideCatalog,
     TELEGRAM_BOT_ALLOWED_UPDATES,
@@ -397,6 +398,7 @@ describe('TelegramBotService', () => {
         readonly skipBotInfo?: boolean;
         readonly pollingTimeoutSeconds?: number;
         readonly stopConfirmationTimeoutMs?: number;
+        readonly clanManager?: WakeableClanManager;
     }): TestHarness {
         const db = new Database(':memory:');
         openDatabases.push(db);
@@ -419,6 +421,7 @@ describe('TelegramBotService', () => {
             domainEventsRepo,
             transactionManager,
             logger,
+            ...(options?.clanManager !== undefined ? { clanManager: options.clanManager } : {}),
             ...(options?.pollingTimeoutSeconds !== undefined
                 ? { pollingTimeoutSeconds: options.pollingTimeoutSeconds }
                 : {}),
@@ -766,6 +769,75 @@ describe('TelegramBotService', () => {
                 'management',
             );
             expect(secondSubscriptionId).toBe(firstSubscriptionId);
+        });
+
+        it('notifies ClanManager strictly after /link transaction commits and skips notification on rejected or failed /link', async () => {
+            const observedInTransaction: boolean[] = [];
+            const observedTrackedOnNotify: string[][] = [];
+            const notify = vi.fn();
+
+            const { service, db, clansRepo, transactionManager, transport } = createHarness({
+                clanManager: { notify },
+            });
+            notify.mockImplementation(() => {
+                observedInTransaction.push(db.connection.inTransaction);
+                observedTrackedOnNotify.push(clansRepo.getTrackedClans());
+            });
+
+            // Rejected /link (invalid tag, non-admin) must not wake ClanManager
+            transport.chatMembers.set(memberKey(-1002, 43), 'member');
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 1,
+                    chatId: -1002,
+                    chatType: 'supergroup',
+                    userId: 43,
+                    text: '/link #2PPLQ',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 2,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #BAD!',
+                }),
+            );
+            expect(notify).not.toHaveBeenCalled();
+
+            // Failed DB transaction must not wake ClanManager
+            const txSpy = vi
+                .spyOn(transactionManager, 'retryInTransaction')
+                .mockImplementationOnce(() => {
+                    throw new DatabaseError('sqlite busy', { sqliteCode: 'SQLITE_BUSY' });
+                });
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 3,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+            txSpy.mockRestore();
+            expect(notify).not.toHaveBeenCalled();
+
+            // Successful /link notifies after commit with the new clan already tracked
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 4,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            expect(notify).toHaveBeenCalledTimes(1);
+            expect(observedInTransaction).toEqual([false]);
+            expect(observedTrackedOnNotify).toEqual([['#2PPLQ']]);
         });
 
         it('rejects /link from non-administrator, private chat mismatch, unsupported chat types, invalid args and invalid tags', async () => {

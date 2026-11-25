@@ -11,6 +11,7 @@ export {
     DEFAULT_SYNC_RETRY_DELAY_MS,
     type ClanManagerOptions,
     type TrackedClansReader,
+    type WakeableClanManager,
 } from './clanManager.js';
 export {
     CLANWAR_LEAGUE_SERVICE_NAME,

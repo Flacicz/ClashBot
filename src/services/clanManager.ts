@@ -17,6 +17,10 @@ export const DEFAULT_SYNC_RETRY_DELAY_MS = 2 * 1000;
 
 export type TrackedClansReader = Pick<ClansRepo, 'getTrackedClans'>;
 
+export interface WakeableClanManager {
+    notify(): void;
+}
+
 export interface ClanManagerOptions {
     readonly retryPolicy?: RetryPolicy;
     readonly clock?: Clock;
@@ -40,7 +44,28 @@ function validateNonNegativeDuration(name: string, value: number): void {
     }
 }
 
-export class ClanManager {
+function computeNextDueMs(
+    scheduledDueMs: number,
+    finishedNowMs: number,
+    cycleIntervalMs: number,
+): number {
+    if (cycleIntervalMs === 0) {
+        return finishedNowMs;
+    }
+    if (finishedNowMs < scheduledDueMs) {
+        return finishedNowMs + cycleIntervalMs;
+    }
+
+    const next = scheduledDueMs + cycleIntervalMs;
+    if (next > finishedNowMs) {
+        return next;
+    }
+
+    const missedIntervals = Math.floor((finishedNowMs - scheduledDueMs) / cycleIntervalMs) + 1;
+    return scheduledDueMs + missedIntervals * cycleIntervalMs;
+}
+
+export class ClanManager implements WakeableClanManager {
     private readonly services: readonly SyncService[];
     private readonly clansRepo: TrackedClansReader;
     private readonly syncOutageRepo: SyncOutageRepo;
@@ -51,6 +76,10 @@ export class ClanManager {
     private readonly cycleIntervalMs: number;
     private readonly clanLoadRetryDelayMs: number;
     private readonly logger?: Logger;
+
+    private readonly nextDueByClan = new Map<string, number>();
+    private wakeRequested = false;
+    private activeSleepController: AbortController | undefined;
 
     constructor(
         services: readonly SyncService[],
@@ -81,8 +110,15 @@ export class ClanManager {
         }
     }
 
+    notify(): void {
+        this.wakeRequested = true;
+        this.activeSleepController?.abort();
+    }
+
     async syncAll(signal?: AbortSignal): Promise<void> {
         while (!signal?.aborted) {
+            this.wakeRequested = false;
+
             let targetClans: string[];
 
             try {
@@ -90,7 +126,11 @@ export class ClanManager {
             } catch (error: unknown) {
                 if (error instanceof DatabaseError) {
                     this.logger?.error({ err: error }, '[Manager] Failed to load tracked clans');
-                    const slept = await this.sleepInterruptible(this.clanLoadRetryDelayMs, signal);
+                    const slept = await this.sleepInterruptible(
+                        this.clanLoadRetryDelayMs,
+                        signal,
+                        false,
+                    );
                     if (!slept) {
                         break;
                     }
@@ -103,70 +143,61 @@ export class ClanManager {
                 break;
             }
 
-            this.logger?.info(
-                { trackedClansCount: targetClans.length },
-                '[Manager] Starting synchronization cycle',
-            );
+            const loopNowMs = this.clock.nowMs();
+            const trackedSet = new Set(targetClans);
+            for (const trackedTag of this.nextDueByClan.keys()) {
+                if (!trackedSet.has(trackedTag)) {
+                    this.nextDueByClan.delete(trackedTag);
+                }
+            }
+
+            const newDueClans: string[] = [];
+            const existingDueClans: string[] = [];
+            for (const clanTag of targetClans) {
+                const scheduledDue = this.nextDueByClan.get(clanTag);
+                if (scheduledDue === undefined) {
+                    this.nextDueByClan.set(clanTag, loopNowMs);
+                    newDueClans.push(clanTag);
+                } else if (scheduledDue <= loopNowMs) {
+                    existingDueClans.push(clanTag);
+                }
+            }
+
+            const dueClans = [...newDueClans, ...existingDueClans];
+
+            if (dueClans.length > 0) {
+                this.logger?.info(
+                    {
+                        trackedClansCount: targetClans.length,
+                        dueClansCount: dueClans.length,
+                    },
+                    '[Manager] Starting synchronization cycle',
+                );
+            }
 
             let cycleCancelled = false;
-            for (const clanTag of targetClans) {
+            let wokeMidCycle = false;
+
+            for (const clanTag of dueClans) {
+                if (signal?.aborted) {
+                    break;
+                }
+
+                const scheduledDueMs = this.nextDueByClan.get(clanTag) ?? loopNowMs;
+                cycleCancelled = await this.syncClan(clanTag, signal);
                 if (cycleCancelled || signal?.aborted) {
                     break;
                 }
 
-                for (const service of this.services) {
-                    if (cycleCancelled || signal?.aborted) {
-                        break;
-                    }
+                const finishedNowMs = this.clock.nowMs();
+                this.nextDueByClan.set(
+                    clanTag,
+                    computeNextDueMs(scheduledDueMs, finishedNowMs, this.cycleIntervalMs),
+                );
 
-                    const serviceName = service.getServiceName();
-                    this.logger?.debug(
-                        { service: serviceName, clanTag },
-                        '[Manager] Synchronizing service for clan',
-                    );
-
-                    try {
-                        const result = await this.syncWithRetry(service, clanTag, signal);
-
-                        if (!result.successFlag) {
-                            if (signal?.aborted) {
-                                this.logger?.info(
-                                    { service: serviceName, clanTag },
-                                    '[Manager] Synchronization interrupted during shutdown',
-                                );
-                                cycleCancelled = true;
-                                break;
-                            }
-
-                            this.logger?.error(
-                                {
-                                    service: serviceName,
-                                    clanTag,
-                                    maxAttempts: this.retryPolicy.maxAttempts,
-                                    errorMsg: result.errorMsg,
-                                },
-                                '[ClanManager] Service completely failed after max attempts',
-                            );
-                            this.handleSyncFailure(result);
-                            continue;
-                        }
-
-                        this.handleSyncRecovery(result);
-                    } catch (error: unknown) {
-                        if (isAbortError(error) || signal?.aborted) {
-                            this.logger?.info(
-                                { service: serviceName, clanTag },
-                                '[Manager] Synchronization cancelled during shutdown',
-                            );
-                            cycleCancelled = true;
-                            break;
-                        }
-
-                        this.logger?.error(
-                            { err: error, service: serviceName, clanTag },
-                            '[Manager] Unhandled exception while synchronizing service for clan',
-                        );
-                    }
+                if (this.isWakeRequested()) {
+                    wokeMidCycle = true;
+                    break;
                 }
             }
 
@@ -174,18 +205,109 @@ export class ClanManager {
                 break;
             }
 
-            this.logger?.info(
-                { cycleIntervalMs: this.cycleIntervalMs },
-                '[Manager] Cycle finished. Sleeping before next cycle',
-            );
+            if (wokeMidCycle || this.isWakeRequested()) {
+                continue;
+            }
 
-            const slept = await this.sleepInterruptible(this.cycleIntervalMs, signal);
-            if (!slept) {
+            const sleepDurationMs = this.computeSleepDurationMs(targetClans, this.clock.nowMs());
+
+            if (dueClans.length > 0) {
+                this.logger?.info(
+                    {
+                        cycleIntervalMs: this.cycleIntervalMs,
+                        sleepDurationMs,
+                    },
+                    '[Manager] Cycle finished. Sleeping before next cycle',
+                );
+            }
+
+            const continued = await this.sleepInterruptible(sleepDurationMs, signal, true);
+            if (!continued) {
                 break;
             }
         }
 
         this.logger?.info('[Manager] Synchronization cycle stopped gracefully.');
+    }
+
+    private async syncClan(clanTag: string, signal?: AbortSignal): Promise<boolean> {
+        for (const service of this.services) {
+            if (signal?.aborted) {
+                return true;
+            }
+
+            const serviceName = service.getServiceName();
+            this.logger?.debug(
+                { service: serviceName, clanTag },
+                '[Manager] Synchronizing service for clan',
+            );
+
+            try {
+                const result = await this.syncWithRetry(service, clanTag, signal);
+
+                if (!result.successFlag) {
+                    if (signal?.aborted) {
+                        this.logger?.info(
+                            { service: serviceName, clanTag },
+                            '[Manager] Synchronization interrupted during shutdown',
+                        );
+                        return true;
+                    }
+
+                    this.logger?.error(
+                        {
+                            service: serviceName,
+                            clanTag,
+                            maxAttempts: this.retryPolicy.maxAttempts,
+                            errorMsg: result.errorMsg,
+                        },
+                        '[ClanManager] Service completely failed after max attempts',
+                    );
+                    this.handleSyncFailure(result);
+                    continue;
+                }
+
+                this.handleSyncRecovery(result);
+            } catch (error: unknown) {
+                if (isAbortError(error) || signal?.aborted) {
+                    this.logger?.info(
+                        { service: serviceName, clanTag },
+                        '[Manager] Synchronization cancelled during shutdown',
+                    );
+                    return true;
+                }
+
+                this.logger?.error(
+                    { err: error, service: serviceName, clanTag },
+                    '[Manager] Unhandled exception while synchronizing service for clan',
+                );
+            }
+        }
+
+        return false;
+    }
+
+    private computeSleepDurationMs(targetClans: readonly string[], nowMs: number): number {
+        if (targetClans.length === 0) {
+            return this.cycleIntervalMs;
+        }
+
+        let earliestDueMs = Number.POSITIVE_INFINITY;
+        for (const clanTag of targetClans) {
+            const dueMs = this.nextDueByClan.get(clanTag);
+            if (dueMs === undefined) {
+                return 0;
+            }
+            if (dueMs < earliestDueMs) {
+                earliestDueMs = dueMs;
+            }
+        }
+
+        if (!Number.isFinite(earliestDueMs)) {
+            return this.cycleIntervalMs;
+        }
+
+        return Math.max(0, earliestDueMs - nowMs);
     }
 
     private async syncWithRetry(
@@ -277,15 +399,58 @@ export class ClanManager {
         });
     }
 
-    private async sleepInterruptible(ms: number, signal?: AbortSignal): Promise<boolean> {
+    private isWakeRequested(): boolean {
+        return this.wakeRequested;
+    }
+
+    private async sleepInterruptible(
+        ms: number,
+        signal: AbortSignal | undefined,
+        allowWake: boolean,
+    ): Promise<boolean> {
+        if (signal?.aborted) {
+            return false;
+        }
+        if (allowWake && this.isWakeRequested()) {
+            return true;
+        }
+
+        if (!allowWake) {
+            try {
+                await this.clock.sleep(ms, signal);
+                return !signal?.aborted;
+            } catch (error: unknown) {
+                if (isAbortError(error) || signal?.aborted) {
+                    return false;
+                }
+                throw error;
+            }
+        }
+
+        const sleepController = new AbortController();
+        this.activeSleepController = sleepController;
+
+        const onExternalAbort = (): void => {
+            sleepController.abort(signal?.reason);
+        };
+        signal?.addEventListener('abort', onExternalAbort, { once: true });
+
         try {
-            await this.clock.sleep(ms, signal);
+            await this.clock.sleep(ms, sleepController.signal);
             return !signal?.aborted;
         } catch (error: unknown) {
-            if (isAbortError(error) || signal?.aborted) {
+            if (signal?.aborted) {
                 return false;
             }
+            if (isAbortError(error)) {
+                return true;
+            }
             throw error;
+        } finally {
+            signal?.removeEventListener('abort', onExternalAbort);
+            if (this.activeSleepController === sleepController) {
+                this.activeSleepController = undefined;
+            }
         }
     }
 }
