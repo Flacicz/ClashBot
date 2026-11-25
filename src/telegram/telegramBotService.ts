@@ -1,6 +1,7 @@
 import { Bot, type BotConfig, type Context, HttpError } from 'grammy';
 import type {
     Chat,
+    ChatMemberUpdated,
     InlineKeyboardMarkup as GrammyInlineKeyboardMarkup,
     Message,
     Update,
@@ -11,11 +12,17 @@ import { escapeHtml } from '../common/formatUtils.js';
 import type {
     ClansRepo,
     DomainEventsRepo,
+    NotificationRepo,
     SubscriptionRepo,
     TransactionManager,
 } from '../database/index.js';
 import { createLogger, type Logger } from '../logging/logger.js';
 import type { WakeableClanManager } from '../services/clanManager.js';
+import {
+    type DisableSubscriptionsResult,
+    type TelegramDestinationLifecycle,
+    TelegramSubscriptionLifecycle,
+} from '../services/telegramSubscriptionLifecycle.js';
 import type { AttackGuideCatalog } from './attackGuideCatalog.js';
 import {
     type CallbackContext,
@@ -37,7 +44,11 @@ import {
 } from './keyboards.js';
 import { type Audience, resolveAudience } from './validation.js';
 
-export const TELEGRAM_BOT_ALLOWED_UPDATES = ['message', 'callback_query'] as const;
+export const TELEGRAM_BOT_ALLOWED_UPDATES = [
+    'message',
+    'callback_query',
+    'my_chat_member',
+] as const;
 export const DEFAULT_POLLING_TIMEOUT_SECONDS = 2;
 export const DEFAULT_STOP_CONFIRMATION_TIMEOUT_MS = 2_000;
 
@@ -68,7 +79,9 @@ export interface TelegramBotServiceDependencies {
     readonly clansRepo: ClansRepo;
     readonly subscriptionRepo: SubscriptionRepo;
     readonly domainEventsRepo: DomainEventsRepo;
+    readonly notificationRepo?: NotificationRepo;
     readonly transactionManager: TransactionManager;
+    readonly destinationLifecycle?: TelegramDestinationLifecycle;
     readonly clanManager?: WakeableClanManager;
     readonly logger?: Logger;
     readonly botConfig?: BotConfig<Context>;
@@ -127,6 +140,7 @@ export class TelegramBotService {
     private readonly subscriptionRepo: SubscriptionRepo;
     private readonly domainEventsRepo: DomainEventsRepo;
     private readonly transactionManager: TransactionManager;
+    private readonly destinationLifecycle?: TelegramDestinationLifecycle;
     private readonly clanManager?: WakeableClanManager;
     private readonly logger: Logger;
     private readonly pollingTimeoutSeconds: number;
@@ -139,6 +153,17 @@ export class TelegramBotService {
         this.subscriptionRepo = deps.subscriptionRepo;
         this.domainEventsRepo = deps.domainEventsRepo;
         this.transactionManager = deps.transactionManager;
+        if (deps.destinationLifecycle !== undefined) {
+            this.destinationLifecycle = deps.destinationLifecycle;
+        } else if (deps.notificationRepo !== undefined) {
+            this.destinationLifecycle = new TelegramSubscriptionLifecycle({
+                transactionManager: deps.transactionManager,
+                clansRepo: deps.clansRepo,
+                subscriptionRepo: deps.subscriptionRepo,
+                domainEventsRepo: deps.domainEventsRepo,
+                notificationRepo: deps.notificationRepo,
+            });
+        }
         if (deps.clanManager !== undefined) {
             this.clanManager = deps.clanManager;
         }
@@ -287,6 +312,13 @@ export class TelegramBotService {
             }
             await this.handleCallbackQuery(ctx.api, ctx.callbackQuery);
         });
+
+        this.bot.on('my_chat_member', (ctx) => {
+            if (this.activeSignal?.aborted) {
+                return;
+            }
+            this.handleMyChatMember(ctx.myChatMember);
+        });
     }
 
     private isCancelledError(error: unknown): boolean {
@@ -365,6 +397,12 @@ export class TelegramBotService {
         message: Message,
         ownBotUsername: string,
     ): Promise<void> {
+        const migration = this.extractChatMigration(message);
+        if (migration !== null) {
+            this.handleChatMigration(migration.oldChatId, migration.newChatId, migration.newTitle);
+            return;
+        }
+
         const text = 'text' in message && typeof message.text === 'string' ? message.text : '';
         const command = parseBotCommand(text);
         if (command === null) {
@@ -409,6 +447,229 @@ export class TelegramBotService {
         }
 
         await this.handleUnlinkCommand(api, chatId, userId, messageThreadId, message.chat, command);
+    }
+
+    private extractChatMigration(message: Message): {
+        readonly oldChatId: number;
+        readonly newChatId: number;
+        readonly newTitle?: string;
+    } | null {
+        const chatTitle =
+            'title' in message.chat &&
+            typeof message.chat.title === 'string' &&
+            message.chat.title.length > 0
+                ? message.chat.title
+                : undefined;
+
+        if (
+            'migrate_to_chat_id' in message &&
+            typeof message.migrate_to_chat_id === 'number' &&
+            Number.isSafeInteger(message.migrate_to_chat_id) &&
+            message.migrate_to_chat_id !== 0 &&
+            message.migrate_to_chat_id !== message.chat.id
+        ) {
+            return {
+                oldChatId: message.chat.id,
+                newChatId: message.migrate_to_chat_id,
+                ...(chatTitle !== undefined ? { newTitle: chatTitle } : {}),
+            };
+        }
+
+        if (
+            'migrate_from_chat_id' in message &&
+            typeof message.migrate_from_chat_id === 'number' &&
+            Number.isSafeInteger(message.migrate_from_chat_id) &&
+            message.migrate_from_chat_id !== 0 &&
+            message.migrate_from_chat_id !== message.chat.id
+        ) {
+            return {
+                oldChatId: message.migrate_from_chat_id,
+                newChatId: message.chat.id,
+                ...(chatTitle !== undefined ? { newTitle: chatTitle } : {}),
+            };
+        }
+
+        return null;
+    }
+
+    private handleChatMigration(oldChatId: number, newChatId: number, newTitle?: string): void {
+        try {
+            if (this.destinationLifecycle !== undefined) {
+                const result = this.destinationLifecycle.migrateChat(
+                    oldChatId,
+                    newChatId,
+                    newTitle,
+                );
+                if (
+                    result.migratedChats > 0 ||
+                    result.migratedSubscriptions > 0 ||
+                    result.deduplicatedSubscriptions > 0 ||
+                    result.migratedDestinations > 0 ||
+                    result.migratedNotifications > 0
+                ) {
+                    this.logger.info(
+                        {
+                            oldChatId,
+                            newChatId,
+                            migratedChats: result.migratedChats,
+                            migratedSubscriptions: result.migratedSubscriptions,
+                            deduplicatedSubscriptions: result.deduplicatedSubscriptions,
+                            migratedDestinations: result.migratedDestinations,
+                            migratedNotifications: result.migratedNotifications,
+                        },
+                        'Migrated Telegram chat subscriptions and queues after group upgrade',
+                    );
+                }
+                return;
+            }
+
+            const result = this.transactionManager.retryInTransaction(() => {
+                const subResult = this.subscriptionRepo.migrateChat(oldChatId, newChatId, newTitle);
+                for (const dupSubId of subResult.duplicateSubscriptionIds) {
+                    this.domainEventsRepo.cancelForSubscription(dupSubId);
+                }
+                const migratedDestinations = this.domainEventsRepo.migratePendingChatId(
+                    oldChatId,
+                    newChatId,
+                );
+                return { subResult, migratedDestinations };
+            });
+
+            if (
+                result.subResult.migratedChats > 0 ||
+                result.subResult.migratedSubscriptions > 0 ||
+                result.subResult.duplicateSubscriptionIds.length > 0 ||
+                result.migratedDestinations > 0
+            ) {
+                this.logger.warn(
+                    {
+                        oldChatId,
+                        newChatId,
+                        migratedChats: result.subResult.migratedChats,
+                        migratedSubscriptions: result.subResult.migratedSubscriptions,
+                        deduplicatedSubscriptions: result.subResult.duplicateSubscriptionIds.length,
+                        migratedDestinations: result.migratedDestinations,
+                    },
+                    'Migrated Telegram chat without notificationRepo; pending notifications were not updated',
+                );
+            }
+        } catch (error: unknown) {
+            if (error instanceof DatabaseError) {
+                this.logger.error(
+                    { err: error, oldChatId, newChatId },
+                    'Failed to migrate Telegram chat after group upgrade',
+                );
+                return;
+            }
+            throw error;
+        }
+    }
+
+    private handleMyChatMember(update: ChatMemberUpdated): void {
+        const newMember = update.new_chat_member;
+        const isUnavailable =
+            newMember.status === 'kicked' ||
+            newMember.status === 'left' ||
+            (newMember.status === 'restricted' && !newMember.can_send_messages);
+
+        if (!isUnavailable) {
+            return;
+        }
+
+        const chatId = update.chat.id;
+        let result: DisableSubscriptionsResult;
+        try {
+            if (this.destinationLifecycle !== undefined) {
+                result = this.destinationLifecycle.disableChat(chatId);
+            } else {
+                result = this.disableChatSubscriptionsFallback(chatId);
+            }
+        } catch (error: unknown) {
+            if (error instanceof DatabaseError) {
+                this.logger.error(
+                    {
+                        err: error,
+                        chatId,
+                        oldStatus: update.old_chat_member.status,
+                        newStatus: newMember.status,
+                    },
+                    'Failed to disable Telegram subscriptions after my_chat_member update',
+                );
+                return;
+            }
+            throw error;
+        }
+
+        if (result.disabledSubscriptionIds.length > 0) {
+            this.logger.warn(
+                {
+                    chatId,
+                    chatType: update.chat.type,
+                    oldStatus: update.old_chat_member.status,
+                    newStatus: newMember.status,
+                    disabledSubscriptionIds: result.disabledSubscriptionIds,
+                    disabledClanTags: result.disabledClanTags,
+                    untrackedClanTags: result.untrackedClanTags,
+                },
+                'Automatically disabled Telegram subscriptions after my_chat_member update',
+            );
+        }
+    }
+
+    private disableChatSubscriptionsFallback(chatId: number): DisableSubscriptionsResult {
+        return this.transactionManager.retryInTransaction(() => {
+            const subscriptions = this.subscriptionRepo.getSubscriptionsForChat(chatId);
+            if (subscriptions.length === 0) {
+                return {
+                    disabledSubscriptionIds: [],
+                    disabledClanTags: [],
+                    untrackedClanTags: [],
+                };
+            }
+
+            const disabledSubscriptionIds: number[] = [];
+            const disabledClanTags = new Set<string>();
+            const untrackedClanTags = new Set<string>();
+
+            for (const subscription of subscriptions) {
+                this.domainEventsRepo.cancelForSubscription(subscription.subscriptionId);
+                const removed = this.subscriptionRepo.unsubscribeFromChat(
+                    subscription.chatId,
+                    subscription.messageThreadId,
+                    subscription.clanTag,
+                    subscription.audience,
+                );
+                if (!removed) {
+                    continue;
+                }
+
+                disabledSubscriptionIds.push(subscription.subscriptionId);
+                disabledClanTags.add(subscription.clanTag);
+
+                if (
+                    !this.subscriptionRepo.hasSubscriptionsForChat(
+                        subscription.chatId,
+                        subscription.messageThreadId,
+                    )
+                ) {
+                    this.subscriptionRepo.deleteTelegramChat(
+                        subscription.chatId,
+                        subscription.messageThreadId,
+                    );
+                }
+
+                if (!this.subscriptionRepo.hasSubscriptionsForClan(subscription.clanTag)) {
+                    this.clansRepo.disableTracking(subscription.clanTag);
+                    untrackedClanTags.add(subscription.clanTag);
+                }
+            }
+
+            return {
+                disabledSubscriptionIds,
+                disabledClanTags: [...disabledClanTags],
+                untrackedClanTags: [...untrackedClanTags],
+            };
+        });
     }
 
     private async canManageCurrentChat(

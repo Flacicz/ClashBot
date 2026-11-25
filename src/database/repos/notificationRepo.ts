@@ -684,4 +684,83 @@ export class NotificationRepo {
             },
         );
     }
+
+    migrateActiveChatId(oldChatId: number, newChatId: number): number {
+        if (oldChatId === newChatId) {
+            return 0;
+        }
+
+        return runRepoQuery(
+            REPO_NAME,
+            'migrate active notifications chat_id',
+            { oldChatId, newChatId },
+            () => {
+                const conn = getConnection(this.source);
+                const runAtomic = (): number => {
+                    conn.prepare<[number, number]>(
+                        `UPDATE notifications
+                         SET status = 'cancelled',
+                             claimed_at = NULL,
+                             next_attempt_at = NULL,
+                             last_error = 'chat migrated duplicate'
+                         WHERE chat_id = ?
+                           AND status IN ('pending', 'sending')
+                           AND domain_event_destination_id IS NULL
+                           AND EXISTS (
+                               SELECT 1
+                               FROM notifications existing
+                               WHERE existing.domain_event_destination_id IS NULL
+                                 AND existing.event_type = notifications.event_type
+                                 AND existing.event_id = notifications.event_id
+                                 AND existing.chat_id = ?
+                                 AND existing.message_thread_id = notifications.message_thread_id
+                                 AND existing.part_index = notifications.part_index
+                           );`,
+                    ).run(oldChatId, newChatId);
+
+                    const result = conn
+                        .prepare<[number, number]>(
+                            `UPDATE notifications
+                             SET chat_id = ?
+                             WHERE chat_id = ?
+                               AND status IN ('pending', 'sending');`,
+                        )
+                        .run(newChatId, oldChatId);
+
+                    return result.changes;
+                };
+
+                return conn.inTransaction ? runAtomic() : conn.transaction(runAtomic).immediate();
+            },
+        );
+    }
+
+    requeueAfterChatMigration(
+        notificationId: number,
+        newChatId: number,
+        nextAttemptAt: number,
+        error: string,
+    ): boolean {
+        return runRepoQuery(
+            REPO_NAME,
+            'requeue notification after chat migration',
+            { notificationId, newChatId, nextAttemptAt },
+            () => {
+                const result = getConnection(this.source)
+                    .prepare<[number, number, string, number]>(
+                        `UPDATE notifications
+                         SET status = 'pending',
+                             chat_id = ?,
+                             attempts = attempts + 1,
+                             next_attempt_at = ?,
+                             claimed_at = NULL,
+                             last_error = ?
+                         WHERE id = ?
+                           AND status = 'sending';`,
+                    )
+                    .run(newChatId, nextAttemptAt, error, notificationId);
+                return result.changes === 1;
+            },
+        );
+    }
 }

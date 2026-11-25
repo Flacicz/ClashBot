@@ -8,10 +8,14 @@ import {
     isAbortError,
 } from '../common/errors.js';
 import { GENERAL_CHAT_THREAD_ID } from '../database/repos/subscriptionRepo.js';
+import type { TelegramDestinationUnavailableScope } from '../services/telegramSubscriptionLifecycle.js';
 
 export const DEFAULT_TELEGRAM_REQUEST_TIMEOUT_SECONDS = 10;
 
-export type TelegramErrorKind = 'aborted' | 'rate_limit' | 'transient' | 'permanent';
+export type TelegramErrorKind =
+    'aborted' | 'rate_limit' | 'transient' | 'chat_migrated' | 'permanent';
+
+export type { TelegramDestinationUnavailableScope };
 
 export interface TelegramErrorClassification {
     readonly kind: TelegramErrorKind;
@@ -19,24 +23,93 @@ export interface TelegramErrorClassification {
     readonly message: string;
     readonly statusCode?: number;
     readonly retryAfterSeconds?: number;
+    readonly migrateToChatId?: number;
+    readonly destinationUnavailableScope?: TelegramDestinationUnavailableScope;
 }
 
 export interface TelegramDeliveryErrorOptions extends ExternalApiErrorOptions {
     readonly kind: Exclude<TelegramErrorKind, 'aborted'>;
     readonly retryAfterSeconds?: number;
+    readonly migrateToChatId?: number;
+    readonly destinationUnavailableScope?: TelegramDestinationUnavailableScope;
+}
+
+const DESTINATION_UNAVAILABLE_TOPIC_PATTERNS = [
+    'message thread not found',
+    'topic_deleted',
+    'topic deleted',
+    'topic_closed',
+    'topic closed',
+] as const;
+
+const DESTINATION_UNAVAILABLE_CHAT_PATTERNS = [
+    'chat not found',
+    'group chat was deactivated',
+    'chat was deactivated',
+    'have no rights to send',
+    'not enough rights to send',
+    'need administrator rights',
+    'chat_write_forbidden',
+    'channel_private',
+    'chat_restricted',
+    'peer_id_invalid',
+    'user_is_blocked',
+    'input_user_deactivated',
+    'user is deactivated',
+    'bot was blocked',
+    'bot was kicked',
+    'bot is not a member',
+    "bot can't initiate conversation",
+    "bot can't send messages to bots",
+] as const;
+
+export function inferDestinationUnavailableScope(
+    statusCode: number | undefined,
+    description: string,
+): TelegramDestinationUnavailableScope | undefined {
+    const normalized = description.toLowerCase();
+
+    if (DESTINATION_UNAVAILABLE_TOPIC_PATTERNS.some((pattern) => normalized.includes(pattern))) {
+        return 'destination';
+    }
+
+    if (statusCode === 403) {
+        return 'chat';
+    }
+
+    if (
+        statusCode === 400 &&
+        DESTINATION_UNAVAILABLE_CHAT_PATTERNS.some((pattern) => normalized.includes(pattern))
+    ) {
+        return 'chat';
+    }
+
+    return undefined;
 }
 
 export class TelegramDeliveryError extends ExternalApiError {
     readonly kind: Exclude<TelegramErrorKind, 'aborted'>;
     readonly retryAfterSeconds?: number;
+    readonly migrateToChatId?: number;
+    readonly destinationUnavailableScope?: TelegramDestinationUnavailableScope;
 
     constructor(message: string, options: TelegramDeliveryErrorOptions) {
+        const destinationUnavailableScope =
+            options.kind === 'permanent'
+                ? (options.destinationUnavailableScope ??
+                  inferDestinationUnavailableScope(options.statusCode, message))
+                : undefined;
+
         const context: Record<string, unknown> = {
             kind: options.kind,
             ...(options.statusCode !== undefined ? { statusCode: options.statusCode } : {}),
             ...(options.retryAfterSeconds !== undefined
                 ? { retryAfterSeconds: options.retryAfterSeconds }
                 : {}),
+            ...(options.migrateToChatId !== undefined
+                ? { migrateToChatId: options.migrateToChatId }
+                : {}),
+            ...(destinationUnavailableScope !== undefined ? { destinationUnavailableScope } : {}),
             ...(options.context ?? {}),
         };
 
@@ -44,12 +117,20 @@ export class TelegramDeliveryError extends ExternalApiError {
             cause: options.cause,
             context,
             ...(options.statusCode !== undefined ? { statusCode: options.statusCode } : {}),
-            retryable: options.retryable ?? options.kind !== 'permanent',
+            retryable:
+                options.retryable ??
+                (options.kind === 'rate_limit' || options.kind === 'transient'),
         });
 
         this.kind = options.kind;
         if (options.retryAfterSeconds !== undefined) {
             this.retryAfterSeconds = options.retryAfterSeconds;
+        }
+        if (options.migrateToChatId !== undefined) {
+            this.migrateToChatId = options.migrateToChatId;
+        }
+        if (destinationUnavailableScope !== undefined) {
+            this.destinationUnavailableScope = destinationUnavailableScope;
         }
     }
 }
@@ -108,6 +189,37 @@ function extractRetryAfterFromObject(value: unknown): number | undefined {
     return undefined;
 }
 
+function normalizeSafeChatId(value: unknown): number | undefined {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value === 0) {
+        return undefined;
+    }
+    return value;
+}
+
+function extractMigrateToChatIdFromObject(value: unknown): number | undefined {
+    if (typeof value !== 'object' || value === null) {
+        return undefined;
+    }
+
+    const record = value as Record<string, unknown>;
+    const direct = normalizeSafeChatId(record.migrateToChatId ?? record.migrate_to_chat_id);
+    if (direct !== undefined) {
+        return direct;
+    }
+
+    const parameters = record.parameters;
+    if (typeof parameters === 'object' && parameters !== null) {
+        const paramMigrateToChatId = normalizeSafeChatId(
+            (parameters as Record<string, unknown>).migrate_to_chat_id,
+        );
+        if (paramMigrateToChatId !== undefined) {
+            return paramMigrateToChatId;
+        }
+    }
+
+    return undefined;
+}
+
 function extractStatusCodeFromObject(value: unknown): number | undefined {
     if (typeof value !== 'object' || value === null) {
         return undefined;
@@ -157,11 +269,18 @@ export function classifyTelegramError(
             ...(error.retryAfterSeconds !== undefined
                 ? { retryAfterSeconds: error.retryAfterSeconds }
                 : {}),
+            ...(error.migrateToChatId !== undefined
+                ? { migrateToChatId: error.migrateToChatId }
+                : {}),
+            ...(error.destinationUnavailableScope !== undefined
+                ? { destinationUnavailableScope: error.destinationUnavailableScope }
+                : {}),
         };
     }
 
     if (error instanceof GrammyError) {
         const retryAfterSeconds = extractRetryAfterFromObject(error);
+        const migrateToChatId = extractMigrateToChatIdFromObject(error);
         const statusCode =
             typeof error.error_code === 'number' &&
             Number.isInteger(error.error_code) &&
@@ -179,6 +298,16 @@ export function classifyTelegramError(
             };
         }
 
+        if (migrateToChatId !== undefined) {
+            return {
+                kind: 'chat_migrated',
+                retryable: false,
+                statusCode: statusCode ?? 400,
+                migrateToChatId,
+                message,
+            };
+        }
+
         if (statusCode !== undefined && statusCode >= 500 && statusCode <= 599) {
             return {
                 kind: 'transient',
@@ -189,10 +318,21 @@ export function classifyTelegramError(
         }
 
         if (statusCode !== undefined && statusCode >= 400 && statusCode <= 499) {
+            const descriptionText =
+                typeof error.description === 'string' && error.description.length > 0
+                    ? `${error.description} ${message}`
+                    : message;
+            const destinationUnavailableScope = inferDestinationUnavailableScope(
+                statusCode,
+                descriptionText,
+            );
             return {
                 kind: 'permanent',
                 retryable: false,
                 statusCode,
+                ...(destinationUnavailableScope !== undefined
+                    ? { destinationUnavailableScope }
+                    : {}),
                 message,
             };
         }
@@ -215,6 +355,7 @@ export function classifyTelegramError(
 
     if (error instanceof ExternalApiError) {
         const retryAfterSeconds = extractRetryAfterFromObject(error);
+        const migrateToChatId = extractMigrateToChatIdFromObject(error);
         if (error.statusCode === 429 || retryAfterSeconds !== undefined) {
             return {
                 kind: 'rate_limit',
@@ -225,11 +366,28 @@ export function classifyTelegramError(
             };
         }
 
+        if (migrateToChatId !== undefined) {
+            return {
+                kind: 'chat_migrated',
+                retryable: false,
+                statusCode: error.statusCode ?? 400,
+                migrateToChatId,
+                message,
+            };
+        }
+
         if (!error.retryable) {
+            const destinationUnavailableScope = inferDestinationUnavailableScope(
+                error.statusCode,
+                message,
+            );
             return {
                 kind: 'permanent',
                 retryable: false,
                 ...(error.statusCode !== undefined ? { statusCode: error.statusCode } : {}),
+                ...(destinationUnavailableScope !== undefined
+                    ? { destinationUnavailableScope }
+                    : {}),
                 message,
             };
         }
@@ -244,6 +402,7 @@ export function classifyTelegramError(
 
     const statusCode = extractStatusCodeFromObject(error);
     const retryAfterSeconds = extractRetryAfterFromObject(error);
+    const migrateToChatId = extractMigrateToChatIdFromObject(error);
     if (statusCode === 429 || retryAfterSeconds !== undefined) {
         return {
             kind: 'rate_limit',
@@ -254,11 +413,23 @@ export function classifyTelegramError(
         };
     }
 
+    if (migrateToChatId !== undefined) {
+        return {
+            kind: 'chat_migrated',
+            retryable: false,
+            statusCode: statusCode ?? 400,
+            migrateToChatId,
+            message,
+        };
+    }
+
     if (statusCode !== undefined && statusCode >= 400 && statusCode <= 499) {
+        const destinationUnavailableScope = inferDestinationUnavailableScope(statusCode, message);
         return {
             kind: 'permanent',
             retryable: false,
             statusCode,
+            ...(destinationUnavailableScope !== undefined ? { destinationUnavailableScope } : {}),
             message,
         };
     }
@@ -562,6 +733,12 @@ export class GrammyTelegramGateway implements TelegramGateway {
                     : {}),
                 ...(classification.retryAfterSeconds !== undefined
                     ? { retryAfterSeconds: classification.retryAfterSeconds }
+                    : {}),
+                ...(classification.migrateToChatId !== undefined
+                    ? { migrateToChatId: classification.migrateToChatId }
+                    : {}),
+                ...(classification.destinationUnavailableScope !== undefined
+                    ? { destinationUnavailableScope: classification.destinationUnavailableScope }
                     : {}),
                 cause: error,
                 context: {
