@@ -164,9 +164,10 @@ DomainEventWorker
                                                      ▼ (вне транзакции)
 NotificationWorker
   ├─ восстановление зависших sending-записей (при старте — всех; перед батчем — по TTL claimed_at <= now - claimTtlSeconds)
-  ├─ атомарный захват записи: claimForSending (status = 'sending', claimed_at = now WHERE status = 'pending')
+  ├─ отмена просроченных pending-напоминаний (expires_at <= now → cancelled, last_error = 'notification expired')
+  ├─ атомарный захват записи: claimForSending (status = 'sending', claimed_at = now WHERE status = 'pending' AND (expires_at IS NULL OR expires_at > now))
   ├─ HTTP sendMessage через TelegramGateway (grammY Api)
-  └─ markAsSent / reschedule (или cancel при неактивной подписке) / markAsFailed (только из status = 'sending')
+  └─ markAsSent / reschedule (или cancel при неактивной подписке либо истечении expires_at до следующей попытки) / markAsFailed (только из status = 'sending')
 ```
 
 Ключевые системные инварианты:
@@ -176,7 +177,7 @@ NotificationWorker
 - **Семантика доставки `at-least-once`**: при падении процесса или сбое БД после успешного `sendMessage`, но до `markAsSent`, запись остаётся в `'sending'` и после восстановления (при рестарте или по истечении `claimTtlSeconds`) будет поставлена в `'pending'` и отправлена повторно (если подписка всё ещё активна). Отмена подписки через `/unlink` отменяет `pending`-записи по `subscription_id` и не допускает нового захвата или новой попытки повтора; уже захваченный (`'sending'`) HTTP-запрос считается in-flight и может завершиться.
 
 Детальные контракты слоёв вынесены в SSOT-документы:
-- схема SQLite, миграции `001`–`014`, `PRAGMA` и контракты репозиториев → [`docs/database.md`](database.md);
+- схема SQLite, миграции `001`–`015`, `PRAGMA` и контракты репозиториев → [`docs/database.md`](database.md);
 - каталог `ApplicationEvent`, payload, матрица доставки по аудиториям, контрольные точки, форматтеры и дедупликация → [`docs/reports.md`](reports.md);
 - входящий бот `TelegramBotService`, команды `/start`, `/link`, `/unlink`, права, форумные темы и `TelegramGateway` → [`docs/telegram.md`](telegram.md).
 

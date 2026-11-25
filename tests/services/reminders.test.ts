@@ -6,6 +6,8 @@ import {
     SECONDS_PER_HOUR,
     getActiveRaidReminderKinds,
     getActiveWarReminderKinds,
+    getRaidReminderExpiresAt,
+    getWarReminderExpiresAt,
     selectRaidReminders,
     selectWarReminders,
 } from '../../src/services/reminders.js';
@@ -195,6 +197,38 @@ describe('reminder checkpoint helpers', () => {
         it('returns no reminders at or after endTime', () => {
             expect(getActiveRaidReminderKinds(startTime, endTime, endTime)).toEqual([]);
             expect(getActiveRaidReminderKinds(startTime, endTime, endTime + 1)).toEqual([]);
+        });
+    });
+
+    describe('getWarReminderExpiresAt & getRaidReminderExpiresAt', () => {
+        const endTime = 1_700_500_000;
+
+        it('computes war reminder expiry as next checkpoint threshold or endTime for the final checkpoint', () => {
+            expect(getWarReminderExpiresAt(endTime, WAR_REMINDER_KINDS.started)).toBe(
+                endTime - 6 * SECONDS_PER_HOUR,
+            );
+            expect(getWarReminderExpiresAt(endTime, WAR_REMINDER_KINDS.sixHoursLeft)).toBe(
+                endTime - 1 * SECONDS_PER_HOUR,
+            );
+            expect(getWarReminderExpiresAt(endTime, WAR_REMINDER_KINDS.oneHourLeft)).toBe(endTime);
+        });
+
+        it('computes raid reminder expiry as next checkpoint threshold or endTime for the final checkpoint', () => {
+            expect(getRaidReminderExpiresAt(endTime, RAID_REMINDER_KINDS.started)).toBe(
+                endTime - 48 * SECONDS_PER_HOUR,
+            );
+            expect(getRaidReminderExpiresAt(endTime, RAID_REMINDER_KINDS.fortyEightHoursLeft)).toBe(
+                endTime - 24 * SECONDS_PER_HOUR,
+            );
+            expect(getRaidReminderExpiresAt(endTime, RAID_REMINDER_KINDS.twentyFourHoursLeft)).toBe(
+                endTime - 6 * SECONDS_PER_HOUR,
+            );
+            expect(getRaidReminderExpiresAt(endTime, RAID_REMINDER_KINDS.sixHoursLeft)).toBe(
+                endTime - 1 * SECONDS_PER_HOUR,
+            );
+            expect(getRaidReminderExpiresAt(endTime, RAID_REMINDER_KINDS.oneHourLeft)).toBe(
+                endTime,
+            );
         });
     });
 });

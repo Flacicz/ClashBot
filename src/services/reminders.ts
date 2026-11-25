@@ -166,3 +166,45 @@ export function getActiveRaidReminderKinds(
     );
     return activeKind === null ? [] : [activeKind];
 }
+
+function assertNeverReminderKind(kind: never): never {
+    throw new Error(`Unhandled reminder kind: ${String(kind)}`);
+}
+
+/**
+ * Returns the Unix epoch timestamp (seconds) at which a war reminder becomes stale:
+ * either when the next checkpoint of the same war opens, or at `endTime` for the final checkpoint.
+ */
+export function getWarReminderExpiresAt(endTime: number, kind: WarReminderKind): number {
+    switch (kind) {
+        case WAR_REMINDER_KINDS.started:
+            return endTime - WAR_REMINDER_SIX_HOURS_SECONDS;
+        case WAR_REMINDER_KINDS.sixHoursLeft:
+            return endTime - WAR_REMINDER_ONE_HOUR_SECONDS;
+        case WAR_REMINDER_KINDS.oneHourLeft:
+            return endTime;
+        default:
+            return assertNeverReminderKind(kind);
+    }
+}
+
+/**
+ * Returns the Unix epoch timestamp (seconds) at which a raid reminder becomes stale:
+ * either when the next checkpoint of the same raid opens, or at `endTime` for the final checkpoint.
+ */
+export function getRaidReminderExpiresAt(endTime: number, kind: RaidReminderKind): number {
+    switch (kind) {
+        case RAID_REMINDER_KINDS.started:
+            return endTime - RAID_REMINDER_FORTY_EIGHT_HOURS_SECONDS;
+        case RAID_REMINDER_KINDS.fortyEightHoursLeft:
+            return endTime - RAID_REMINDER_TWENTY_FOUR_HOURS_SECONDS;
+        case RAID_REMINDER_KINDS.twentyFourHoursLeft:
+            return endTime - RAID_REMINDER_SIX_HOURS_SECONDS;
+        case RAID_REMINDER_KINDS.sixHoursLeft:
+            return endTime - RAID_REMINDER_ONE_HOUR_SECONDS;
+        case RAID_REMINDER_KINDS.oneHourLeft:
+            return endTime;
+        default:
+            return assertNeverReminderKind(kind);
+    }
+}

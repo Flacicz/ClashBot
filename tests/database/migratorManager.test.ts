@@ -24,6 +24,7 @@ const EXPECTED_MIGRATION_VERSIONS = [
     '012_legacy_notification_idempotency.sql',
     '013_notification_claim_status.sql',
     '014_history_completeness.sql',
+    '015_notification_expiry.sql',
 ];
 
 function createTempDir(prefix: string): string {
@@ -112,7 +113,7 @@ describe('MigratorManager', () => {
         }
     });
 
-    it('applies all 14 migrations to a fresh :memory: database in lexicographical order', () => {
+    it('applies all 15 migrations to a fresh :memory: database in lexicographical order', () => {
         const db = trackDb(new Database(':memory:'));
         const transactions = new TransactionManager(db);
         const migrator = new MigratorManager(db, transactions);
@@ -146,6 +147,7 @@ describe('MigratorManager', () => {
         }
         expect(hasColumn(db, 'clans', 'tracking_enabled')).toBe(true);
         expect(hasColumn(db, 'notifications', 'claimed_at')).toBe(true);
+        expect(hasColumn(db, 'notifications', 'expires_at')).toBe(true);
         expect(hasColumn(db, 'wars', 'is_complete')).toBe(true);
         expect(hasColumn(db, 'wars', 'last_observed_at')).toBe(true);
         expect(hasColumn(db, 'clan_raids', 'is_complete')).toBe(true);
@@ -204,12 +206,13 @@ describe('MigratorManager', () => {
         expect(indexNames).toContain('idx_notifications_domain_destination');
         expect(indexNames).toContain('idx_notifications_legacy_event_destination');
         expect(indexNames).toContain('idx_notifications_sending');
+        expect(indexNames).toContain('idx_notifications_pending_expires_at');
 
         expect(foreignKeysEnabled(db)).toBe(true);
         expect(foreignKeysValid(db)).toBe(true);
     });
 
-    it('applies all 14 migrations to a file-backed WAL database and is idempotent on rerun', () => {
+    it('applies all 15 migrations to a file-backed WAL database and is idempotent on rerun', () => {
         const dir = trackDir('clashbot-migrate-wal-');
         const dbPath = path.join(dir, 'clashbot.sqlite');
 
@@ -345,7 +348,7 @@ describe('MigratorManager', () => {
         });
 
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(14);
+        expect(rowCount(db, 'schema_migrations')).toBe(15);
 
         // Migration 012 partial unique index (recreated in 013) prevents duplicate legacy notification insert
         const insertResult = db.connection
@@ -397,7 +400,7 @@ describe('MigratorManager', () => {
 
         // Upgrade to v013
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(14);
+        expect(rowCount(db, 'schema_migrations')).toBe(15);
         expect(hasColumn(db, 'notifications', 'claimed_at')).toBe(true);
 
         const rows = db.connection
@@ -499,7 +502,7 @@ describe('MigratorManager', () => {
 
         // Idempotent rerun after upgrade
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(14);
+        expect(rowCount(db, 'schema_migrations')).toBe(15);
         expect(foreignKeysValid(db)).toBe(true);
         expect(foreignKeysEnabled(db)).toBe(true);
     });
@@ -534,7 +537,7 @@ describe('MigratorManager', () => {
         `);
 
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(14);
+        expect(rowCount(db, 'schema_migrations')).toBe(15);
         expect(hasColumn(db, 'wars', 'is_complete')).toBe(true);
         expect(hasColumn(db, 'wars', 'last_observed_at')).toBe(true);
         expect(hasColumn(db, 'clan_raids', 'is_complete')).toBe(true);
@@ -605,7 +608,98 @@ describe('MigratorManager', () => {
 
         // Idempotent rerun after upgrade
         migrator.migrate(REAL_MIGRATIONS_PATH);
+        expect(rowCount(db, 'schema_migrations')).toBe(15);
+        expect(foreignKeysValid(db)).toBe(true);
+        expect(foreignKeysEnabled(db)).toBe(true);
+    });
+
+    it('upgrades populated v014 database through 015 backfilling expires_at for active war and raid reminders only', () => {
+        const through014 = trackDir('clashbot-mig-014-');
+        copyRealMigrationsUpTo(through014, 14);
+
+        const db = trackDb(new Database(':memory:'));
+        const transactions = new TransactionManager(db);
+        const migrator = new MigratorManager(db, transactions);
+
+        migrator.migrate(through014);
         expect(rowCount(db, 'schema_migrations')).toBe(14);
+        expect(hasColumn(db, 'notifications', 'expires_at')).toBe(false);
+
+        const endTime = 1_700_500_000;
+        db.exec(`
+            INSERT INTO clans (tag, name) VALUES ('#V14', 'Populated v014 Clan');
+            INSERT INTO telegram_chats (chat_id, message_thread_id, title) VALUES (-10014, 0, 'Players');
+            INSERT INTO clan_subscriptions (subscription_id, clan_tag, chat_id, message_thread_id, audience)
+                VALUES (14, '#V14', -10014, 0, 'players');
+
+            INSERT INTO domain_events (id, event_type, event_id, event_payload, payload_version, clan_tag)
+                VALUES
+                    (1, 'war_reminder', '10:started', '{"war_id":10,"end_time":${String(endTime)},"war_kind":"regular","reminder_kind":"started"}', 1, '#V14'),
+                    (2, 'war_reminder', '10:six_hours_left', '{"war_id":10,"end_time":${String(endTime)},"war_kind":"regular","reminder_kind":"six_hours_left"}', 1, '#V14'),
+                    (3, 'war_reminder', '10:one_hour_left', '{"war_id":10,"end_time":${String(endTime)},"war_kind":"cwl","reminder_kind":"one_hour_left"}', 1, '#V14'),
+                    (4, 'raid_reminder', '20:started', '{"raid_reference":{"raid_id":20},"end_time":${String(endTime)},"reminder_kind":"started"}', 1, '#V14'),
+                    (5, 'raid_reminder', '20:forty_eight_hours_left', '{"raid_reference":{"raid_id":20},"end_time":${String(endTime)},"reminder_kind":"forty_eight_hours_left"}', 1, '#V14'),
+                    (6, 'raid_reminder', '20:twenty_four_hours_left', '{"raid_reference":{"raid_id":20},"end_time":${String(endTime)},"reminder_kind":"twenty_four_hours_left"}', 1, '#V14'),
+                    (7, 'raid_reminder', '20:six_hours_left', '{"raid_reference":{"raid_id":20},"end_time":${String(endTime)},"reminder_kind":"six_hours_left"}', 1, '#V14'),
+                    (8, 'raid_reminder', '20:one_hour_left', '{"raid_reference":{"raid_id":20},"end_time":${String(endTime)},"reminder_kind":"one_hour_left"}', 1, '#V14'),
+                    (9, 'war_ended', '10', '{"war_reference":{"clan_tag":"#V14","war_id":10,"home_clan_id":1,"opponent_clan_id":2}}', 1, '#V14'),
+                    (10, 'war_reminder', '11:one_hour_left', '{"war_id":11,"end_time":${String(endTime)},"war_kind":"regular","reminder_kind":"one_hour_left"}', 1, '#V14');
+
+            INSERT INTO domain_event_destinations (id, domain_event_id, chat_id, message_thread_id, audience, subscription_id, status)
+                VALUES
+                    (101, 1, -10014, 0, 'players', 14, 'materialized'),
+                    (102, 2, -10014, 0, 'players', 14, 'materialized'),
+                    (103, 3, -10014, 0, 'players', 14, 'materialized'),
+                    (104, 4, -10014, 0, 'players', 14, 'materialized'),
+                    (105, 5, -10014, 0, 'players', 14, 'materialized'),
+                    (106, 6, -10014, 0, 'players', 14, 'materialized'),
+                    (107, 7, -10014, 0, 'players', 14, 'materialized'),
+                    (108, 8, -10014, 0, 'players', 14, 'materialized'),
+                    (109, 9, -10014, 0, 'players', 14, 'materialized'),
+                    (110, 10, -10014, 0, 'players', 14, 'materialized');
+
+            INSERT INTO notifications (id, domain_event_destination_id, event_type, event_id, chat_id, message_thread_id, message_text, status, claimed_at)
+                VALUES
+                    (1, 101, 'war_reminder', '10:started', -10014, 0, 'war started', 'pending', NULL),
+                    (2, 102, 'war_reminder', '10:six_hours_left', -10014, 0, 'war 6h', 'pending', NULL),
+                    (3, 103, 'war_reminder', '10:one_hour_left', -10014, 0, 'war 1h', 'sending', 1700499000),
+                    (4, 104, 'raid_reminder', '20:started', -10014, 0, 'raid started', 'pending', NULL),
+                    (5, 105, 'raid_reminder', '20:forty_eight_hours_left', -10014, 0, 'raid 48h', 'pending', NULL),
+                    (6, 106, 'raid_reminder', '20:twenty_four_hours_left', -10014, 0, 'raid 24h', 'pending', NULL),
+                    (7, 107, 'raid_reminder', '20:six_hours_left', -10014, 0, 'raid 6h', 'pending', NULL),
+                    (8, 108, 'raid_reminder', '20:one_hour_left', -10014, 0, 'raid 1h', 'pending', NULL),
+                    (9, 109, 'war_ended', '10', -10014, 0, 'war ended', 'pending', NULL),
+                    (10, 110, 'war_reminder', '11:one_hour_left', -10014, 0, 'already sent reminder', 'sent', NULL),
+                    (11, NULL, 'war_reminder', 'legacy:one_hour_left', -10014, 0, 'legacy reminder', 'pending', NULL);
+        `);
+
+        migrator.migrate(REAL_MIGRATIONS_PATH);
+        expect(rowCount(db, 'schema_migrations')).toBe(15);
+        expect(hasColumn(db, 'notifications', 'expires_at')).toBe(true);
+
+        const rows = db.connection
+            .prepare<[], { id: number; expires_at: number | null }>(
+                'SELECT id, expires_at FROM notifications ORDER BY id ASC;',
+            )
+            .all();
+
+        expect(rows).toEqual([
+            { id: 1, expires_at: endTime - 6 * 3600 },
+            { id: 2, expires_at: endTime - 1 * 3600 },
+            { id: 3, expires_at: endTime },
+            { id: 4, expires_at: endTime - 48 * 3600 },
+            { id: 5, expires_at: endTime - 24 * 3600 },
+            { id: 6, expires_at: endTime - 6 * 3600 },
+            { id: 7, expires_at: endTime - 1 * 3600 },
+            { id: 8, expires_at: endTime },
+            { id: 9, expires_at: null },
+            { id: 10, expires_at: null },
+            { id: 11, expires_at: null },
+        ]);
+
+        // Idempotent rerun after upgrade
+        migrator.migrate(REAL_MIGRATIONS_PATH);
+        expect(rowCount(db, 'schema_migrations')).toBe(15);
         expect(foreignKeysValid(db)).toBe(true);
         expect(foreignKeysEnabled(db)).toBe(true);
     });

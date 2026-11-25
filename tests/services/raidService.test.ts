@@ -576,9 +576,13 @@ describe('RaidService', () => {
         });
         worker.processPending();
 
+        // At 3h 45m left, the earlier `started` reminder is superseded (expires at -48h), so only `six_hours_left` is deliverable
         const notifications = notificationRepo.getPending(10, clock.nowEpochSeconds());
-        expect(notifications).toHaveLength(2);
-        expect(notifications[1]?.messageText).toContain(
+        expect(notifications).toHaveLength(1);
+        expect(notifications[0]?.eventId).toBe(
+            `${String(raidId)}:${RAID_REMINDER_KINDS.sixHoursLeft}`,
+        );
+        expect(notifications[0]?.messageText).toContain(
             'До окончания рейдовых выходных осталось 3 часа 45 минут',
         );
     });

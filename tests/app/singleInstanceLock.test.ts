@@ -242,7 +242,7 @@ describe('Single-instance database lock in application lifecycle', () => {
             const migrations = verified
                 .prepare('SELECT COUNT(*) AS count FROM schema_migrations')
                 .get() as { count: number };
-            expect(migrations.count).toBe(14);
+            expect(migrations.count).toBe(15);
         } finally {
             verified.close();
         }

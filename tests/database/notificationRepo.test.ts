@@ -8,6 +8,7 @@ import {
     Database,
     DomainEventsRepo,
     MigratorManager,
+    NOTIFICATION_EXPIRED_ERROR,
     NotificationRepo,
     SubscriptionRepo,
     TransactionManager,
@@ -794,5 +795,140 @@ describe('NotificationRepo', () => {
                 last_error: 'Previous part 2/3 failed: HTTP 400 Bad Request',
             },
         ]);
+    });
+
+    it('enforces expires_at filtering, atomic claim guard, and cancellation helpers without affecting non-expiring rows', () => {
+        const { db, domainEventsRepo, repo } = setup();
+        const destId = createDestination(domainEventsRepo, 'exp-1', 10);
+        const expiresAt = 1_700_010_000;
+
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Expiring war reminder',
+                destId,
+                'war_reminder',
+                '10:one_hour_left',
+                -1001,
+                0,
+                1,
+                1,
+                expiresAt,
+            ),
+        ).toBe(true);
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Eternal war report',
+                destId,
+                'war_ended',
+                '10',
+                -1001,
+                0,
+                1,
+                1,
+            ),
+        ).toBe(true);
+        expect(
+            repo.enqueueIfAbsent(
+                'Legacy expiring reminder',
+                'raid_reminder',
+                '20:one_hour_left',
+                -1001,
+                0,
+                1,
+                1,
+                expiresAt,
+            ),
+        ).toBe(true);
+
+        // 1 second before expiresAt: all 3 are returned with accurate expiresAt
+        const beforeExpiry = repo.getPending(10, expiresAt - 1);
+        expect(beforeExpiry).toHaveLength(3);
+        const durableReminder = mustExist(
+            beforeExpiry.find((n) => n.eventType === 'war_reminder'),
+            'durableReminder',
+        );
+        const eternalReport = mustExist(
+            beforeExpiry.find((n) => n.eventType === 'war_ended'),
+            'eternalReport',
+        );
+        const legacyReminder = mustExist(
+            beforeExpiry.find((n) => n.eventType === 'raid_reminder'),
+            'legacyReminder',
+        );
+        expect(durableReminder.expiresAt).toBe(expiresAt);
+        expect(eternalReport.expiresAt).toBeNull();
+        expect(legacyReminder.expiresAt).toBe(expiresAt);
+
+        // At exact expiresAt boundary: getPending hides expired rows, claimForSending refuses expired row
+        expect(repo.getPending(10, expiresAt).map((n) => n.id)).toEqual([eternalReport.id]);
+        expect(repo.claimForSending(durableReminder.id, expiresAt)).toBe(false);
+        expect(repo.isPending(durableReminder.id)).toBe(true);
+
+        // cancelPendingIfExpired cancels only the targeted expired row
+        expect(repo.cancelPendingIfExpired(durableReminder.id, expiresAt - 1)).toBe(false);
+        expect(repo.cancelPendingIfExpired(eternalReport.id, expiresAt + 10_000)).toBe(false);
+        expect(repo.cancelPendingIfExpired(durableReminder.id, expiresAt)).toBe(true);
+
+        // Claim legacyReminder BEFORE expiry, then cancelSendingIfExpired when next retry is >= expiresAt
+        expect(repo.claimForSending(legacyReminder.id, expiresAt - 10)).toBe(true);
+        expect(repo.cancelSendingIfExpired(legacyReminder.id, expiresAt - 1)).toBe(false);
+        expect(repo.cancelSendingIfExpired(legacyReminder.id, expiresAt)).toBe(true);
+
+        // Bulk cancelExpiredPending cancels another expired pending row (including rescheduled ones) without touching eternal report
+        expect(
+            repo.enqueueIfAbsent(
+                'Bulk expired',
+                'war_reminder',
+                '30:six_hours_left',
+                -1002,
+                0,
+                1,
+                1,
+                expiresAt,
+            ),
+        ).toBe(true);
+        const bulkId = mustExist(
+            repo.getPending(10, expiresAt - 1).find((n) => n.eventId === '30:six_hours_left'),
+            'bulkId',
+        ).id;
+        expect(repo.claimForSending(bulkId, expiresAt - 5)).toBe(true);
+        expect(repo.reschedule(bulkId, expiresAt + 60, 'HTTP 429')).toBe(true);
+
+        expect(repo.cancelExpiredPending(expiresAt)).toBe(1);
+
+        const inspect = (id: number) =>
+            db.connection
+                .prepare<
+                    [number],
+                    {
+                        status: string;
+                        claimed_at: number | null;
+                        next_attempt_at: number | null;
+                        last_error: string | null;
+                    }
+                >(
+                    'SELECT status, claimed_at, next_attempt_at, last_error FROM notifications WHERE id = ?;',
+                )
+                .get(id);
+
+        expect(inspect(durableReminder.id)).toEqual({
+            status: 'cancelled',
+            claimed_at: null,
+            next_attempt_at: null,
+            last_error: NOTIFICATION_EXPIRED_ERROR,
+        });
+        expect(inspect(legacyReminder.id)).toEqual({
+            status: 'cancelled',
+            claimed_at: null,
+            next_attempt_at: null,
+            last_error: NOTIFICATION_EXPIRED_ERROR,
+        });
+        expect(inspect(bulkId)).toEqual({
+            status: 'cancelled',
+            claimed_at: null,
+            next_attempt_at: null,
+            last_error: NOTIFICATION_EXPIRED_ERROR,
+        });
+        expect(inspect(eternalReport.id)?.status).toBe('pending');
     });
 });
