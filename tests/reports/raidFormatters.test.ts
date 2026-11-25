@@ -424,4 +424,107 @@ describe('Raid formatters end-to-end integration with SQLite RaidRepo and ClansR
         expect(comparisonReport).toContain('📉 <b>СРАВНЕНИЕ СО СРЕДНИМ ЗА 1 ПРЕДЫДУЩИЙ РЕЙД</b>');
         expect(comparisonFormatter.format(event)).toBe(comparisonReport);
     });
+
+    it('excludes late joiners from violations while keeping their attacks in ended stats, and treats attacks_count = 0 snapshots identically in violations and comparison', () => {
+        database = new Database(':memory:');
+        const tx = new TransactionManager(database);
+        const migrator = new MigratorManager(database, tx);
+        migrator.migrate(migrationsPath);
+
+        const clansRepo = new ClansRepo(database);
+        const raidRepo = new RaidRepo(database);
+
+        const clanTag = '#2J8PJ9VLG';
+        clansRepo.insertMinimalClan(clanTag);
+        database.connection
+            .prepare('UPDATE clans SET name = ? WHERE tag = ?;')
+            .run('aurus', clanTag);
+
+        clansRepo.savePlayers([
+            { tag: '#P1', name: 'Flacicz', clanTag },
+            { tag: '#P2', name: 'ZeroSnapshot', clanTag },
+            { tag: '#P3', name: 'LateNoAttacks', clanTag },
+            { tag: '#P4', name: 'LateAttacker', clanTag },
+        ]);
+
+        const insertMembership = database.connection.prepare(`
+            INSERT INTO clan_memberships (clan_tag, player_tag, joined_at, left_at)
+            VALUES (?, ?, ?, ?);
+        `);
+        // Present before both raids
+        insertMembership.run(clanTag, '#P1', 50, null);
+        insertMembership.run(clanTag, '#P2', 50, null);
+        // Joined after current raid start_time=1000
+        insertMembership.run(clanTag, '#P3', 1500, null);
+        insertMembership.run(clanTag, '#P4', 1800, null);
+
+        // Previous raid (start_time=100, end_time=900)
+        raidRepo.saveCompleteRaidData(
+            {
+                clanTag,
+                startTime: 100,
+                endTime: 900,
+                state: 'ended',
+                totalLoot: 80000,
+                raidsCompleted: 2,
+                totalAttacks: 10,
+                enemyDistrictsDestroyed: 4,
+                offensiveReward: 400,
+                defensiveReward: 150,
+            },
+            [
+                { playerTag: '#P1', attacksCount: 5, bonusAttack: 0, totalLoot: 45000 },
+                { playerTag: '#P2', attacksCount: 5, bonusAttack: 0, totalLoot: 35000 },
+            ],
+        );
+
+        // Current raid (start_time=1000, end_time=2000)
+        const currentRaidRef = raidRepo.saveCompleteRaidData(
+            {
+                clanTag,
+                startTime: 1000,
+                endTime: 2000,
+                state: 'ended',
+                totalLoot: 75000,
+                raidsCompleted: 2,
+                totalAttacks: 7,
+                enemyDistrictsDestroyed: 5,
+                offensiveReward: 450,
+                defensiveReward: 170,
+            },
+            [
+                { playerTag: '#P1', attacksCount: 5, bonusAttack: 0, totalLoot: 50000 },
+                { playerTag: '#P2', attacksCount: 0, bonusAttack: 0, totalLoot: 0 },
+                { playerTag: '#P4', attacksCount: 2, bonusAttack: 0, totalLoot: 25000 },
+            ],
+        );
+
+        const endedFormatter = new RaidsEndedFormatter(clansRepo, raidRepo);
+        const violationsFormatter = new RaidsViolationsFormatter(raidRepo);
+        const comparisonFormatter = new RaidsComparisonFormatter(clansRepo, raidRepo);
+
+        const event: RaidsEndedEvent = {
+            type: APPLICATION_EVENT_TYPES.raidsEnded,
+            clanTag,
+            raidReference: currentRaidRef,
+        };
+
+        const endedReport = endedFormatter.format(event);
+        expect(endedReport).toContain('Использовано атак: 7');
+        expect(endedReport).toContain('2. LateAttacker — 25000 золота, 2 атаки');
+
+        const violationsReport = violationsFormatter.format(event);
+        expect(violationsReport).toContain(
+            '🔴 <b>Не сделали ни одной атаки:</b>\n• ZeroSnapshot [0/5]',
+        );
+        expect(violationsReport).not.toContain('LateNoAttacks');
+        expect(violationsReport).not.toContain('LateAttacker');
+        expect(violationsReport).not.toContain('Flacicz');
+
+        const comparisonReport = comparisonFormatter.format(event);
+        // Without attacks: 0/2 -> 1/2 (ZeroSnapshot counted, late joiners excluded from eligible)
+        expect(comparisonReport).toContain('0/2 → 1/2');
+        // Active participants: #P1 + #P4 = 2 (ZeroSnapshot with attacks_count = 0 is NOT active)
+        expect(comparisonReport).toContain('2/2 → 2/2');
+    });
 });

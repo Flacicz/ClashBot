@@ -161,25 +161,37 @@ export class RaidRepo extends BaseRepository {
     }
 
     getRaidSlackers(reference: RaidReference): RaidSlacker[] {
-        // Players who left during the raid are excluded from the slacker report.
+        // Only players who were already in the clan at raid start_time and stayed through
+        // end_time are obligated to complete 5 + bonus_attacks. Late joiners and players
+        // who left before end_time are excluded from violations.
         const sql = `
+            WITH target_raid AS (
+                SELECT id, clan_tag, start_time, end_time
+                FROM clan_raids
+                WHERE id = ?
+            ),
+            eligible_members AS (
+                SELECT DISTINCT cm.player_tag
+                FROM target_raid AS r
+                JOIN clan_memberships AS cm
+                    ON cm.clan_tag = r.clan_tag
+                   AND cm.joined_at <= r.start_time
+                   AND (cm.left_at IS NULL OR cm.left_at >= r.end_time)
+            )
             SELECT
                 p.tag,
                 p.name,
                 COALESCE(s.attacks_count, 0) AS attacks_done,
                 COALESCE(s.bonus_attacks, 0) AS bonus_attacks
-            FROM clan_raids AS r
-            JOIN clan_memberships AS cm
-                ON cm.clan_tag = r.clan_tag
-               AND cm.joined_at <= r.end_time
-               AND (cm.left_at IS NULL OR cm.left_at >= r.end_time)
+            FROM target_raid AS r
+            JOIN eligible_members AS em
+                ON 1 = 1
             JOIN players AS p
-                ON p.tag = cm.player_tag
+                ON p.tag = em.player_tag
             LEFT JOIN player_raid_snapshots AS s
-                ON s.player_tag = cm.player_tag
+                ON s.player_tag = em.player_tag
                AND s.raid_id = r.id
-            WHERE r.id = ?
-              AND COALESCE(s.attacks_count, 0)
+            WHERE COALESCE(s.attacks_count, 0)
                   < 5 + COALESCE(s.bonus_attacks, 0)
             ORDER BY attacks_done ASC, p.name ASC;
         `;
@@ -200,6 +212,28 @@ export class RaidRepo extends BaseRepository {
 
     getRaidComparisonStats(reference: RaidReference): RaidComparisonStats {
         const sql = `
+            WITH target_raid AS (
+                SELECT
+                    id,
+                    clan_tag,
+                    start_time,
+                    end_time,
+                    total_loot,
+                    raids_completed,
+                    enemy_districts_destroyed,
+                    offensive_reward,
+                    defensive_reward
+                FROM clan_raids
+                WHERE id = ?
+            ),
+            eligible_members AS (
+                SELECT DISTINCT cm.player_tag
+                FROM target_raid AS r
+                JOIN clan_memberships AS cm
+                    ON cm.clan_tag = r.clan_tag
+                   AND cm.joined_at <= r.start_time
+                   AND (cm.left_at IS NULL OR cm.left_at >= r.end_time)
+            )
             SELECT
                 r.start_time,
                 r.total_loot,
@@ -216,53 +250,45 @@ export class RaidRepo extends BaseRepository {
                         SUM(5 + COALESCE(prs.bonus_attacks, 0)),
                         0
                     )
-                    FROM clan_memberships AS cm
+                    FROM eligible_members AS em
                     LEFT JOIN player_raid_snapshots AS prs
                         ON prs.raid_id = r.id
-                       AND prs.player_tag = cm.player_tag
-                    WHERE cm.clan_tag = r.clan_tag
-                      AND cm.joined_at <= r.end_time
-                      AND (cm.left_at IS NULL OR cm.left_at >= r.end_time)
+                       AND prs.player_tag = em.player_tag
                 ) AS available_attacks,
 
                 (
                     SELECT COUNT(*)
                     FROM player_raid_snapshots AS prs
                     WHERE prs.raid_id = r.id
+                      AND prs.attacks_count > 0
                 ) AS active_participants,
 
                 (
-                    SELECT COUNT(DISTINCT cm.player_tag)
-                    FROM clan_memberships AS cm
-                    WHERE cm.clan_tag = r.clan_tag
-                      AND cm.joined_at <= r.end_time
-                      AND (cm.left_at IS NULL OR cm.left_at >= r.end_time)
+                    SELECT COUNT(*)
+                    FROM eligible_members
                 ) AS eligible_participants,
 
                 (
                     SELECT COUNT(*)
                     FROM player_raid_snapshots AS prs
                     WHERE prs.raid_id = r.id
+                      AND prs.attacks_count > 0
                       AND prs.attacks_count >= 5 + prs.bonus_attacks
                 ) AS participants_with_all_attacks_used,
 
                 (
-                    SELECT COUNT(DISTINCT cm.player_tag)
-                    FROM clan_memberships AS cm
+                    SELECT COUNT(*)
+                    FROM eligible_members AS em
                     LEFT JOIN player_raid_snapshots AS prs
                         ON prs.raid_id = r.id
-                       AND prs.player_tag = cm.player_tag
-                    WHERE cm.clan_tag = r.clan_tag
-                      AND cm.joined_at <= r.end_time
-                      AND (cm.left_at IS NULL OR cm.left_at >= r.end_time)
-                      AND prs.id IS NULL
+                       AND prs.player_tag = em.player_tag
+                    WHERE COALESCE(prs.attacks_count, 0) <= 0
                 ) AS participants_without_attacks,
 
                 r.enemy_districts_destroyed,
                 r.offensive_reward,
                 r.defensive_reward
-            FROM clan_raids AS r
-            WHERE r.id = ?;
+            FROM target_raid AS r;
         `;
 
         return this.queryOne(
