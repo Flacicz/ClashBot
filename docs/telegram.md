@@ -102,11 +102,13 @@ Telegram-слой разделён на два независимых компо
 
 - **`/link #TAG`** в одной транзакции (`TransactionManager.retryInTransaction`):
   1. `ClansRepo.insertMinimalClan` — создаёт запись клана с именем `'Pending synchronization'` (если её ещё нет) и включает
-     `tracking_enabled = 1`; полное имя и состав заполнит ближайший цикл `ClanInfoService`;
+     `tracking_enabled = 1`;
   2. `SubscriptionRepo.saveTelegramChat(chatId, messageThreadId, title)` — заголовок выбирается по приоритету
      `chat.title` → `first_name last_name` → `first_name` → `username` → `'Telegram-чат'`;
   3. `SubscriptionRepo.subscribeToChat` (`INSERT OR IGNORE`). Повторный `/link` идемпотентен и сохраняет текущее
      поколение подписки (`subscription_id`).
+  После успешного коммита транзакции (строго вне транзакции) `TelegramBotService` вызывает `clanManager.notify()`, чтобы
+  `ClanManager` немедленно запустил первичную синхронизацию нового отслеживаемого клана без ожидания 15-минутного интервала.
 - **`/unlink #TAG`** (и кнопка отключения в меню) в одной транзакции:
   1. получает `subscription_id` для `(chatId, messageThreadId, clanTag, audience)` (если подписки нет — ничего не меняет);
   2. вызывает `DomainEventsRepo.cancelForSubscription(subscriptionId)` — отменяет `pending`-получателей события и

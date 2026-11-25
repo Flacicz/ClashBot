@@ -19,7 +19,7 @@
 
 ### Синхронизация с CoC API, события и аналитика
 
-- **Цикл опроса**: `ClanManager` последовательно опрашивает активные **отслеживаемые кланы** с паузой `15` минут и до `3` попыток на сервис, фиксируя открытие и закрытие эпизодов сбоев `sync_outages` ([`src/services/clanManager.ts`](../src/services/clanManager.ts)).
+- **Цикл опроса**: `ClanManager` ведёт расписание `next_due` по каждому активному **отслеживаемому клану** с целевым интервалом `15` минут (без накопления дрейфа от длительности обхода), до `3` попыток на сервис, пробуждением по `notify()` сразу после `/link` для немедленной первичной синхронизации и фиксацией открытия/закрытия эпизодов сбоев `sync_outages` ([`src/services/clanManager.ts`](../src/services/clanManager.ts)).
 - **Четыре сервиса данных** ([`src/services/`](../src/services/)): `ClanInfoService` (профиль клана, игроки, история членства, снапшоты; первичная синхронизация клана не генерирует поток событий входа), `ClanwarService` (обычные войны с пропуском приватного war log), `ClanwarLeagueService` (текущая группа и раунды CWL), `RaidService` (последний рейдовый уикенд `limit=1`).
 - **Доменные события** ([`src/events/applicationEvents.ts`](../src/events/applicationEvents.ts)): 10 типизированных событий (`PlayerJoinedClanEvent`, `PlayerLeftClanEvent`, `PlayerRoleChangedEvent`, `war_ended`, `raids_ended`, `cwl_round_ended`, `SyncFailureEvent`, `SyncRecoveryEvent`, `war_reminder`, `raid_reminder`), сохраняемых атомарно с изменением состояния и снимком **получателей события** в одной транзакции.
 - **Контрольные точки напоминаний** ([`src/services/reminders.ts`](../src/services/reminders.ts)): для войн и CWL — `started`, `six_hours_left`, `one_hour_left`; для рейдов — `started`, `forty_eight_hours_left`, `twenty_four_hours_left`, `six_hours_left`, `one_hour_left`.
@@ -52,7 +52,7 @@
 
 ### Синхронизация и историческая аналитика
 
-- **Расписание опроса**: пауза `15` минут отсчитывается после последовательного обхода всех **отслеживаемых кланов**; новый `/link` не будит цикл немедленно; отсутствуют квоты/rate-limit на `/link`.
+- **Ограничения `/link`**: отсутствуют квоты/rate-limit на `/link`.
 - **Обработка граничных ответов CoC API**: `ClanwarLeagueService` нумерует раунды CWL последовательно по доступным ответам API без сохранения исходного индекса при пропусках.
 - **Неполнота и перекрёстные данные**: опрашиваются только текущие окна (`currentwar`, `capitalraidseasons?limit=1`, текущая `leaguegroup`); корреляция пропусков с `sync_outages` и догрузка прошлых рейдов ещё не реализованы; `ClanInfoService.detectRoleChanges` сравнивает роль с последним снапшотом без учёта перерыва членства.
 
