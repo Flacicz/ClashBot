@@ -586,4 +586,149 @@ describe('RaidService', () => {
             'До окончания рейдовых выходных осталось 3 часа 45 минут',
         );
     });
+
+    it('persists raid member names for guests, updates outdated names, renders guest name in raids_ended report, and preserves known names on empty API names', async () => {
+        const {
+            db,
+            clock,
+            clansRepo,
+            raidRepo,
+            subscriptionRepo,
+            domainEventsRepo,
+            apiClient,
+            service,
+        } = setup(10_000);
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+        // Existing clan member with outdated nickname
+        clansRepo.savePlayers([{ tag: '#MEMBER', name: 'Old Member Name', clanTag: CLAN_TAG }]);
+        // Legacy guest previously inserted as Unknown Player
+        clansRepo.insertMinimal('#LEGACY_GUEST');
+
+        subscriptionRepo.saveTelegramChat(-1001, 0, 'Players');
+        subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+
+        apiClient.raidData = makeRaidData({
+            startTime: 1_000,
+            endTime: 2_000,
+            state: 'ended',
+            totalLoot: 75_000,
+            participants: [
+                {
+                    playerTag: '#GUEST',
+                    playerName: 'Guest Hero',
+                    attacksCount: 6,
+                    bonusAttack: 1,
+                    totalLoot: 35_000,
+                },
+                {
+                    playerTag: '#MEMBER',
+                    playerName: 'Updated Member',
+                    attacksCount: 6,
+                    bonusAttack: 1,
+                    totalLoot: 25_000,
+                },
+                {
+                    playerTag: '#LEGACY_GUEST',
+                    playerName: 'Resolved Guest',
+                    attacksCount: 5,
+                    bonusAttack: 0,
+                    totalLoot: 15_000,
+                },
+            ],
+        });
+
+        const firstResult = await service.updateData(CLAN_TAG);
+        expect(firstResult.successFlag).toBe(true);
+        const endedEvent = firstResult.events[0];
+        if (endedEvent?.type !== APPLICATION_EVENT_TYPES.raidsEnded) {
+            throw new Error('Expected RaidsEndedEvent');
+        }
+
+        // Verify players table: guest gets API name, legacy guest loses Unknown Player,
+        // existing member gets updated name while preserving clan_tag
+        const playersAfterFirst = db.connection
+            .prepare('SELECT tag, name, clan_tag FROM players ORDER BY tag ASC')
+            .all() as { tag: string; name: string; clan_tag: string | null }[];
+        expect(playersAfterFirst).toEqual([
+            { tag: '#GUEST', name: 'Guest Hero', clan_tag: null },
+            { tag: '#LEGACY_GUEST', name: 'Resolved Guest', clan_tag: null },
+            { tag: '#MEMBER', name: 'Updated Member', clan_tag: CLAN_TAG },
+        ]);
+
+        // Materialize raids_ended notification and verify guest appears by API nick, not Unknown Player
+        const txManager = new TransactionManager(db);
+        const notificationRepo = new NotificationRepo(db);
+        const notificationService = new NotificationService({
+            notificationRepo,
+            clansRepo,
+            clanwarRepo: new ClanwarRepo(db),
+            clanwarsLeagueRepo: new ClanwarsLeagueRepo(db),
+            raidRepo,
+        });
+        const worker = new DomainEventWorker({
+            domainEventsRepo,
+            transactionManager: txManager,
+            deserializer: new DomainEventPayloadDeserializer(),
+            materializer: notificationService,
+            clock,
+        });
+        worker.processPending();
+
+        const notifications = notificationRepo.getPending(10, clock.nowEpochSeconds());
+        expect(notifications).toHaveLength(1);
+        expect(notifications[0]?.messageText).toContain('1. Guest Hero — 35000 золота');
+        expect(notifications[0]?.messageText).toContain('2. Updated Member — 25000 золота');
+        expect(notifications[0]?.messageText).toContain('3. Resolved Guest — 15000 золота');
+        expect(notifications[0]?.messageText).not.toContain('Unknown Player');
+
+        // Subsequent raid sync with missing/empty/whitespace names must NOT overwrite known names,
+        // while a brand-new nameless participant still falls back to Unknown Player
+        apiClient.raidData = makeRaidData({
+            startTime: 3_000,
+            endTime: 4_000,
+            state: 'ongoing',
+            participants: [
+                {
+                    playerTag: '#GUEST',
+                    attacksCount: 2,
+                    bonusAttack: 0,
+                    totalLoot: 8_000,
+                },
+                {
+                    playerTag: '#MEMBER',
+                    playerName: '',
+                    attacksCount: 2,
+                    bonusAttack: 0,
+                    totalLoot: 7_000,
+                },
+                {
+                    playerTag: '#LEGACY_GUEST',
+                    playerName: '   ',
+                    attacksCount: 1,
+                    bonusAttack: 0,
+                    totalLoot: 4_000,
+                },
+                {
+                    playerTag: '#NAMELESS',
+                    attacksCount: 1,
+                    bonusAttack: 0,
+                    totalLoot: 2_000,
+                },
+            ],
+        });
+
+        const secondResult = await service.updateData(CLAN_TAG);
+        expect(secondResult.successFlag).toBe(true);
+
+        const playersAfterSecond = db.connection
+            .prepare('SELECT tag, name, clan_tag FROM players ORDER BY tag ASC')
+            .all() as { tag: string; name: string; clan_tag: string | null }[];
+        expect(playersAfterSecond).toEqual([
+            { tag: '#GUEST', name: 'Guest Hero', clan_tag: null },
+            { tag: '#LEGACY_GUEST', name: 'Resolved Guest', clan_tag: null },
+            { tag: '#MEMBER', name: 'Updated Member', clan_tag: CLAN_TAG },
+            { tag: '#NAMELESS', name: 'Unknown Player', clan_tag: null },
+        ]);
+    });
 });

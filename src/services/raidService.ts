@@ -132,7 +132,7 @@ export class RaidService implements SyncService {
 
     private ensurePlayersExist(players: readonly PlayerRaidSnapshot[]): void {
         for (const player of players) {
-            this.clansRepo.insertMinimal(player.playerTag);
+            this.clansRepo.insertMinimal(player.playerTag, player.playerName);
         }
     }
 

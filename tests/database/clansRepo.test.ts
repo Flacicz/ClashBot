@@ -231,6 +231,41 @@ describe('ClansRepo', () => {
         ]);
     });
 
+    it('upserts player names via insertMinimal without overwriting clan_tag or clobbering known names on blank input', () => {
+        const { db, repo } = createMigratedDb();
+
+        repo.saveClan(makeClan({ tag: '#CLAN1' }));
+
+        // 1. New guest with known name
+        repo.insertMinimal('#GUEST1', '  Guest Raider  ');
+        // 2. New guest without name -> Unknown Player, later populated when name arrives
+        repo.insertMinimal('#GUEST2');
+        repo.insertMinimal('#GUEST2', 'Discovered Guest');
+        // 3. New guest with blank name -> Unknown Player
+        repo.insertMinimal('#GUEST3', '   ');
+        // 4. Existing clan member -> raid name updates name while keeping clan_tag intact
+        repo.savePlayers([{ tag: '#MEMBER', name: 'Old Nick', clanTag: '#CLAN1' }]);
+        repo.insertMinimal('#MEMBER', 'New Nick');
+
+        // 5. Missing/empty/whitespace names must never overwrite known player names
+        repo.insertMinimal('#GUEST1');
+        repo.insertMinimal('#GUEST1', '');
+        repo.insertMinimal('#GUEST1', '   ');
+        repo.insertMinimal('#MEMBER', '');
+        repo.insertMinimal('#MEMBER', '  ');
+
+        const rows = db.connection
+            .prepare('SELECT tag, name, clan_tag FROM players ORDER BY tag ASC')
+            .all() as { tag: string; name: string; clan_tag: string | null }[];
+
+        expect(rows).toEqual([
+            { tag: '#GUEST1', name: 'Guest Raider', clan_tag: null },
+            { tag: '#GUEST2', name: 'Discovered Guest', clan_tag: null },
+            { tag: '#GUEST3', name: 'Unknown Player', clan_tag: null },
+            { tag: '#MEMBER', name: 'New Nick', clan_tag: '#CLAN1' },
+        ]);
+    });
+
     it('saves complete clan data and returns latest player snapshots ordered by clan_rank', () => {
         const { tx, repo } = createMigratedDb();
 
