@@ -387,24 +387,27 @@ describe('RaidRepo', () => {
             },
         ]);
 
-        // Comparison stats:
-        // usedAttacks = 6 + 5 + 2 + 5 + 5 = 23
+        // Comparison stats (cohort-only numerators and denominators; #LEFT_EARLY isolated into external context):
+        // usedAttacks (eligible only) = #FULL(6) + #BONUS_MISS(5) + #PARTIAL(2) + #LEFT_AFTER(5) = 18
         // availableAttacks (eligible only):
         //   #FULL(6) + #BONUS_MISS(6) + #PARTIAL(5) + #NOSNAP(5) + #LEFT_AFTER(5) = 27
-        // activeParticipants = 5 (snapshots with attacks_count > 0)
+        // activeParticipants (eligible with attacks_count > 0) = 4 (#FULL, #BONUS_MISS, #PARTIAL, #LEFT_AFTER)
         // eligibleParticipants = 5 (#FULL, #BONUS_MISS, #PARTIAL, #NOSNAP, #LEFT_AFTER)
-        // participantsWithAllAttacksUsed = 3 (#FULL 6>=6, #LEFT_EARLY 5>=5, #LEFT_AFTER 5>=5)
+        // participantsWithAllAttacksUsed (eligible only) = 2 (#FULL 6>=6, #LEFT_AFTER 5>=5)
         // participantsWithoutAttacks = 1 (#NOSNAP)
+        // externalUsedAttacks = 5 (#LEFT_EARLY), externalParticipants = 1 (#LEFT_EARLY)
         expect(raidRepo.getRaidComparisonStats(raidRef)).toEqual({
             startTime,
             totalLoot: 90_000,
             raidsCompleted: 8,
-            usedAttacks: 23,
+            usedAttacks: 18,
             availableAttacks: 27,
-            activeParticipants: 5,
+            activeParticipants: 4,
             eligibleParticipants: 5,
-            participantsWithAllAttacksUsed: 3,
+            participantsWithAllAttacksUsed: 2,
             participantsWithoutAttacks: 1,
+            externalUsedAttacks: 5,
+            externalParticipants: 1,
             enemyDistrictsDestroyed: 40,
             offensiveReward: 1100,
             defensiveReward: 250,
@@ -477,20 +480,129 @@ describe('RaidRepo', () => {
             '#REJOINED',
         ]);
 
-        // Comparison stats use the same eligible cohort as getRaidSlackers (only #AT_START)
+        // Comparison stats keep rate numerators strictly within the eligible cohort (#AT_START)
+        // and report #LATE_PARTIAL + #REJOINED attacks in external context so no share exceeds 100%
         expect(raidRepo.getRaidComparisonStats(raidRef)).toEqual({
             startTime,
             totalLoot: 45_000,
             raidsCompleted: 4,
-            usedAttacks: 6,
+            usedAttacks: 3,
             availableAttacks: 5,
-            activeParticipants: 3,
+            activeParticipants: 1,
             eligibleParticipants: 1,
             participantsWithAllAttacksUsed: 0,
             participantsWithoutAttacks: 0,
+            externalUsedAttacks: 3,
+            externalParticipants: 2,
             enemyDistrictsDestroyed: 12,
             offensiveReward: 700,
             defensiveReward: 150,
+        });
+    });
+
+    it('isolates guest and leaver attacks into external context so no comparison share exceeds 100%', () => {
+        const { db, clansRepo, raidRepo } = createMigratedDb();
+
+        const startTime = 1_700_000_000;
+        const endTime = 1_700_259_200;
+
+        clansRepo.insertMinimalClan('#CLAN1');
+        clansRepo.savePlayers([
+            { tag: '#ELIG_FULL', name: 'EligibleFull', clanTag: '#CLAN1' },
+            { tag: '#ELIG_PARTIAL', name: 'EligiblePartial', clanTag: '#CLAN1' },
+            { tag: '#LEAVER', name: 'AttackedAndLeft', clanTag: '#CLAN1' },
+            { tag: '#GUEST', name: 'VisitingGuest', clanTag: '#CLAN1' },
+            { tag: '#GUEST_ZERO', name: 'GuestZeroAttacks', clanTag: '#CLAN1' },
+        ]);
+
+        // Eligible cohort: #ELIG_FULL and #ELIG_PARTIAL
+        insertMembership(db, '#CLAN1', '#ELIG_FULL', startTime - 500, null);
+        insertMembership(db, '#CLAN1', '#ELIG_PARTIAL', startTime - 500, null);
+        // Attacked and left before endTime
+        insertMembership(db, '#CLAN1', '#LEAVER', startTime - 500, endTime - 10);
+        // #GUEST and #GUEST_ZERO have no clan_memberships rows for #CLAN1
+
+        const raidRef = raidRepo.saveCompleteRaidData(
+            makeRaid({
+                startTime,
+                endTime,
+                totalLoot: 110_000,
+                raidsCompleted: 6,
+                totalAttacks: 21,
+                enemyDistrictsDestroyed: 28,
+                offensiveReward: 1_150,
+                defensiveReward: 310,
+            }),
+            [
+                { playerTag: '#ELIG_FULL', attacksCount: 6, bonusAttack: 1, totalLoot: 35_000 },
+                { playerTag: '#ELIG_PARTIAL', attacksCount: 4, bonusAttack: 0, totalLoot: 20_000 },
+                { playerTag: '#LEAVER', attacksCount: 5, bonusAttack: 0, totalLoot: 25_000 },
+                { playerTag: '#GUEST', attacksCount: 6, bonusAttack: 1, totalLoot: 30_000 },
+                { playerTag: '#GUEST_ZERO', attacksCount: 0, bonusAttack: 0, totalLoot: 0 },
+            ],
+        );
+
+        const stats = raidRepo.getRaidComparisonStats(raidRef);
+        expect(stats).toEqual({
+            startTime,
+            totalLoot: 110_000,
+            raidsCompleted: 6,
+            usedAttacks: 10,
+            availableAttacks: 11,
+            activeParticipants: 2,
+            eligibleParticipants: 2,
+            participantsWithAllAttacksUsed: 1,
+            participantsWithoutAttacks: 0,
+            externalUsedAttacks: 11,
+            externalParticipants: 2,
+            enemyDistrictsDestroyed: 28,
+            offensiveReward: 1_150,
+            defensiveReward: 310,
+        });
+
+        // Invariant: no cohort share exceeds 100%
+        expect(stats.usedAttacks).toBeLessThanOrEqual(stats.availableAttacks);
+        expect(stats.activeParticipants).toBeLessThanOrEqual(stats.eligibleParticipants);
+        expect(stats.participantsWithAllAttacksUsed).toBeLessThanOrEqual(stats.activeParticipants);
+        expect(stats.participantsWithoutAttacks).toBeLessThanOrEqual(stats.eligibleParticipants);
+        expect(stats.activeParticipants + stats.participantsWithoutAttacks).toBe(
+            stats.eligibleParticipants,
+        );
+
+        // Edge case: raid with 0 eligible members and only guest attacks
+        const guestOnlyRaidRef = raidRepo.saveCompleteRaidData(
+            makeRaid({
+                startTime: startTime + 1_000_000,
+                endTime: endTime + 1_000_000,
+                totalLoot: 30_000,
+                raidsCompleted: 2,
+                totalAttacks: 6,
+                enemyDistrictsDestroyed: 6,
+                offensiveReward: 500,
+                defensiveReward: 100,
+            }),
+            [{ playerTag: '#GUEST', attacksCount: 6, bonusAttack: 1, totalLoot: 30_000 }],
+        );
+        // Close existing memberships before guest-only raid start
+        db.connection
+            .prepare('UPDATE clan_memberships SET left_at = ? WHERE left_at IS NULL')
+            .run(startTime + 500_000);
+
+        expect(raidRepo.getRaidComparisonStats(guestOnlyRaidRef)).toEqual({
+            startTime: startTime + 1_000_000,
+            totalLoot: 30_000,
+            raidsCompleted: 2,
+            usedAttacks: 0,
+            availableAttacks: 0,
+            activeParticipants: 0,
+            eligibleParticipants: 0,
+            participantsWithAllAttacksUsed: 0,
+            participantsWithoutAttacks: 0,
+            externalUsedAttacks: 6,
+            externalParticipants: 1,
+            enemyDistrictsDestroyed: 6,
+            offensiveReward: 500,
+            defensiveReward: 100,
         });
     });
 
@@ -571,6 +683,8 @@ describe('RaidRepo', () => {
             participantsWithAllAttacksUsed: 1,
             // #ZERO_SNAP, #ZERO_SNAP_BONUS, #NO_SNAP (matches 0-attack slackers)
             participantsWithoutAttacks: 3,
+            externalUsedAttacks: 0,
+            externalParticipants: 0,
             enemyDistrictsDestroyed: 8,
             offensiveReward: 600,
             defensiveReward: 100,
@@ -608,6 +722,8 @@ describe('RaidRepo', () => {
             eligibleParticipants: 0,
             participantsWithAllAttacksUsed: 0,
             participantsWithoutAttacks: 0,
+            externalUsedAttacks: 0,
+            externalParticipants: 0,
             enemyDistrictsDestroyed: 0,
             offensiveReward: 0,
             defensiveReward: 0,

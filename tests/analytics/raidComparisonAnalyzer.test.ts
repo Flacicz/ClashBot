@@ -23,6 +23,8 @@ function makeRaidStats(
     enemyDistrictsDestroyed = 0,
     offensiveReward = 0,
     defensiveReward = 0,
+    externalUsedAttacks = 0,
+    externalParticipants = 0,
 ): RaidComparisonStats {
     return {
         startTime,
@@ -34,6 +36,8 @@ function makeRaidStats(
         eligibleParticipants,
         participantsWithAllAttacksUsed,
         participantsWithoutAttacks,
+        externalUsedAttacks,
+        externalParticipants,
         enemyDistrictsDestroyed,
         offensiveReward,
         defensiveReward,
@@ -57,6 +61,8 @@ function makeHistoricalAverages(
         averageParticipantsWithoutAttacks: 0.0,
         averageUsedAttacks: 0.0,
         averageAvailableAttacks: 0.0,
+        averageExternalUsedAttacks: 0.0,
+        averageExternalParticipants: 0.0,
         averageTotalLoot: 0.0,
         averageRaidsCompleted: 0.0,
         averageEnemyDistrictsDestroyed: 0.0,
@@ -113,12 +119,47 @@ describe('raidComparisonAnalyzer.calculateRaidHistoricalAverages', () => {
             averageParticipantsWithoutAttacks: 0.0,
             averageUsedAttacks: 0.0,
             averageAvailableAttacks: 0.0,
+            averageExternalUsedAttacks: 0.0,
+            averageExternalParticipants: 0.0,
             averageTotalLoot: 0.0,
             averageRaidsCompleted: 0.0,
             averageEnemyDistrictsDestroyed: 0.0,
             averageOffensiveReward: 0.0,
             averageDefensiveReward: 0.0,
         });
+    });
+
+    it('keeps cohort attack usage rate <= 100% while dividing full loot by all used attacks (including external)', () => {
+        const previousRaids: RaidComparisonStats[] = [
+            // Cohort: 20/20 attacks (100%), external: 10 attacks (2 guests/leavers), totalLoot: 300_000 => 10_000/attack
+            makeRaidStats(1, 300_000, 4, 20, 20, 4, 4, 4, 0, 12, 500, 150, 10, 2),
+            // Cohort: 15/20 attacks (75%), external: 0 attacks, totalLoot: 150_000 => 10_000/attack
+            makeRaidStats(2, 150_000, 3, 15, 20, 3, 4, 2, 1, 10, 400, 100, 0, 0),
+        ];
+
+        const averages = calculateRaidHistoricalAverages(previousRaids);
+        if (averages === null) {
+            throw new Error('Expected historical averages to be non-null');
+        }
+        // Full loot (450_000) / all attacks (20 + 10 + 15 = 45) = 10_000
+        expect(averages.averageLootPerUsedAttack).toBe(10_000.0);
+        // Cohort attack usage rate = (20 + 15) / (20 + 20) = 0.875 (<= 1.0)
+        expect(averages.averageAttackUsageRate).toBe(35.0 / 40.0);
+        expect(averages.averageUsedAttacks).toBe(17.5);
+        expect(averages.averageAvailableAttacks).toBe(20.0);
+        expect(averages.averageExternalUsedAttacks).toBe(5.0);
+        expect(averages.averageExternalParticipants).toBe(1.0);
+
+        // Current raid has full loot 200_000 across 10 cohort + 10 external attacks = 10_000/attack (unchanged vs historical)
+        const currentRaid = makeRaidStats(3, 200_000, 3, 10, 10, 2, 2, 2, 0, 8, 350, 100, 10, 2);
+        const comparison = compareRaidWithHistoricalAverage(currentRaid, averages);
+        // Loot/attack: 10_000 vs 10_000 (unchanged)
+        // Full attacks rate: 1.0 vs 6/7 (improved)
+        // Without attacks rate: 0.0 vs 1/8 (improved)
+        expect(comparison.trend).toBe(RaidPerformanceTrend.Better);
+        expect(comparison.improvedMetrics).toBe(2);
+        expect(comparison.unchangedMetrics).toBe(1);
+        expect(comparison.worsenedMetrics).toBe(0);
     });
 });
 

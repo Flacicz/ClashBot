@@ -124,7 +124,7 @@ function formatRaidDate(timestamp: number): string {
 }
 
 function lootPerUsedAttack(stats: RaidComparisonStats): number {
-    return calculateRate(stats.totalLoot, stats.usedAttacks);
+    return calculateRate(stats.totalLoot, stats.usedAttacks + stats.externalUsedAttacks);
 }
 
 function attackUsageRate(stats: RaidComparisonStats): number {
@@ -280,6 +280,29 @@ function formatActivityComparison(
     return section;
 }
 
+function formatExternalAttacksContext(
+    previousAttacks: number,
+    currentAttacks: number,
+    previousParticipants: number,
+    currentParticipants: number,
+    formatPreviousValue: (value: number) => string,
+): string {
+    if (
+        previousAttacks <= 0 &&
+        currentAttacks <= 0 &&
+        previousParticipants <= 0 &&
+        currentParticipants <= 0
+    ) {
+        return '';
+    }
+
+    return (
+        'ℹ️ Атаки вне основного состава (не входят в доли): ' +
+        `${formatPreviousValue(previousAttacks)} → ${formatInteger(currentAttacks)} ` +
+        `(игроков: ${formatPreviousValue(previousParticipants)} → ${formatInteger(currentParticipants)})\n`
+    );
+}
+
 function formatIntegerMetricComparison(
     label: string,
     previousValue: number,
@@ -400,6 +423,13 @@ function formatPreviousRaidComparison(
         `${formatInteger(previousRaid.activeParticipants)}/${formatInteger(previousRaid.eligibleParticipants)}`,
         `${formatInteger(currentRaid.activeParticipants)}/${formatInteger(currentRaid.eligibleParticipants)}`,
     );
+    section += formatExternalAttacksContext(
+        previousRaid.externalUsedAttacks,
+        currentRaid.externalUsedAttacks,
+        previousRaid.externalParticipants,
+        currentRaid.externalParticipants,
+        formatInteger,
+    );
 
     section += '\n';
     section += formatRaidResultComparison(previousRaid, currentRaid);
@@ -465,6 +495,13 @@ function formatHistoricalComparison(reportData: RaidComparisonData): string {
             average.averageEligibleParticipants,
         ),
         `${formatInteger(currentRaid.activeParticipants)}/${formatInteger(currentRaid.eligibleParticipants)}`,
+    );
+    section += formatExternalAttacksContext(
+        average.averageExternalUsedAttacks,
+        currentRaid.externalUsedAttacks,
+        average.averageExternalParticipants,
+        currentRaid.externalParticipants,
+        formatAverageNumber,
     );
 
     section += '\n📊 Итог рейда:\n';
