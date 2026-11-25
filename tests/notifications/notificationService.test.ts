@@ -35,8 +35,11 @@ import type { RaidReference } from '../../src/models/index.js';
 import {
     DEFAULT_NOTIFICATION_PART_COUNT,
     DEFAULT_NOTIFICATION_PART_INDEX,
+    DEFAULT_TELEGRAM_MAX_VISIBLE_LENGTH,
     NOTIFICATION_EVENT_TYPES,
     NotificationService,
+    TELEGRAM_HARD_MAX_VISIBLE_LENGTH,
+    countTelegramHtmlVisibleLength,
 } from '../../src/notifications/index.js';
 
 const REAL_MIGRATIONS_PATH = path.resolve(import.meta.dirname, '../../migrations');
@@ -854,5 +857,132 @@ describe('NotificationService & DomainEventMaterializer', () => {
 
         expect(getAllNotificationRows(ctx.db)).toHaveLength(6 + 5);
         expect(ctx.wakeSpy).toHaveBeenCalled();
+    });
+
+    it('splits a 50-player war_roster_reliability report into deduplicated parts 1..N under the Telegram visible length limit', () => {
+        const ctx = setup();
+
+        // Seed 50 active players with long names containing HTML special chars and emojis
+        const players = Array.from({ length: 50 }, (_, index) => {
+            const num = String(index + 1).padStart(2, '0');
+            return {
+                tag: `#ROSTER${num}`,
+                name: `👑 ДлинныйИгрок_${num}_<Клан & Война> 《Боец 🔥⚔️》`,
+                clanTag: CLAN_TAG,
+            };
+        });
+        ctx.clansRepo.savePlayers(players);
+        const insertMembership = ctx.db.connection.prepare<[string, string, number]>(
+            'INSERT INTO clan_memberships (clan_tag, player_tag, joined_at, left_at) VALUES (?, ?, ?, NULL);',
+        );
+        for (const player of players) {
+            insertMembership.run(CLAN_TAG, player.tag, 1_600_000_000);
+        }
+
+        const warRef = ctx.clanwarRepo.saveCompleteClanwarData(
+            {
+                warUID: 'war-50-roster',
+                clanTag: CLAN_TAG,
+                state: 'warEnded',
+                warType: WarTypes.Regular,
+                teamSize: 50,
+                attacksPerMember: 2,
+                preparationStartTime: 1_700_100_000,
+                startTime: 1_700_186_400,
+                endTime: 1_700_272_800,
+                seasonId: null,
+                roundNumber: null,
+            },
+            {
+                home: {
+                    side: ClanType.Home,
+                    clanTag: CLAN_TAG,
+                    clanName: 'Alpha Clan',
+                    clanLevel: 15,
+                    attacksCount: 50,
+                    stars: 120,
+                    destructionPercentage: 88.5,
+                },
+                opponent: {
+                    side: ClanType.Opponent,
+                    clanTag: '#OPP50',
+                    clanName: 'Big Opponent',
+                    clanLevel: 15,
+                    attacksCount: 50,
+                    stars: 110,
+                    destructionPercentage: 80.0,
+                },
+            },
+            players.slice(0, 30).map((player, index) => ({
+                attackerTag: player.tag,
+                defenderTag: `#ENEMY${String(index + 1).padStart(2, '0')}`,
+                attackerClanTag: CLAN_TAG,
+                defenderClanTag: '#OPP50',
+                attackerPosition: index + 1,
+                defenderPosition: index === 0 ? 2 : index + 1,
+                orderNum: index + 1,
+                stars: 3,
+                destructionPercentage: 100.0,
+                duration: 120,
+            })),
+            {
+                home: players.map((player, index) => ({
+                    clanTag: CLAN_TAG,
+                    playerTag: player.tag,
+                    playerName: player.name,
+                    townhallLevel: 16,
+                    mapPosition: index + 1,
+                })),
+                opponent: players.map((_, index) => ({
+                    clanTag: '#OPP50',
+                    playerTag: `#ENEMY${String(index + 1).padStart(2, '0')}`,
+                    playerName: `Enemy ${String(index + 1)}`,
+                    townhallLevel: 16,
+                    mapPosition: index + 1,
+                })),
+            },
+        );
+
+        const warEnded: ApplicationEvent = {
+            type: APPLICATION_EVENT_TYPES.warEnded,
+            clanTag: CLAN_TAG,
+            warReference: warRef,
+        };
+
+        ctx.recorder.recordAll([warEnded]);
+        const managementDest = ctx.domainEventsRepo
+            .getPendingDestinations(20)
+            .find((dest) => dest.audience === 'management');
+        if (managementDest === undefined) {
+            throw new Error('Expected management destination');
+        }
+
+        ctx.notificationService.materialize(warEnded, managementDest);
+
+        const rosterRows = getAllNotificationRows(ctx.db).filter(
+            (row) => row.event_type === NOTIFICATION_EVENT_TYPES.warRosterReliability,
+        );
+        expect(rosterRows.length).toBeGreaterThanOrEqual(2);
+
+        for (let index = 0; index < rosterRows.length; index += 1) {
+            const row = rosterRows[index];
+            expect(row).toBeDefined();
+            if (row === undefined) {
+                continue;
+            }
+            expect(row.part_index).toBe(index + 1);
+            expect(row.part_count).toBe(rosterRows.length);
+            const visibleLen = countTelegramHtmlVisibleLength(row.message_text);
+            expect(visibleLen).toBeLessThanOrEqual(DEFAULT_TELEGRAM_MAX_VISIBLE_LENGTH);
+            expect(visibleLen).toBeLessThanOrEqual(TELEGRAM_HARD_MAX_VISIBLE_LENGTH);
+            expect(row.message_text).toContain(
+                `<i>Часть ${String(index + 1)}/${String(rosterRows.length)}</i>`,
+            );
+        }
+
+        // Re-materialization is idempotent: no duplicate rows created for any part_index
+        const totalBefore = getAllNotificationRows(ctx.db).length;
+        ctx.notificationService.materialize(warEnded, managementDest);
+        expect(getAllNotificationRows(ctx.db)).toHaveLength(totalBefore);
     });
 });

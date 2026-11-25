@@ -41,6 +41,7 @@ import {
     WarReminderFormatter,
 } from '../reports/index.js';
 import type { Audience } from '../telegram/validation.js';
+import { DEFAULT_TELEGRAM_MAX_VISIBLE_LENGTH, splitHtmlMessage } from './htmlMessageSplitter.js';
 
 export const DEFAULT_NOTIFICATION_PART_INDEX = 1;
 export const DEFAULT_NOTIFICATION_PART_COUNT = 1;
@@ -100,6 +101,7 @@ export interface NotificationServiceDependencies {
     readonly clanwarRosterFormatter?: EventFormatter<WarEndedEvent>;
     readonly clanwarsLeagueRoundEndedFormatter?: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
     readonly clanwarsLeagueRoundViolationsFormatter?: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
+    readonly maxMessageLength?: number;
     readonly logger?: Logger;
 }
 
@@ -131,10 +133,17 @@ export class NotificationService implements DomainEventMaterializer {
     private readonly clanwarRosterFormatter: EventFormatter<WarEndedEvent>;
     private readonly clanwarsLeagueRoundEndedFormatter: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
     private readonly clanwarsLeagueRoundViolationsFormatter: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
+    private readonly maxMessageLength: number;
     private readonly logger?: Logger;
 
     constructor(deps: NotificationServiceDependencies) {
         this.notificationRepo = deps.notificationRepo;
+        this.maxMessageLength = deps.maxMessageLength ?? DEFAULT_TELEGRAM_MAX_VISIBLE_LENGTH;
+        if (!Number.isInteger(this.maxMessageLength) || this.maxMessageLength <= 0) {
+            throw new RangeError(
+                `NotificationService maxMessageLength must be a positive integer, got ${String(this.maxMessageLength)}`,
+            );
+        }
         if (deps.subscriptionRepo !== undefined) {
             this.subscriptionRepo = deps.subscriptionRepo;
         }
@@ -442,13 +451,7 @@ export class NotificationService implements DomainEventMaterializer {
         }
 
         const message = this.playerJoinedFormatter.format(event);
-        this.enqueueDomainEvent(
-            message,
-            destination,
-            NOTIFICATION_EVENT_TYPES.playerJoinedClan,
-            DEFAULT_NOTIFICATION_PART_INDEX,
-            DEFAULT_NOTIFICATION_PART_COUNT,
-        );
+        this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.playerJoinedClan);
     }
 
     private materializePlayerLeft(
@@ -460,13 +463,7 @@ export class NotificationService implements DomainEventMaterializer {
         }
 
         const message = this.playerLeftFormatter.format(event);
-        this.enqueueDomainEvent(
-            message,
-            destination,
-            NOTIFICATION_EVENT_TYPES.playerLeftClan,
-            DEFAULT_NOTIFICATION_PART_INDEX,
-            DEFAULT_NOTIFICATION_PART_COUNT,
-        );
+        this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.playerLeftClan);
     }
 
     private materializePlayerRoleChanged(
@@ -478,13 +475,7 @@ export class NotificationService implements DomainEventMaterializer {
         }
 
         const message = this.playerRoleChangedFormatter.format(event);
-        this.enqueueDomainEvent(
-            message,
-            destination,
-            NOTIFICATION_EVENT_TYPES.playerRoleChanged,
-            DEFAULT_NOTIFICATION_PART_INDEX,
-            DEFAULT_NOTIFICATION_PART_COUNT,
-        );
+        this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.playerRoleChanged);
     }
 
     private materializeWarEnded(
@@ -493,13 +484,7 @@ export class NotificationService implements DomainEventMaterializer {
     ): void {
         if (destination.audience === 'players') {
             const message = this.clanwarEndedFormatter.format(event);
-            this.enqueueDomainEvent(
-                message,
-                destination,
-                NOTIFICATION_EVENT_TYPES.warEnded,
-                DEFAULT_NOTIFICATION_PART_INDEX,
-                DEFAULT_NOTIFICATION_PART_COUNT,
-            );
+            this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.warEnded);
 
             const comparisonMessage = this.clanwarComparisonFormatter.format(event);
             if (comparisonMessage.length > 0) {
@@ -507,8 +492,6 @@ export class NotificationService implements DomainEventMaterializer {
                     comparisonMessage,
                     destination,
                     NOTIFICATION_EVENT_TYPES.warComparison,
-                    DEFAULT_NOTIFICATION_PART_INDEX,
-                    DEFAULT_NOTIFICATION_PART_COUNT,
                 );
             }
             return;
@@ -519,8 +502,6 @@ export class NotificationService implements DomainEventMaterializer {
             violationsMessage,
             destination,
             NOTIFICATION_EVENT_TYPES.warViolations,
-            DEFAULT_NOTIFICATION_PART_INDEX,
-            DEFAULT_NOTIFICATION_PART_COUNT,
         );
 
         const rosterMessage = this.clanwarRosterFormatter.format(event);
@@ -529,8 +510,6 @@ export class NotificationService implements DomainEventMaterializer {
                 rosterMessage,
                 destination,
                 NOTIFICATION_EVENT_TYPES.warRosterReliability,
-                DEFAULT_NOTIFICATION_PART_INDEX,
-                DEFAULT_NOTIFICATION_PART_COUNT,
             );
         }
     }
@@ -541,13 +520,7 @@ export class NotificationService implements DomainEventMaterializer {
     ): void {
         if (destination.audience === 'players') {
             const message = this.raidsEndedFormatter.format(event);
-            this.enqueueDomainEvent(
-                message,
-                destination,
-                NOTIFICATION_EVENT_TYPES.raidsEnded,
-                DEFAULT_NOTIFICATION_PART_INDEX,
-                DEFAULT_NOTIFICATION_PART_COUNT,
-            );
+            this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.raidsEnded);
 
             const comparisonMessage = this.raidsComparisonFormatter.format(event);
             if (comparisonMessage.length > 0) {
@@ -555,8 +528,6 @@ export class NotificationService implements DomainEventMaterializer {
                     comparisonMessage,
                     destination,
                     NOTIFICATION_EVENT_TYPES.raidsComparison,
-                    DEFAULT_NOTIFICATION_PART_INDEX,
-                    DEFAULT_NOTIFICATION_PART_COUNT,
                 );
             }
             return;
@@ -567,8 +538,6 @@ export class NotificationService implements DomainEventMaterializer {
             violationsMessage,
             destination,
             NOTIFICATION_EVENT_TYPES.raidsViolations,
-            DEFAULT_NOTIFICATION_PART_INDEX,
-            DEFAULT_NOTIFICATION_PART_COUNT,
         );
     }
 
@@ -578,13 +547,7 @@ export class NotificationService implements DomainEventMaterializer {
     ): void {
         if (destination.audience === 'players') {
             const message = this.clanwarsLeagueRoundEndedFormatter.format(event);
-            this.enqueueDomainEvent(
-                message,
-                destination,
-                NOTIFICATION_EVENT_TYPES.cwlRoundEnded,
-                DEFAULT_NOTIFICATION_PART_INDEX,
-                DEFAULT_NOTIFICATION_PART_COUNT,
-            );
+            this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.cwlRoundEnded);
             return;
         }
 
@@ -593,8 +556,6 @@ export class NotificationService implements DomainEventMaterializer {
             violationsMessage,
             destination,
             NOTIFICATION_EVENT_TYPES.cwlViolations,
-            DEFAULT_NOTIFICATION_PART_INDEX,
-            DEFAULT_NOTIFICATION_PART_COUNT,
         );
     }
 
@@ -607,13 +568,7 @@ export class NotificationService implements DomainEventMaterializer {
         }
 
         const message = SystemAlertReportFormatter.formatFailureAlert(event);
-        this.enqueueDomainEvent(
-            message,
-            destination,
-            NOTIFICATION_EVENT_TYPES.syncFailure,
-            DEFAULT_NOTIFICATION_PART_INDEX,
-            DEFAULT_NOTIFICATION_PART_COUNT,
-        );
+        this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.syncFailure);
     }
 
     private materializeSyncRecovery(
@@ -625,13 +580,7 @@ export class NotificationService implements DomainEventMaterializer {
         }
 
         const message = SystemAlertReportFormatter.formatRecoveryAlert(event);
-        this.enqueueDomainEvent(
-            message,
-            destination,
-            NOTIFICATION_EVENT_TYPES.syncRecovery,
-            DEFAULT_NOTIFICATION_PART_INDEX,
-            DEFAULT_NOTIFICATION_PART_COUNT,
-        );
+        this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.syncRecovery);
     }
 
     private materializeWarReminder(
@@ -643,13 +592,7 @@ export class NotificationService implements DomainEventMaterializer {
         }
 
         const message = WarReminderFormatter.format(event);
-        this.enqueueDomainEvent(
-            message,
-            destination,
-            NOTIFICATION_EVENT_TYPES.warReminder,
-            DEFAULT_NOTIFICATION_PART_INDEX,
-            DEFAULT_NOTIFICATION_PART_COUNT,
-        );
+        this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.warReminder);
     }
 
     private materializeRaidReminder(
@@ -661,43 +604,49 @@ export class NotificationService implements DomainEventMaterializer {
         }
 
         const message = RaidReminderFormatter.format(event);
-        this.enqueueDomainEvent(
-            message,
-            destination,
-            NOTIFICATION_EVENT_TYPES.raidReminder,
-            DEFAULT_NOTIFICATION_PART_INDEX,
-            DEFAULT_NOTIFICATION_PART_COUNT,
-        );
+        this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.raidReminder);
     }
 
     private enqueueDomainEvent(
         message: string,
         destination: PendingDomainEventDestination,
         eventType: NotificationEventType,
-        partIndex: number = DEFAULT_NOTIFICATION_PART_INDEX,
-        partCount: number = DEFAULT_NOTIFICATION_PART_COUNT,
     ): void {
-        const inserted = this.notificationRepo.enqueueDomainEventIfAbsent(
-            message,
-            destination.destinationId,
-            eventType,
-            destination.eventId,
-            destination.chatId,
-            destination.messageThreadId,
-            partIndex,
-            partCount,
-        );
+        const parts = splitHtmlMessage(message, {
+            maxVisibleLength: this.maxMessageLength,
+        });
+        const partCount = parts.length;
 
-        if (!inserted) {
-            this.logger?.debug(
-                {
-                    eventType,
-                    clanTag: destination.clanTag,
-                    chatId: destination.chatId,
-                    destinationId: destination.destinationId,
-                },
-                '[NotificationService] Notification is already queued',
+        for (let index = 0; index < partCount; index += 1) {
+            const partText = parts[index];
+            if (partText === undefined) {
+                continue;
+            }
+            const partIndex = index + 1;
+            const inserted = this.notificationRepo.enqueueDomainEventIfAbsent(
+                partText,
+                destination.destinationId,
+                eventType,
+                destination.eventId,
+                destination.chatId,
+                destination.messageThreadId,
+                partIndex,
+                partCount,
             );
+
+            if (!inserted) {
+                this.logger?.debug(
+                    {
+                        eventType,
+                        clanTag: destination.clanTag,
+                        chatId: destination.chatId,
+                        destinationId: destination.destinationId,
+                        partIndex,
+                        partCount,
+                    },
+                    '[NotificationService] Notification is already queued',
+                );
+            }
         }
     }
 
@@ -713,27 +662,42 @@ export class NotificationService implements DomainEventMaterializer {
         const transactionManager = requireDep(this.transactionManager, 'transactionManager');
 
         const destinations = subscriptionRepo.getDestinationsForClan(clanTag, audience);
+        const parts = splitHtmlMessage(message, {
+            maxVisibleLength: this.maxMessageLength,
+        });
+        const partCount = parts.length;
 
         try {
             transactionManager.retryInTransaction(() => {
                 for (const { chatId, messageThreadId } of destinations) {
-                    const inserted = this.notificationRepo.enqueueIfAbsent(
-                        message,
-                        eventType,
-                        eventId,
-                        chatId,
-                        messageThreadId,
-                    );
-
-                    if (!inserted) {
-                        this.logger?.debug(
-                            {
-                                eventName,
-                                clanTag,
-                                chatId,
-                            },
-                            '[NotificationService] Notification is already queued',
+                    for (let index = 0; index < partCount; index += 1) {
+                        const partText = parts[index];
+                        if (partText === undefined) {
+                            continue;
+                        }
+                        const partIndex = index + 1;
+                        const inserted = this.notificationRepo.enqueueIfAbsent(
+                            partText,
+                            eventType,
+                            eventId,
+                            chatId,
+                            messageThreadId,
+                            partIndex,
+                            partCount,
                         );
+
+                        if (!inserted) {
+                            this.logger?.debug(
+                                {
+                                    eventName,
+                                    clanTag,
+                                    chatId,
+                                    partIndex,
+                                    partCount,
+                                },
+                                '[NotificationService] Notification is already queued',
+                            );
+                        }
                     }
                 }
             });
