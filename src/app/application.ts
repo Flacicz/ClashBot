@@ -38,6 +38,7 @@ import { ClanwarLeagueService } from '../services/clanwarLeagueService.js';
 import { ClanwarService } from '../services/clanwarService.js';
 import { RaidService } from '../services/raidService.js';
 import { type SyncService } from '../services/syncService.js';
+import { TelegramSubscriptionLifecycle } from '../services/telegramSubscriptionLifecycle.js';
 import { loadAttackGuideCatalog } from '../telegram/attackGuideCatalog.js';
 import { TelegramBotService } from '../telegram/telegramBotService.js';
 import { ShutdownCoordinator } from './shutdownCoordinator.js';
@@ -130,11 +131,20 @@ export async function createApplication(
         const notificationRepo = new NotificationRepo(db);
         const syncOutageRepo = new SyncOutageRepo(db);
 
+        const destinationLifecycle = new TelegramSubscriptionLifecycle({
+            transactionManager: transactions,
+            clansRepo,
+            subscriptionRepo,
+            domainEventsRepo,
+            notificationRepo,
+        });
+
         const telegramGateway =
             options.telegramGateway ?? new GrammyTelegramGateway({ token: config.telegramToken });
         const notificationWorker = new NotificationWorker({
             notificationRepo,
             telegramGateway,
+            destinationLifecycle,
             clock,
             logger,
             ...options.notificationWorkerOptions,
@@ -208,7 +218,9 @@ export async function createApplication(
                 clansRepo,
                 subscriptionRepo,
                 domainEventsRepo,
+                notificationRepo,
                 transactionManager: transactions,
+                destinationLifecycle,
                 clanManager,
                 logger,
             });

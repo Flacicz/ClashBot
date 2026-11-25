@@ -15,8 +15,10 @@
 
 Telegram-слой разделён на два независимых компонента на базе `grammy`:
 
-1. `TelegramBotService` (`src/telegram/telegramBotService.ts`) — принимает входящие обновления `message` и
-   `callback_query` через long polling, показывает меню видео-гайдов и управляет подписками (`/link`, `/unlink`).
+1. `TelegramBotService` (`src/telegram/telegramBotService.ts`) — принимает входящие обновления `message`,
+   `callback_query` и `my_chat_member` через long polling, показывает меню видео-гайдов, управляет подписками
+   (`/link`, `/unlink`), прозрачно переносит подписки при апгрейде группы в супергруппу и автоматически отключает
+   подписки при удалении/блокировке/ограничении бота.
 2. `GrammyTelegramGateway` / `TelegramGateway` (`src/notifications/telegramGateway.ts`) — исходящий транспорт для
    `NotificationWorker`: отправляет HTML-сообщения через `sendMessage` и классифицирует ошибки Bot API.
 
@@ -38,7 +40,7 @@ Telegram-слой разделён на два независимых компо
 
 ### Long polling (`TelegramBotService`)
 
-- `allowed_updates`: `['message', 'callback_query']` (`TELEGRAM_BOT_ALLOWED_UPDATES`).
+- `allowed_updates`: `['message', 'callback_query', 'my_chat_member']` (`TELEGRAM_BOT_ALLOWED_UPDATES`).
 - `timeout` long polling: `2` сек (`DEFAULT_POLLING_TIMEOUT_SECONDS = 2`), HTTP-таймаут клиента — `max(10, pollingTimeoutSeconds + 5)`
   сек (минимум `10` сек).
 - Для long polling у бота не должно быть активного webhook.
@@ -116,6 +118,37 @@ Telegram-слой разделён на два независимых компо
   3. удаляет подписку; если в Telegram-назначении больше нет подписок — удаляет строку `telegram_chats`; если у клана не
      осталось подписок — устанавливает `clans.tracking_enabled = 0`, сохраняя всю историю войн, рейдов и игроков.
 
+## Миграция чата (`group → supergroup`) и автоотключение недоступных назначений
+
+Жизненный цикл подписок при изменениях чата и постоянных сбоях доставки координируется единым транзакционным сервисом
+`TelegramSubscriptionLifecycle` (`src/services/telegramSubscriptionLifecycle.ts`), общим для `TelegramBotService` и
+`NotificationWorker`:
+
+- **Прозрачная миграция группы в супергруппу (`migrate_to_chat_id` / `migrate_from_chat_id`)**:
+  - срабатывает как при получении служебного сообщения `message.migrate_to_chat_id` / `message.migrate_from_chat_id`
+    в `TelegramBotService`, так и при ответе Bot API HTTP `400` с `parameters.migrate_to_chat_id` в `NotificationWorker`;
+  - в одной синхронной SQLite-транзакции переносятся записи `telegram_chats`, `clan_subscriptions` (с сохранением
+    существующего `subscription_id`; при конфликте с уже созданной подпиской в супергруппе дубликат старого поколения
+    отменяется и удаляется), `pending`-записи `domain_event_destinations` и активные (`pending` / `sending`) записи
+    `notifications`;
+  - в `NotificationWorker` текущее `sending`-уведомление в той же транзакции возвращается в `pending` с новым `chat_id`
+    (если подписка активна и уведомление не просрочено), после чего батч перечитывается с новым `chat_id` без лишних
+    запросов к старому чату.
+- **Автоматическое отключение при постоянной недоступности назначения**:
+  - выполняется с той же семантикой, что и `/unlink` (отмена `pending`-записей `domain_event_destinations` и
+    `notifications` текущего поколения подписки, удаление подписок из `clan_subscriptions`, очистка `telegram_chats`,
+    выключение `clans.tracking_enabled = 0` для кланов без оставшихся подписок, диагностика в лог); отдельного статуса
+    «пауза» нет — для возобновления нужен повторный `/link`;
+  - срабатывает в `TelegramBotService` при получении `my_chat_member` с новым статусом `kicked`, `left` или
+    `restricted` с `can_send_messages === false` (отключаются все подписки `chat_id`; статусы `member`, `administrator`
+    и `restricted` с `can_send_messages: true` подписки не затрагивают);
+  - срабатывает в `NotificationWorker` при постоянной ошибке недоступности от Bot API: ошибки уровня чата (любой `403`,
+    а также `400` вроде `chat not found`, `group chat was deactivated`, `have no rights to send`, `CHAT_WRITE_FORBIDDEN`)
+    отключают все подписки `chat_id`, а ошибки удалённой/закрытой форумной темы (`400` `message thread not found`,
+    `TOPIC_DELETED`, `TOPIC_CLOSED`) отключают только конкретное назначение `(chat_id, message_thread_id)`, не затрагивая
+    соседние темы той же супергруппы. Прочие ошибки формата/payload (`400 can't parse entities`, `message is too long`,
+    `401`, `404`) переводят в `failed` только конкретное уведомление, оставляя подписку активной.
+
 ## Интерактивное меню и схема `callback_data`
 
 Команда `/start` отправляет главное меню с inline-клавиатурой (`src/telegram/keyboards.ts`). При каждом `callback_query`
@@ -176,14 +209,15 @@ Telegram-слой разделён на два независимых компо
 - `sendMessage(chatId, text, messageThreadId = 0, signal?)` отправляет HTML-сообщение, добавляя `message_thread_id` только
   при `messageThreadId > 0`, и немедленно прерывает ожидание по `AbortSignal`.
 
-Функция `classifyTelegramError` делит сбои на четыре категории (`TelegramDeliveryError`):
+Функция `classifyTelegramError` делит сбои на пять категорий (`TelegramDeliveryError`):
 
-| Категория (`kind`) | Условие                                                                        | `retryable` | Обработка в `NotificationWorker`                                                                 |
-| ------------------ | ------------------------------------------------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------ |
-| `aborted`          | `signal?.aborted` или вложенный `AbortError`                                   | `false`     | Корректная остановка без изменения статуса в outbox                                              |
-| `rate_limit`       | HTTP `429` или наличие `retry_after`                                           | `true`      | Клиент не спит сам; извлекает `retryAfterSeconds = Math.ceil(retry_after)` для `next_attempt_at` |
-| `transient`        | HTTP `5xx`, сетевой `HttpError` или прочие непостоянные сбои                   | `true`      | Повтор по backoff-политике (`NotificationWorker`)                                                |
-| `permanent`        | HTTP `4xx` (кроме `429`: `400`, `403`, `404` и т.д.) или `retryable === false` | `false`     | Немедленный перевод уведомления в `status = 'failed'`                                            |
+| Категория (`kind`) | Условие                                                                                    | `retryable` | Обработка в `NotificationWorker`                                                                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aborted`          | `signal?.aborted` или вложенный `AbortError`                                               | `false`     | Корректная остановка с освобождением claim без изменения `attempts`                                                                                            |
+| `rate_limit`       | HTTP `429` или наличие `retry_after`                                                       | `true`      | Клиент не спит сам; извлекает `retryAfterSeconds = Math.ceil(retry_after)` для `next_attempt_at`                                                               |
+| `transient`        | HTTP `5xx`, сетевой `HttpError` или прочие непостоянные сбои                               | `true`      | Повтор по backoff-политике (`NotificationWorker`)                                                                                                              |
+| `chat_migrated`    | HTTP `400` (или ошибка API) с валидным `parameters.migrate_to_chat_id`                     | `false`     | Атомарный перенос `chat_id → migrate_to_chat_id` (`telegram_chats`, `clan_subscriptions`, очереди) и немедленный возврат уведомления в `pending` с новым `chat_id` |
+| `permanent`        | HTTP `4xx` (кроме `429` и `migrate_to_chat_id`) или `retryable === false`                  | `false`     | Перевод уведомления в `status = 'failed'`; если задан `destinationUnavailableScope` (`'chat'` или `'destination'`), в той же транзакции автоматически отключаются затронутые подписки и отменяются их оставшиеся `pending`-записи |
 
 ## Получение `chat_id` и `message_thread_id` вручную
 

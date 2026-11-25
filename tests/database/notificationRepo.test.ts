@@ -931,4 +931,125 @@ describe('NotificationRepo', () => {
         });
         expect(inspect(eternalReport.id)?.status).toBe('pending');
     });
+
+    it('migrates active pending/sending notifications to new chat_id, handles legacy collisions, and requeues after chat migration', () => {
+        const { db, domainEventsRepo, repo } = setup();
+        const destId = createDestination(domainEventsRepo, 'mig-n1', 10, -500);
+
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Durable pending',
+                destId,
+                'war_ended',
+                'mig-n1',
+                -500,
+                0,
+            ),
+        ).toBe(true);
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Durable sending',
+                destId,
+                'war_comparison',
+                'mig-n1',
+                -500,
+                0,
+            ),
+        ).toBe(true);
+        expect(
+            repo.enqueueDomainEventIfAbsent(
+                'Durable sent',
+                destId,
+                'war_violations',
+                'mig-n1',
+                -500,
+                0,
+            ),
+        ).toBe(true);
+
+        // Legacy collision: both oldChatId and newChatId have the same legacy event
+        expect(repo.enqueueIfAbsent('Legacy old dup', 'war_ended', 'leg-dup', -500, 0)).toBe(true);
+        expect(repo.enqueueIfAbsent('Legacy target', 'war_ended', 'leg-dup', -1005000001, 0)).toBe(
+            true,
+        );
+
+        const queued = repo.getPending(20);
+        const pendingRow = mustExist(
+            queued.find((n) => n.messageText === 'Durable pending'),
+            'pendingRow',
+        );
+        const sendingRow = mustExist(
+            queued.find((n) => n.messageText === 'Durable sending'),
+            'sendingRow',
+        );
+        const sentRow = mustExist(
+            queued.find((n) => n.messageText === 'Durable sent'),
+            'sentRow',
+        );
+        const legacyDupRow = mustExist(
+            queued.find((n) => n.messageText === 'Legacy old dup'),
+            'legacyDupRow',
+        );
+
+        expect(repo.claimForSending(sendingRow.id, 1_700_000_000)).toBe(true);
+        expect(repo.claimForSending(sentRow.id, 1_700_000_000)).toBe(true);
+        expect(repo.markAsSent(sentRow.id)).toBe(true);
+
+        expect(repo.migrateActiveChatId(-500, -500)).toBe(0);
+        expect(repo.migrateActiveChatId(-500, -1005000001)).toBe(2);
+
+        // Requeue the sending notification after migration
+        expect(
+            repo.requeueAfterChatMigration(
+                sendingRow.id,
+                -1005000001,
+                1_700_000_001,
+                'Bad Request: group chat was upgraded to a supergroup chat',
+            ),
+        ).toBe(true);
+        // Requeue on a non-sending row returns false
+        expect(
+            repo.requeueAfterChatMigration(pendingRow.id, -1005000001, 1_700_000_001, 'noop'),
+        ).toBe(false);
+
+        const inspect = (id: number) =>
+            db.connection
+                .prepare<
+                    [number],
+                    {
+                        chat_id: number;
+                        status: string;
+                        attempts: number;
+                        claimed_at: number | null;
+                        last_error: string | null;
+                    }
+                >(
+                    'SELECT chat_id, status, attempts, claimed_at, last_error FROM notifications WHERE id = ?;',
+                )
+                .get(id);
+
+        expect(inspect(pendingRow.id)).toEqual({
+            chat_id: -1005000001,
+            status: 'pending',
+            attempts: 0,
+            claimed_at: null,
+            last_error: null,
+        });
+        expect(inspect(sendingRow.id)).toEqual({
+            chat_id: -1005000001,
+            status: 'pending',
+            attempts: 1,
+            claimed_at: null,
+            last_error: 'Bad Request: group chat was upgraded to a supergroup chat',
+        });
+        expect(inspect(sentRow.id)?.chat_id).toBe(-500);
+        expect(inspect(sentRow.id)?.status).toBe('sent');
+        expect(inspect(legacyDupRow.id)).toEqual({
+            chat_id: -500,
+            status: 'cancelled',
+            attempts: 0,
+            claimed_at: null,
+            last_error: 'chat migrated duplicate',
+        });
+    });
 });

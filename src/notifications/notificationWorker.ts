@@ -8,8 +8,13 @@ import {
 } from '../database/repos/notificationRepo.js';
 import { RetryPolicy } from '../database/retryPolicy.js';
 import type { Logger } from '../logging/logger.js';
+import type { TelegramDestinationLifecycle } from '../services/telegramSubscriptionLifecycle.js';
 import type { WakeableNotificationWorker } from './notificationService.js';
-import { classifyTelegramError, type TelegramGateway } from './telegramGateway.js';
+import {
+    classifyTelegramError,
+    type TelegramErrorClassification,
+    type TelegramGateway,
+} from './telegramGateway.js';
 
 export const DEFAULT_NOTIFICATION_POLL_INTERVAL_MS = 1_000;
 export const DEFAULT_NOTIFICATION_CLAIM_TTL_SECONDS = 60;
@@ -31,6 +36,7 @@ export interface NotificationWorkerOptions {
     readonly retryPolicy?: RetryPolicy;
     readonly batchSize?: number;
     readonly claimTtlSeconds?: number;
+    readonly destinationLifecycle?: TelegramDestinationLifecycle;
     readonly clock?: Clock;
     readonly logger?: Logger;
 }
@@ -59,6 +65,7 @@ export class NotificationWorker implements WakeableNotificationWorker {
     private readonly retryPolicy: RetryPolicy;
     private readonly batchSize: number;
     private readonly claimTtlSeconds: number;
+    private readonly destinationLifecycle?: TelegramDestinationLifecycle;
     private readonly clock: Clock;
     private readonly logger?: Logger;
 
@@ -106,6 +113,9 @@ export class NotificationWorker implements WakeableNotificationWorker {
         this.retryPolicy = deps.retryPolicy ?? createDefaultTelegramRetryPolicy();
         this.batchSize = batchSize;
         this.claimTtlSeconds = claimTtlSeconds;
+        if (deps.destinationLifecycle !== undefined) {
+            this.destinationLifecycle = deps.destinationLifecycle;
+        }
         this.clock = deps.clock ?? new SystemClock();
         if (deps.logger !== undefined) {
             this.logger = deps.logger;
@@ -189,7 +199,7 @@ export class NotificationWorker implements WakeableNotificationWorker {
                 return;
             }
 
-            let unlockedNextPart = false;
+            let reloadBatch = false;
 
             for (const notification of notifications) {
                 if (this.shouldStop(signal)) {
@@ -228,15 +238,17 @@ export class NotificationWorker implements WakeableNotificationWorker {
                         return;
                     }
 
-                    this.handleFailure(
-                        notification,
-                        classification.message,
-                        classification.retryable,
-                        classification.retryAfterSeconds,
-                    );
+                    const shouldReloadBatch = this.handleFailure(notification, classification);
 
                     if (this.shouldStop(signal)) {
                         return;
+                    }
+                    if (shouldReloadBatch) {
+                        reloadBatch = true;
+                        if (remaining === 0) {
+                            this.wakeRequested = true;
+                        }
+                        break;
                     }
                     continue;
                 } finally {
@@ -261,7 +273,7 @@ export class NotificationWorker implements WakeableNotificationWorker {
                 }
 
                 if (markedAsSent && notification.partIndex < notification.partCount) {
-                    unlockedNextPart = true;
+                    reloadBatch = true;
                     if (remaining === 0) {
                         this.wakeRequested = true;
                     }
@@ -269,7 +281,7 @@ export class NotificationWorker implements WakeableNotificationWorker {
                 }
             }
 
-            if (!unlockedNextPart) {
+            if (!reloadBatch) {
                 return;
             }
         }
@@ -352,26 +364,109 @@ export class NotificationWorker implements WakeableNotificationWorker {
 
     private handleFailure(
         notification: PendingNotification,
-        errorMessage: string,
-        retryable: boolean,
-        retryAfterSeconds?: number,
-    ): void {
+        classification: TelegramErrorClassification,
+    ): boolean {
+        const errorMessage = classification.message;
         const nextAttempt = notification.attempts + 1;
         const attemptsExhausted = nextAttempt >= this.retryPolicy.maxAttempts;
 
         try {
-            if (!retryable || attemptsExhausted) {
+            if (
+                classification.kind === 'chat_migrated' &&
+                classification.migrateToChatId !== undefined &&
+                classification.migrateToChatId !== notification.chatId &&
+                notification.attempts < this.retryPolicy.maxAttempts &&
+                this.destinationLifecycle !== undefined
+            ) {
+                const migrationResult = this.destinationLifecycle.migrateChatAndRequeueNotification(
+                    {
+                        notificationId: notification.id,
+                        oldChatId: notification.chatId,
+                        newChatId: classification.migrateToChatId,
+                        nextAttemptAt: this.clock.nowEpochSeconds(),
+                        expiresAt: notification.expiresAt,
+                        errorMessage,
+                    },
+                );
+
+                this.logger?.info(
+                    {
+                        notificationId: notification.id,
+                        oldChatId: notification.chatId,
+                        newChatId: classification.migrateToChatId,
+                        migratedChats: migrationResult.migratedChats,
+                        migratedSubscriptions: migrationResult.migratedSubscriptions,
+                        deduplicatedSubscriptions: migrationResult.deduplicatedSubscriptions,
+                        migratedDestinations: migrationResult.migratedDestinations,
+                        migratedNotifications: migrationResult.migratedNotifications,
+                        notificationOutcome: migrationResult.notificationOutcome,
+                    },
+                    `[NotificationWorker] Migrated Telegram chat ${String(notification.chatId)} -> ${String(classification.migrateToChatId)}`,
+                );
+                return true;
+            }
+
+            if (
+                classification.destinationUnavailableScope !== undefined &&
+                this.destinationLifecycle !== undefined
+            ) {
+                const disableResult = this.destinationLifecycle.disableForDeliveryFailure({
+                    notificationId: notification.id,
+                    chatId: notification.chatId,
+                    messageThreadId: notification.messageThreadId,
+                    scope: classification.destinationUnavailableScope,
+                    errorMessage,
+                });
+
+                this.logger?.error(
+                    {
+                        notificationId: notification.id,
+                        chatId: notification.chatId,
+                        messageThreadId: notification.messageThreadId,
+                        attempts: nextAttempt,
+                        retryable: false,
+                        ...(classification.statusCode !== undefined
+                            ? { statusCode: classification.statusCode }
+                            : {}),
+                        scope: classification.destinationUnavailableScope,
+                        error: errorMessage,
+                    },
+                    `[NotificationWorker] Notification ${String(notification.id)} permanently failed: ${errorMessage}`,
+                );
+
+                if (disableResult.disabledSubscriptionIds.length > 0) {
+                    this.logger?.warn(
+                        {
+                            notificationId: notification.id,
+                            chatId: notification.chatId,
+                            messageThreadId: notification.messageThreadId,
+                            scope: classification.destinationUnavailableScope,
+                            ...(classification.statusCode !== undefined
+                                ? { statusCode: classification.statusCode }
+                                : {}),
+                            disabledSubscriptionIds: disableResult.disabledSubscriptionIds,
+                            disabledClanTags: disableResult.disabledClanTags,
+                            untrackedClanTags: disableResult.untrackedClanTags,
+                            error: errorMessage,
+                        },
+                        `[NotificationWorker] Automatically disabled unavailable Telegram subscriptions for chat ${String(notification.chatId)}`,
+                    );
+                }
+                return false;
+            }
+
+            if (!classification.retryable || attemptsExhausted) {
                 this.notificationRepo.markAsFailed(notification.id, errorMessage);
                 this.logger?.error(
                     {
                         notificationId: notification.id,
                         attempts: nextAttempt,
-                        retryable,
+                        retryable: classification.retryable,
                         error: errorMessage,
                     },
                     `[NotificationWorker] Notification ${String(notification.id)} permanently failed: ${errorMessage}`,
                 );
-                return;
+                return false;
             }
 
             if (this.notificationRepo.cancelSendingIfSubscriptionInactive(notification.id)) {
@@ -382,10 +477,10 @@ export class NotificationWorker implements WakeableNotificationWorker {
                     },
                     `[NotificationWorker] Notification ${String(notification.id)} cancelled instead of retrying because subscription is no longer active`,
                 );
-                return;
+                return false;
             }
 
-            const scheduledAt = this.nextAttemptAt(nextAttempt, retryAfterSeconds);
+            const scheduledAt = this.nextAttemptAt(nextAttempt, classification.retryAfterSeconds);
             if (
                 notification.expiresAt !== null &&
                 this.notificationRepo.cancelSendingIfExpired(notification.id, scheduledAt)
@@ -399,7 +494,7 @@ export class NotificationWorker implements WakeableNotificationWorker {
                     },
                     `[NotificationWorker] Notification ${String(notification.id)} cancelled instead of retrying because it expires before the next attempt`,
                 );
-                return;
+                return false;
             }
 
             this.notificationRepo.reschedule(notification.id, scheduledAt, errorMessage);
@@ -408,11 +503,14 @@ export class NotificationWorker implements WakeableNotificationWorker {
                     notificationId: notification.id,
                     attempt: nextAttempt,
                     nextAttemptAt: scheduledAt,
-                    ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+                    ...(classification.retryAfterSeconds !== undefined
+                        ? { retryAfterSeconds: classification.retryAfterSeconds }
+                        : {}),
                     error: errorMessage,
                 },
                 `[NotificationWorker] Notification ${String(notification.id)} rescheduled after attempt ${String(nextAttempt)}: ${errorMessage}`,
             );
+            return false;
         } catch (databaseError: unknown) {
             this.logger?.error(
                 {
@@ -422,6 +520,7 @@ export class NotificationWorker implements WakeableNotificationWorker {
                 },
                 `[NotificationWorker] Failed to update notification ${String(notification.id)} after delivery error`,
             );
+            return false;
         }
     }
 

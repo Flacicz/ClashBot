@@ -345,4 +345,61 @@ describe('DomainEventsRepo', () => {
         expect(eventCount?.count).toBe(0);
         expect(destCount?.count).toBe(0);
     });
+
+    it('migrates chat_id only for pending domain event destinations without altering materialized or cancelled rows', () => {
+        const { db, repo } = setup();
+
+        repo.appendEvent(makeEvent({ eventId: 'mig-1' }), [
+            makeDestination({ chatId: -500, subscriptionId: 10 }),
+            makeDestination({ chatId: -999, subscriptionId: 99 }),
+        ]);
+        repo.appendEvent(makeEvent({ eventId: 'mig-2' }), [
+            makeDestination({ chatId: -500, subscriptionId: 10 }),
+        ]);
+        repo.appendEvent(makeEvent({ eventId: 'mig-3' }), [
+            makeDestination({ chatId: -500, subscriptionId: 11 }),
+        ]);
+
+        const all = repo.getPendingDestinations(10);
+        const dest1 = mustExist(
+            all.find((d) => d.eventId === 'mig-1' && d.chatId === -500),
+            'dest1',
+        );
+        const dest2 = mustExist(
+            all.find((d) => d.eventId === 'mig-2'),
+            'dest2',
+        );
+        const dest3 = mustExist(
+            all.find((d) => d.eventId === 'mig-3'),
+            'dest3',
+        );
+
+        expect(repo.markMaterialized(dest2.destinationId)).toBe(true);
+        repo.cancelForSubscription(11);
+
+        expect(repo.migratePendingChatId(-500, -500)).toBe(0);
+        expect(repo.migratePendingChatId(-500, -1005000001)).toBe(1);
+
+        const rows = db.connection
+            .prepare<[], { id: number; chat_id: number; status: string }>(
+                'SELECT id, chat_id, status FROM domain_event_destinations ORDER BY id;',
+            )
+            .all();
+
+        expect(rows.find((r) => r.id === dest1.destinationId)).toEqual({
+            id: dest1.destinationId,
+            chat_id: -1005000001,
+            status: 'pending',
+        });
+        expect(rows.find((r) => r.id === dest2.destinationId)).toEqual({
+            id: dest2.destinationId,
+            chat_id: -500,
+            status: 'materialized',
+        });
+        expect(rows.find((r) => r.id === dest3.destinationId)).toEqual({
+            id: dest3.destinationId,
+            chat_id: -500,
+            status: 'cancelled',
+        });
+    });
 });

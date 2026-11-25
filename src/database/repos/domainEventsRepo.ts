@@ -307,4 +307,27 @@ export class DomainEventsRepo {
             },
         );
     }
+
+    migratePendingChatId(oldChatId: number, newChatId: number): number {
+        if (oldChatId === newChatId) {
+            return 0;
+        }
+
+        return runRepoQuery(
+            REPO_NAME,
+            'migrate pending domain event destinations chat_id',
+            { oldChatId, newChatId },
+            () => {
+                const result = getConnection(this.source)
+                    .prepare<[number, number]>(
+                        `UPDATE domain_event_destinations
+                         SET chat_id = ?
+                         WHERE chat_id = ?
+                           AND status = 'pending';`,
+                    )
+                    .run(newChatId, oldChatId);
+                return result.changes;
+            },
+        );
+    }
 }

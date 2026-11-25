@@ -39,3 +39,15 @@ export {
 } from './reminders.js';
 export { createSyncError, createSyncSuccess, type SyncResult } from './syncResult.js';
 export type { SyncService } from './syncService.js';
+export {
+    TelegramSubscriptionLifecycle,
+    type ChatMigrationAndRequeueResult,
+    type ChatMigrationNotificationOutcome,
+    type ChatMigrationResult,
+    type DisableForDeliveryFailureParams,
+    type DisableSubscriptionsResult,
+    type MigrateChatAndRequeueNotificationParams,
+    type TelegramDestinationLifecycle,
+    type TelegramDestinationUnavailableScope,
+    type TelegramSubscriptionLifecycleDependencies,
+} from './telegramSubscriptionLifecycle.js';

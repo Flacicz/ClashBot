@@ -19,7 +19,7 @@ ClashBot — автономный сервис мониторинга клано
 | `src/config/` | Схема (`configSchema.ts`) и загрузка конфига/секретов (`loadConfig.ts`) | Валидирует `config.json`, `.env` и обязательные переменные окружения через `zod` |
 | `src/api/` | HTTP-клиент CoC API (`cocApiClient.ts`), ошибки, схемы `zod`, мапперы и парсер времени | Не знает о SQLite и Telegram; преобразует ответы API в доменные модели |
 | `src/models/` | Типы предметной области (`clan.ts`, `raid.ts`) | Чистые структуры данных; реэкспортирует базовые модели из `src/api/models.ts` |
-| `src/services/` | Оркестрация синхронизации (`ClanManager`, `SyncService`, 4 сервиса, `reminders.ts`) | Вызывает API вне транзакций, пишет в БД через репозитории и `DomainEventRecorder` внутри транзакции |
+| `src/services/` | Оркестрация синхронизации (`ClanManager`, `SyncService`, 4 сервиса, `reminders.ts`) и жизненный цикл Telegram-подписок (`TelegramSubscriptionLifecycle`) | Вызывает API вне транзакций, пишет в БД через репозитории и `DomainEventRecorder` внутри транзакции; атомарно мигрирует и отключает подписки Telegram |
 | `src/database/` | `Database`, `DatabaseInstanceLock`, `TransactionManager`, `MigratorManager`, `ForeignKeysGuard`, `RetryPolicy` | Инкапсулирует соединение `better-sqlite3`, single-instance lock (`<dbPath>.lock`), `PRAGMA`, транзакции и миграции |
 | `src/database/repos/` | 8 предметных репозиториев, `BaseRepository`, `repoHelpers.ts` | Единственный слой с SQL-запросами; преобразует ошибки SQLite в `DatabaseError` |
 | `src/events/` | Дискриминируемое объединение `ApplicationEvent` и стабильные ключи `getApplicationEventKey` | Чистые типы и функции ключей дедупликации; не зависят от БД и форматтеров |
@@ -168,7 +168,7 @@ NotificationWorker
   ├─ отмена просроченных pending-напоминаний (expires_at <= now → cancelled, last_error = 'notification expired')
   ├─ атомарный захват записи: claimForSending (status = 'sending', claimed_at = now WHERE status = 'pending' AND (expires_at IS NULL OR expires_at > now))
   ├─ HTTP sendMessage через TelegramGateway (grammY Api)
-  └─ markAsSent / reschedule (или cancel при неактивной подписке либо истечении expires_at до следующей попытки) / markAsFailed (только из status = 'sending')
+  └─ markAsSent / migrateChat+requeue (при 400 migrate_to_chat_id) / reschedule (или cancel при неактивной подписке либо истечении expires_at до следующей попытки) / markAsFailed (+ автоотключение подписки аналогично /unlink при постоянной недоступности назначения) (только из status = 'sending')
 ```
 
 Ключевые системные инварианты:

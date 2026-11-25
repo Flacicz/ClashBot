@@ -43,6 +43,7 @@ import {
     TelegramGateway,
     countTelegramHtmlVisibleLength,
 } from '../../src/notifications/index.js';
+import { TelegramSubscriptionLifecycle } from '../../src/services/index.js';
 import { type LoopbackServer, startLoopbackServer } from '../api/helpers/loopbackServer.js';
 
 const REAL_MIGRATIONS_PATH = path.resolve(import.meta.dirname, '../../migrations');
@@ -177,9 +178,17 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         };
 
         const logger = createLogger({ level: 'silent' });
+        const destinationLifecycle = new TelegramSubscriptionLifecycle({
+            transactionManager: tx,
+            clansRepo,
+            subscriptionRepo,
+            domainEventsRepo,
+            notificationRepo,
+        });
         const notificationWorker = new NotificationWorker({
             notificationRepo,
             telegramGateway: fakeGateway,
+            destinationLifecycle,
             clock,
             logger,
         });
@@ -218,6 +227,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
             notificationRepo,
             recorder,
             deserializer,
+            destinationLifecycle,
             notificationService,
             notificationWorker,
             domainEventWorker,
@@ -2327,5 +2337,445 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
             status: 'cancelled',
             last_error: NOTIFICATION_EXPIRED_ERROR,
         });
+    });
+
+    it('transparently migrates telegram_chats, clan_subscriptions, and queues on HTTP 400 migrate_to_chat_id and delivers to the new supergroup', async () => {
+        const h = createHarness();
+        const oldChatId = -500;
+        const newChatId = -1005000001;
+
+        h.subscriptionRepo.saveTelegramChat(oldChatId, 0, 'Clan Group');
+        h.subscriptionRepo.subscribeToChat(oldChatId, 0, CLAN_TAG, 'players');
+        const originalSubId = h.subscriptionRepo.getSubscriptionId(
+            oldChatId,
+            0,
+            CLAN_TAG,
+            'players',
+        );
+        expect(originalSubId).not.toBeNull();
+
+        // Record 3 events: first 2 are materialized into notifications, 3rd remains pending in domain_event_destinations
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P1',
+                    playerName: 'Alice',
+                    membershipId: 1001,
+                },
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P2',
+                    playerName: 'Bob',
+                    membershipId: 1002,
+                },
+            ]);
+        });
+        h.domainEventWorker.processPending();
+
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P3',
+                    playerName: 'Charlie',
+                    membershipId: 1003,
+                },
+            ]);
+        });
+
+        const sentChatIds: number[] = [];
+        const server = await startLoopbackServer((req, res) => {
+            const chunks: Buffer[] = [];
+            req.on('data', (chunk: Buffer) => chunks.push(chunk));
+            req.on('end', () => {
+                const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+                    chat_id: number;
+                    text: string;
+                };
+                sentChatIds.push(body.chat_id);
+                if (body.chat_id === oldChatId) {
+                    res.statusCode = 400;
+                    res.setHeader('content-type', 'application/json');
+                    res.end(
+                        JSON.stringify({
+                            ok: false,
+                            error_code: 400,
+                            description:
+                                'Bad Request: group chat was upgraded to a supergroup chat',
+                            parameters: { migrate_to_chat_id: newChatId },
+                        }),
+                    );
+                    return;
+                }
+
+                res.statusCode = 200;
+                res.setHeader('content-type', 'application/json');
+                res.end(
+                    JSON.stringify({
+                        ok: true,
+                        result: {
+                            message_id: 10,
+                            date: 1_700_000_000,
+                            chat: { id: body.chat_id, type: 'supergroup' },
+                            text: body.text,
+                        },
+                    }),
+                );
+            });
+        });
+        openServers.push(server);
+
+        const gateway = new TelegramGateway('test-token', { apiRoot: server.baseUrl });
+        const worker = new NotificationWorker({
+            notificationRepo: h.notificationRepo,
+            telegramGateway: gateway,
+            destinationLifecycle: h.destinationLifecycle,
+            clock: h.clock,
+        });
+
+        // One processPending call hits 400 migrate_to_chat_id on Alice, migrates DB atomically, reloads batch, and delivers BOTH Alice and Bob to newChatId
+        await worker.processPending();
+
+        // Only 1 request went to oldChatId; both notifications were delivered to newChatId!
+        expect(sentChatIds).toEqual([oldChatId, newChatId, newChatId]);
+
+        expect(h.subscriptionRepo.hasSubscription(oldChatId, 0, CLAN_TAG, 'players')).toBe(false);
+        expect(h.subscriptionRepo.getSubscriptionId(newChatId, 0, CLAN_TAG, 'players')).toBe(
+            originalSubId,
+        );
+
+        // Pending domain_event_destination (Charlie) was also migrated to newChatId
+        const pendingDests = h.domainEventsRepo.getPendingDestinations(10);
+        expect(pendingDests).toHaveLength(1);
+        expect(pendingDests[0]?.chatId).toBe(newChatId);
+        expect(pendingDests[0]?.subscriptionId).toBe(originalSubId);
+
+        // Materializing and delivering Charlie goes straight to newChatId
+        h.domainEventWorker.processPending();
+        await worker.processPending();
+        expect(sentChatIds).toEqual([oldChatId, newChatId, newChatId, newChatId]);
+    });
+
+    it('auto-disables subscriptions like /unlink on 403 Forbidden, cancels remaining pending queue, and prevents infinite failed records', async () => {
+        const h = createHarness();
+        const deadChatId = -3001;
+        const healthyChatId = -3002;
+        const soleClanTag = '#SOLE';
+
+        h.clansRepo.insertMinimalClan(soleClanTag);
+        h.db.connection
+            .prepare("UPDATE clans SET name = 'Sole Clan' WHERE tag = ?;")
+            .run(soleClanTag);
+
+        h.subscriptionRepo.saveTelegramChat(deadChatId, 0, 'Dead Group');
+        h.subscriptionRepo.saveTelegramChat(healthyChatId, 0, 'Healthy Group');
+        h.subscriptionRepo.subscribeToChat(deadChatId, 0, CLAN_TAG, 'players');
+        h.subscriptionRepo.subscribeToChat(deadChatId, 0, soleClanTag, 'players');
+        h.subscriptionRepo.subscribeToChat(healthyChatId, 0, CLAN_TAG, 'players');
+
+        // Event 1 & 2 materialized into notifications; Event 3 stays pending in domain_event_destinations
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P1',
+                    playerName: 'Alice',
+                    membershipId: 2001,
+                },
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P2',
+                    playerName: 'Bob',
+                    membershipId: 2002,
+                },
+            ]);
+        });
+        h.domainEventWorker.processPending();
+
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: soleClanTag,
+                    playerTag: '#P3',
+                    playerName: 'Charlie',
+                    membershipId: 2003,
+                },
+            ]);
+        });
+
+        let deadChatAttempts = 0;
+        h.setSendResponder(async (chatId, text, messageThreadId) => {
+            await Promise.resolve();
+            if (chatId === deadChatId) {
+                deadChatAttempts += 1;
+                throw new TelegramDeliveryError(
+                    'Forbidden: bot was kicked from the supergroup chat',
+                    {
+                        kind: 'permanent',
+                        statusCode: 403,
+                        retryable: false,
+                    },
+                );
+            }
+            h.sentMessages.push({ chatId, text, messageThreadId });
+        });
+
+        await h.notificationWorker.processPending();
+
+        // Only ONE HTTP attempt to deadChatId; its second queued notification was cancelled before sending!
+        expect(deadChatAttempts).toBe(1);
+        expect(h.sentMessages).toHaveLength(2);
+        expect(h.sentMessages.every((m) => m.chatId === healthyChatId)).toBe(true);
+
+        // Subscriptions and telegram_chats for deadChatId are removed
+        expect(h.subscriptionRepo.getSubscriptionsForChat(deadChatId)).toEqual([]);
+        expect(h.subscriptionRepo.hasSubscription(healthyChatId, 0, CLAN_TAG, 'players')).toBe(
+            true,
+        );
+
+        // #SOLE lost its only subscription -> tracking_enabled = 0; #2PPLQ stays tracked because healthyChatId is active
+        expect(h.clansRepo.getTrackedClans()).toEqual([CLAN_TAG]);
+
+        // Pending destination for #SOLE on deadChatId was cancelled
+        expect(getDestinationStateByEventId(h.db, '2003').status).toBe('cancelled');
+
+        // Exactly 1 failed notification for deadChatId, and 1 cancelled notification for deadChatId
+        const deadNotifs = h.db.connection
+            .prepare<[number], { event_id: string; status: string }>(
+                'SELECT event_id, status FROM notifications WHERE chat_id = ? ORDER BY id;',
+            )
+            .all(deadChatId);
+        expect(deadNotifs).toEqual([
+            { event_id: '2001', status: 'failed' },
+            { event_id: '2002', status: 'cancelled' },
+        ]);
+
+        // New domain events for #2PPLQ do NOT target deadChatId and produce ZERO new failed notifications
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P4',
+                    playerName: 'Dana',
+                    membershipId: 2004,
+                },
+            ]);
+        });
+        h.domainEventWorker.processPending();
+        await h.notificationWorker.processPending();
+
+        expect(deadChatAttempts).toBe(1);
+        expect(h.sentMessages).toHaveLength(3);
+        const failedCount = h.db.connection
+            .prepare<[number], { count: number }>(
+                "SELECT COUNT(*) AS count FROM notifications WHERE chat_id = ? AND status = 'failed';",
+            )
+            .get(deadChatId)?.count;
+        expect(failedCount).toBe(1);
+    });
+
+    it('disables only the deleted forum topic on 400 message thread not found while keeping sibling topics active', async () => {
+        const h = createHarness();
+        const chatId = -4001;
+        const deletedTopicId = 42;
+        const activeTopicId = 99;
+
+        h.subscriptionRepo.saveTelegramChat(chatId, deletedTopicId, 'Deleted Topic');
+        h.subscriptionRepo.saveTelegramChat(chatId, activeTopicId, 'Active Topic');
+        h.subscriptionRepo.subscribeToChat(chatId, deletedTopicId, CLAN_TAG, 'players');
+        h.subscriptionRepo.subscribeToChat(chatId, activeTopicId, CLAN_TAG, 'players');
+
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P1',
+                    playerName: 'Alice',
+                    membershipId: 3001,
+                },
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P2',
+                    playerName: 'Bob',
+                    membershipId: 3002,
+                },
+            ]);
+        });
+        h.domainEventWorker.processPending();
+
+        let deletedTopicAttempts = 0;
+        h.setSendResponder(async (targetChatId, text, messageThreadId) => {
+            await Promise.resolve();
+            if (targetChatId === chatId && messageThreadId === deletedTopicId) {
+                deletedTopicAttempts += 1;
+                throw new TelegramDeliveryError('Bad Request: message thread not found', {
+                    kind: 'permanent',
+                    statusCode: 400,
+                    retryable: false,
+                });
+            }
+            h.sentMessages.push({ chatId: targetChatId, text, messageThreadId });
+        });
+
+        await h.notificationWorker.processPending();
+
+        expect(deletedTopicAttempts).toBe(1);
+        expect(h.sentMessages).toHaveLength(2);
+        expect(h.sentMessages.every((m) => m.messageThreadId === activeTopicId)).toBe(true);
+
+        expect(
+            h.subscriptionRepo.hasSubscription(chatId, deletedTopicId, CLAN_TAG, 'players'),
+        ).toBe(false);
+        expect(h.subscriptionRepo.hasSubscription(chatId, activeTopicId, CLAN_TAG, 'players')).toBe(
+            true,
+        );
+        expect(h.clansRepo.getTrackedClans()).toEqual([CLAN_TAG]);
+    });
+
+    it('keeps subscription active on 400 HTML/payload errors that are not destination unavailability', async () => {
+        const h = createHarness();
+        const chatId = -4002;
+
+        h.subscriptionRepo.saveTelegramChat(chatId, 0, 'Clan Group');
+        h.subscriptionRepo.subscribeToChat(chatId, 0, CLAN_TAG, 'players');
+
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P1',
+                    playerName: 'Alice',
+                    membershipId: 4001,
+                },
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P2',
+                    playerName: 'Bob',
+                    membershipId: 4002,
+                },
+            ]);
+        });
+        h.domainEventWorker.processPending();
+
+        let callIndex = 0;
+        h.setSendResponder(async (targetChatId, text, messageThreadId) => {
+            await Promise.resolve();
+            callIndex += 1;
+            if (callIndex === 1) {
+                throw new TelegramDeliveryError(
+                    "Bad Request: can't parse entities: Can't find end tag",
+                    {
+                        kind: 'permanent',
+                        statusCode: 400,
+                        retryable: false,
+                    },
+                );
+            }
+            h.sentMessages.push({ chatId: targetChatId, text, messageThreadId });
+        });
+
+        await h.notificationWorker.processPending();
+
+        expect(h.subscriptionRepo.hasSubscription(chatId, 0, CLAN_TAG, 'players')).toBe(true);
+        expect(h.sentMessages).toHaveLength(1);
+        expect(h.sentMessages[0]?.text).toContain('Bob');
+    });
+
+    it('guards against self-migration loops and cancels deduplicated in-flight notifications when target supergroup already subscribed', async () => {
+        const h = createHarness();
+        const oldChatId = -5001;
+        const targetChatId = -1005001001;
+
+        // Overlap case: target supergroup already linked before old group's 400 migrate_to_chat_id arrives
+        h.subscriptionRepo.saveTelegramChat(oldChatId, 0, 'Old Group');
+        h.subscriptionRepo.subscribeToChat(oldChatId, 0, CLAN_TAG, 'players');
+        const oldSubId = h.subscriptionRepo.getSubscriptionId(oldChatId, 0, CLAN_TAG, 'players');
+
+        h.tx.retryInTransaction(() => {
+            h.recorder.recordAll([
+                {
+                    type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                    clanTag: CLAN_TAG,
+                    playerTag: '#P1',
+                    playerName: 'Alice',
+                    membershipId: 5001,
+                },
+            ]);
+        });
+        h.domainEventWorker.processPending();
+
+        // Admin already ran /link in target supergroup before worker sends the old notification
+        h.subscriptionRepo.saveTelegramChat(targetChatId, 0, 'New Supergroup');
+        h.subscriptionRepo.subscribeToChat(targetChatId, 0, CLAN_TAG, 'players');
+        const targetSubId = h.subscriptionRepo.getSubscriptionId(
+            targetChatId,
+            0,
+            CLAN_TAG,
+            'players',
+        );
+        expect(targetSubId).not.toBe(oldSubId);
+
+        // Also seed a self-migrating legacy notification to verify loop guard
+        h.notificationRepo.enqueueIfAbsent('Self migrate', 'war_ended', 'self-mig', -5002, 0);
+
+        h.setSendResponder(async (chatId) => {
+            await Promise.resolve();
+            if (chatId === oldChatId) {
+                throw new TelegramDeliveryError(
+                    'Bad Request: group chat was upgraded to a supergroup chat',
+                    {
+                        kind: 'chat_migrated',
+                        statusCode: 400,
+                        retryable: false,
+                        migrateToChatId: targetChatId,
+                    },
+                );
+            }
+            if (chatId === -5002) {
+                throw new TelegramDeliveryError('Bad Request: invalid self-migration', {
+                    kind: 'chat_migrated',
+                    statusCode: 400,
+                    retryable: false,
+                    migrateToChatId: -5002,
+                });
+            }
+        });
+
+        await h.notificationWorker.processPending();
+
+        // Deduplicated old subscription removed, target subscription preserved, old in-flight notification cancelled
+        expect(h.subscriptionRepo.hasSubscription(oldChatId, 0, CLAN_TAG, 'players')).toBe(false);
+        expect(h.subscriptionRepo.getSubscriptionId(targetChatId, 0, CLAN_TAG, 'players')).toBe(
+            targetSubId,
+        );
+        const oldNotifStatus = h.db.connection
+            .prepare<[], { status: string; last_error: string | null }>(
+                "SELECT status, last_error FROM notifications WHERE event_id = '5001';",
+            )
+            .get();
+        expect(oldNotifStatus).toEqual({
+            status: 'cancelled',
+            last_error: 'subscription cancelled',
+        });
+
+        // Self-migration hits loop guard and marks failed immediately without infinite loop
+        const selfMigStatus = h.db.connection
+            .prepare<[], { status: string; attempts: number }>(
+                "SELECT status, attempts FROM notifications WHERE event_id = 'self-mig';",
+            )
+            .get();
+        expect(selfMigStatus).toEqual({ status: 'failed', attempts: 1 });
     });
 });
