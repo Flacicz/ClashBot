@@ -55,3 +55,53 @@ export function formatUnixToMoscowDateTime(timestampSeconds: number): string {
 
     return `${day}.${month}.${year} ${hours}:${minutes}`;
 }
+
+function pluralizeRu(value: number, one: string, few: string, many: string): string {
+    const abs = Math.abs(Math.trunc(value));
+    const mod100 = abs % 100;
+    const mod10 = abs % 10;
+
+    if (mod100 >= 11 && mod100 <= 14) {
+        return many;
+    }
+    if (mod10 === 1) {
+        return one;
+    }
+    if (mod10 >= 2 && mod10 <= 4) {
+        return few;
+    }
+    return many;
+}
+
+function isRussianSingularOne(value: number): boolean {
+    const abs = Math.abs(Math.trunc(value));
+    return abs % 10 === 1 && abs % 100 !== 11;
+}
+
+/**
+ * Formats an actual remaining duration (in seconds) as a Russian phrase for reminders,
+ * e.g. `"остался 1 час"`, `"осталось 3 часа 45 минут"`, `"осталась 21 минута"`,
+ * or `"осталось менее минуты"` for durations under 60 seconds.
+ */
+export function formatRemainingTimePhrase(remainingSeconds: number): string {
+    if (!Number.isFinite(remainingSeconds) || remainingSeconds < 60) {
+        return 'осталось менее минуты';
+    }
+
+    const totalMinutes = Math.round(remainingSeconds / 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    if (hours > 0) {
+        const verb = isRussianSingularOne(hours) ? 'остался' : 'осталось';
+        const hoursPart = `${String(hours)} ${pluralizeRu(hours, 'час', 'часа', 'часов')}`;
+        if (minutes > 0) {
+            const minutesPart = `${String(minutes)} ${pluralizeRu(minutes, 'минута', 'минуты', 'минут')}`;
+            return `${verb} ${hoursPart} ${minutesPart}`;
+        }
+        return `${verb} ${hoursPart}`;
+    }
+
+    const verb = isRussianSingularOne(minutes) ? 'осталась' : 'осталось';
+    return `${verb} ${String(minutes)} ${pluralizeRu(minutes, 'минута', 'минуты', 'минут')}`;
+}

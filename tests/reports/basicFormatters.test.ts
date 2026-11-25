@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ValidationError } from '../../src/common/index.js';
+import { ValidationError, formatRemainingTimePhrase } from '../../src/common/index.js';
 import {
     APPLICATION_EVENT_TYPES,
     RAID_REMINDER_KINDS,
@@ -345,6 +345,45 @@ describe('WarReminderFormatter (golden parity)', () => {
             'unknown-end-time',
         );
     });
+
+    it('matches golden snapshots for actual remaining time on late sync or recovery', () => {
+        expectMatchesGolden(
+            WarReminderFormatter.format({
+                ...baseRegular,
+                kind: WAR_REMINDER_KINDS.oneHourLeft,
+                remainingSeconds: 30 * 60,
+            }),
+            'warReminder',
+            'regular-actual-remaining-minutes',
+        );
+        expectMatchesGolden(
+            WarReminderFormatter.format({
+                ...baseRegular,
+                kind: WAR_REMINDER_KINDS.sixHoursLeft,
+                remainingSeconds: 3 * 3600 + 45 * 60,
+            }),
+            'warReminder',
+            'regular-actual-remaining-hours-minutes',
+        );
+        expectMatchesGolden(
+            WarReminderFormatter.format({
+                ...baseCwl,
+                kind: WAR_REMINDER_KINDS.oneHourLeft,
+                remainingSeconds: 21 * 60,
+            }),
+            'warReminder',
+            'cwl-actual-remaining-minutes',
+        );
+        expectMatchesGolden(
+            WarReminderFormatter.format({
+                ...baseRegular,
+                kind: WAR_REMINDER_KINDS.oneHourLeft,
+                remainingSeconds: 45,
+            }),
+            'warReminder',
+            'regular-actual-remaining-under-minute',
+        );
+    });
 });
 
 describe('RaidReminderFormatter (golden parity)', () => {
@@ -428,6 +467,47 @@ describe('RaidReminderFormatter (golden parity)', () => {
             'raidReminder',
             'unknown-end-time',
         );
+    });
+
+    it('matches golden snapshots for actual remaining time on late sync or recovery', () => {
+        expectMatchesGolden(
+            RaidReminderFormatter.format({
+                ...baseRaid,
+                kind: RAID_REMINDER_KINDS.fortyEightHoursLeft,
+                remainingSeconds: 35 * 3600 + 20 * 60,
+            }),
+            'raidReminder',
+            'actual-remaining-hours-minutes',
+        );
+        expectMatchesGolden(
+            RaidReminderFormatter.format({
+                ...baseRaid,
+                kind: RAID_REMINDER_KINDS.oneHourLeft,
+                remainingSeconds: 25 * 60,
+            }),
+            'raidReminder',
+            'actual-remaining-minutes',
+        );
+    });
+});
+
+describe('formatRemainingTimePhrase', () => {
+    it('formats Russian grammar, rounding, and boundary durations accurately', () => {
+        expect(formatRemainingTimePhrase(0)).toBe('осталось менее минуты');
+        expect(formatRemainingTimePhrase(59)).toBe('осталось менее минуты');
+        expect(formatRemainingTimePhrase(60)).toBe('осталась 1 минута');
+        expect(formatRemainingTimePhrase(2 * 60)).toBe('осталось 2 минуты');
+        expect(formatRemainingTimePhrase(11 * 60)).toBe('осталось 11 минут');
+        expect(formatRemainingTimePhrase(21 * 60)).toBe('осталась 21 минута');
+        expect(formatRemainingTimePhrase(30 * 60)).toBe('осталось 30 минут');
+        expect(formatRemainingTimePhrase(59 * 60 + 50)).toBe('остался 1 час');
+        expect(formatRemainingTimePhrase(3600)).toBe('остался 1 час');
+        expect(formatRemainingTimePhrase(3600 + 30 * 60)).toBe('остался 1 час 30 минут');
+        expect(formatRemainingTimePhrase(2 * 3600 + 1 * 60)).toBe('осталось 2 часа 1 минута');
+        expect(formatRemainingTimePhrase(6 * 3600 - 10)).toBe('осталось 6 часов');
+        expect(formatRemainingTimePhrase(21 * 3600)).toBe('остался 21 час');
+        expect(formatRemainingTimePhrase(24 * 3600)).toBe('осталось 24 часа');
+        expect(formatRemainingTimePhrase(48 * 3600)).toBe('осталось 48 часов');
     });
 });
 

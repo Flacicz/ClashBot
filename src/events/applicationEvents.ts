@@ -111,6 +111,7 @@ export interface WarReminderEvent {
     readonly endTime: number;
     readonly warKind: WarReminderWarKind;
     readonly kind: WarReminderKind;
+    readonly remainingSeconds?: number;
 }
 
 export interface RaidReminderEvent {
@@ -119,6 +120,7 @@ export interface RaidReminderEvent {
     readonly raidReference: RaidReference;
     readonly endTime: number;
     readonly kind: RaidReminderKind;
+    readonly remainingSeconds?: number;
 }
 
 export type ApplicationEvent =

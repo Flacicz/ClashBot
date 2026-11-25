@@ -76,6 +76,9 @@ function buildPayload(event: ApplicationEvent): Record<string, unknown> {
                 end_time: event.endTime,
                 war_kind: event.warKind,
                 reminder_kind: event.kind,
+                ...(event.remainingSeconds !== undefined
+                    ? { remaining_seconds: event.remainingSeconds }
+                    : {}),
             };
         case APPLICATION_EVENT_TYPES.raidReminder:
             return {
@@ -84,6 +87,9 @@ function buildPayload(event: ApplicationEvent): Record<string, unknown> {
                 },
                 end_time: event.endTime,
                 reminder_kind: event.kind,
+                ...(event.remainingSeconds !== undefined
+                    ? { remaining_seconds: event.remainingSeconds }
+                    : {}),
             };
         default:
             return assertNever(event);
