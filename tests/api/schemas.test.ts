@@ -545,6 +545,7 @@ describe('CoC API zod schemas and domain mappers', () => {
                         members: [
                             {
                                 tag: '#P1',
+                                name: 'Raid Leader',
                                 attacks: 6,
                                 bonusAttackLimit: 1,
                                 capitalResourcesLooted: 32000,
@@ -574,10 +575,55 @@ describe('CoC API zod schemas and domain mappers', () => {
                     defensiveReward: 700,
                 },
                 playerRaidSnapshots: [
-                    { playerTag: '#P1', attacksCount: 6, bonusAttack: 1, totalLoot: 32000 },
+                    {
+                        playerTag: '#P1',
+                        playerName: 'Raid Leader',
+                        attacksCount: 6,
+                        bonusAttack: 1,
+                        totalLoot: 32000,
+                    },
                     { playerTag: 'unknown', attacksCount: 0, bonusAttack: 0, totalLoot: 0 },
                 ],
             });
+        });
+
+        it('trims non-empty member names and omits playerName when name is missing, null, or blank', () => {
+            const payload = {
+                items: [
+                    {
+                        state: 'ended',
+                        startTime: '20240101T000000.000Z',
+                        endTime: '20240102T000000.000Z',
+                        members: [
+                            { tag: '#P1', name: '  Guest Hero  ', attacks: 6 },
+                            { tag: '#P2', attacks: 5 },
+                            { tag: '#P3', name: null, attacks: 4 },
+                            { tag: '#P4', name: '', attacks: 3 },
+                            { tag: '#P5', name: '   ', attacks: 2 },
+                        ],
+                    },
+                ],
+            };
+
+            const result = parseRaidSeasonsResponse(
+                payload,
+                '#CLAN',
+                '/clans/%23CLAN/capitalraidseasons?limit=1',
+            );
+
+            expect(result?.playerRaidSnapshots).toEqual([
+                {
+                    playerTag: '#P1',
+                    playerName: 'Guest Hero',
+                    attacksCount: 6,
+                    bonusAttack: 0,
+                    totalLoot: 0,
+                },
+                { playerTag: '#P2', attacksCount: 5, bonusAttack: 0, totalLoot: 0 },
+                { playerTag: '#P3', attacksCount: 4, bonusAttack: 0, totalLoot: 0 },
+                { playerTag: '#P4', attacksCount: 3, bonusAttack: 0, totalLoot: 0 },
+                { playerTag: '#P5', attacksCount: 2, bonusAttack: 0, totalLoot: 0 },
+            ]);
         });
 
         it('returns null for empty items array (clan without raid history)', () => {
@@ -605,6 +651,7 @@ describe('CoC API zod schemas and domain mappers', () => {
                 { items: [{ state: 'ongoing' }] },
                 { items: [{ state: 1, members: [] }] },
                 { items: [{ state: 'ongoing', members: [{ attacks: '6' }] }] },
+                { items: [{ state: 'ongoing', members: [{ tag: '#P1', name: 123 }] }] },
             ]) {
                 let caught: unknown;
                 try {
