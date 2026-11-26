@@ -3,13 +3,10 @@ import {
     RaidPerformanceTrend,
     type RaidComparisonData,
 } from '../analytics/raidComparisonAnalyzer.js';
-import {
-    escapeHtml,
-    formatUnixToMoscowDateTime,
-    removeTrailingNewlines,
-} from '../common/formatUtils.js';
+import { escapeHtml, formatUnixToDate, removeTrailingNewlines } from '../common/formatUtils.js';
 import type { RaidsEndedEvent } from '../events/applicationEvents.js';
 import type { RaidComparisonStats, RaidReference } from '../models/raid.js';
+import { DEFAULT_TIMEZONE_OFFSET_HOURS } from '../models/subscription.js';
 import { formatFixedHalfToEven } from './numberFormat.js';
 import type { ClanNameReader } from './playerJoinedFormatter.js';
 
@@ -112,15 +109,8 @@ function formatAverageFraction(numerator: number, denominator: number): string {
     return `${formatAverageNumber(numerator)}/${formatAverageNumber(denominator)}`;
 }
 
-function formatRaidDate(timestamp: number): string {
-    const dateTime = formatUnixToMoscowDateTime(timestamp);
-
-    if (dateTime === 'неизвестно') {
-        return dateTime;
-    }
-
-    const spaceIndex = dateTime.indexOf(' ');
-    return spaceIndex === -1 ? dateTime : dateTime.slice(0, spaceIndex);
+function formatRaidDate(timestamp: number, timezoneOffsetHours: number): string {
+    return formatUnixToDate(timestamp, timezoneOffsetHours);
 }
 
 function lootPerUsedAttack(stats: RaidComparisonStats): number {
@@ -339,12 +329,16 @@ function formatHistoricalIntegerMetricComparison(
     );
 }
 
-function formatHeader(reportData: RaidComparisonData, previousRaid: RaidComparisonStats): string {
+function formatHeader(
+    reportData: RaidComparisonData,
+    previousRaid: RaidComparisonStats,
+    timezoneOffsetHours: number,
+): string {
     return (
         '📈 <b>ДИНАМИКА РЕЙДОВ</b>\n\n' +
         `🏠 Наш клан: ${escapeHtml(reportData.clanName)} (<code>${escapeHtml(reportData.clanTag)}</code>)\n\n` +
-        `Последний рейд: ${formatRaidDate(reportData.currentRaid.startTime)}\n` +
-        `Предыдущий рейд: ${formatRaidDate(previousRaid.startTime)}\n\n`
+        `Последний рейд: ${formatRaidDate(reportData.currentRaid.startTime, timezoneOffsetHours)}\n` +
+        `Предыдущий рейд: ${formatRaidDate(previousRaid.startTime, timezoneOffsetHours)}\n\n`
     );
 }
 
@@ -576,7 +570,10 @@ export class RaidsComparisonFormatter {
         this.#raidRepo = raidRepo;
     }
 
-    format(event: RaidsEndedEvent): string {
+    format(
+        event: RaidsEndedEvent,
+        timezoneOffsetHours: number = DEFAULT_TIMEZONE_OFFSET_HOURS,
+    ): string {
         const currentRaidStats = this.#raidRepo.getRaidComparisonStats(event.raidReference);
         const previousRaidReferences = this.#raidRepo.getPreviousRaids(
             event.raidReference,
@@ -593,10 +590,13 @@ export class RaidsComparisonFormatter {
             clanName: this.#clansRepo.getClanNameByTag(event.clanTag),
         };
 
-        return RaidsComparisonFormatter.buildReport(reportData);
+        return RaidsComparisonFormatter.buildReport(reportData, timezoneOffsetHours);
     }
 
-    static buildReport(reportData: RaidComparisonData): string {
+    static buildReport(
+        reportData: RaidComparisonData,
+        timezoneOffsetHours: number = DEFAULT_TIMEZONE_OFFSET_HOURS,
+    ): string {
         if (reportData.previousRaid === null) {
             return '';
         }
@@ -605,7 +605,7 @@ export class RaidsComparisonFormatter {
         const previousRaid = reportData.previousRaid;
 
         let report = '';
-        report += formatHeader(reportData, previousRaid);
+        report += formatHeader(reportData, previousRaid, timezoneOffsetHours);
         report += formatPreviousRaidComparison(previousRaid, currentRaid);
         report += formatHistoricalComparison(reportData);
         report += formatPerformanceComparison(reportData);

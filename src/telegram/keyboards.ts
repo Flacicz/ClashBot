@@ -1,7 +1,10 @@
+import { formatUtcOffset } from '../common/formatUtils.js';
 import {
     ALL_NOTIFICATION_CATEGORIES,
     ALL_SUBSCRIPTION_PRESETS,
     isCategoryEnabled,
+    MAX_TIMEZONE_OFFSET_HOURS,
+    MIN_TIMEZONE_OFFSET_HOURS,
     type SubscriptionCategories,
 } from '../models/subscription.js';
 import type { AttackGuide, AttackStrategy } from './attackGuideCatalog.js';
@@ -11,12 +14,17 @@ import {
     buildSettingsCategoryCallbackData,
     buildSettingsOpenCallbackData,
     buildSettingsPresetCallbackData,
+    buildSettingsTimezoneAllCallbackData,
+    buildSettingsTimezoneCallbackData,
+    buildSettingsTimezoneSetCallbackData,
     buildStrategyCallbackData,
     buildTownHallCallbackData,
     CALLBACK_COMMANDS,
 } from './callbackData.js';
 import {
+    CIS_TIMEZONE_PRESETS,
     NOTIFICATION_CATEGORY_LABELS,
+    OTHER_TIMEZONE_BUTTON_LABEL,
     SUBSCRIPTION_PRESET_LABELS,
 } from './subscriptionSettings.js';
 import { MAX_TOWN_HALL, MIN_TOWN_HALL } from './validation.js';
@@ -31,6 +39,7 @@ export interface InlineKeyboardMarkup {
 }
 
 export interface SubscriptionSettingsKeyboardOptions {
+    readonly timezoneOffsetHours?: number;
     readonly extraRows?: readonly (readonly InlineKeyboardButton[])[];
     readonly backButton?: InlineKeyboardButton;
 }
@@ -46,6 +55,7 @@ const DEFAULT_SETTINGS_BACK_BUTTON: InlineKeyboardButton = {
 };
 
 const TOWN_HALL_BUTTONS_PER_ROW = 3;
+const TIMEZONE_GRID_BUTTONS_PER_ROW = 3;
 
 export function makeStartMenuKeyboard(): InlineKeyboardMarkup {
     return {
@@ -105,6 +115,16 @@ export function makeSubscriptionSettingsEntryKeyboard(clanTag: string): InlineKe
     };
 }
 
+export function makeSubscriptionSettingsTimezoneButton(
+    clanTag: string,
+    timezoneOffsetHours: number,
+): InlineKeyboardButton {
+    return {
+        text: `🕒 Часовой пояс: ${formatUtcOffset(timezoneOffsetHours)}`,
+        callback_data: buildSettingsTimezoneCallbackData(clanTag),
+    };
+}
+
 export function makeSubscriptionSettingsKeyboard(
     clanTag: string,
     categories: SubscriptionCategories,
@@ -126,10 +146,80 @@ export function makeSubscriptionSettingsKeyboard(
     });
 
     const extraRows: readonly (readonly InlineKeyboardButton[])[] = options?.extraRows ?? [];
+    const timezoneRows: readonly (readonly InlineKeyboardButton[])[] =
+        options?.timezoneOffsetHours !== undefined
+            ? [[makeSubscriptionSettingsTimezoneButton(clanTag, options.timezoneOffsetHours)]]
+            : [];
     const backButton = options?.backButton ?? DEFAULT_SETTINGS_BACK_BUTTON;
 
     return {
-        inline_keyboard: [presetRow, ...categoryRows, ...extraRows, [backButton]],
+        inline_keyboard: [presetRow, ...categoryRows, ...extraRows, ...timezoneRows, [backButton]],
+    };
+}
+
+export function makeTimezoneQuickSelectKeyboard(
+    clanTag: string,
+    currentTimezoneOffsetHours: number,
+): InlineKeyboardMarkup {
+    const presetRows: InlineKeyboardButton[][] = CIS_TIMEZONE_PRESETS.map((preset) => [
+        {
+            text:
+                preset.offsetHours === currentTimezoneOffsetHours
+                    ? `✅ ${preset.label}`
+                    : preset.label,
+            callback_data: buildSettingsTimezoneSetCallbackData(clanTag, preset.offsetHours),
+        },
+    ]);
+
+    return {
+        inline_keyboard: [
+            ...presetRows,
+            [
+                {
+                    text: OTHER_TIMEZONE_BUTTON_LABEL,
+                    callback_data: buildSettingsTimezoneAllCallbackData(clanTag),
+                },
+            ],
+            [
+                {
+                    text: '⬅️ Назад',
+                    callback_data: buildSettingsOpenCallbackData(clanTag),
+                },
+            ],
+        ],
+    };
+}
+
+export function makeTimezoneAllSelectKeyboard(
+    clanTag: string,
+    currentTimezoneOffsetHours: number,
+): InlineKeyboardMarkup {
+    const rows: InlineKeyboardButton[][] = [];
+
+    for (let offset = MIN_TIMEZONE_OFFSET_HOURS; offset <= MAX_TIMEZONE_OFFSET_HOURS; offset += 1) {
+        if ((offset - MIN_TIMEZONE_OFFSET_HOURS) % TIMEZONE_GRID_BUTTONS_PER_ROW === 0) {
+            rows.push([]);
+        }
+
+        const currentRow = rows[rows.length - 1];
+        if (currentRow !== undefined) {
+            const label = formatUtcOffset(offset);
+            currentRow.push({
+                text: offset === currentTimezoneOffsetHours ? `✅ ${label}` : label,
+                callback_data: buildSettingsTimezoneSetCallbackData(clanTag, offset),
+            });
+        }
+    }
+
+    rows.push([
+        {
+            text: '⬅️ Назад',
+            callback_data: buildSettingsTimezoneCallbackData(clanTag),
+        },
+    ]);
+
+    return {
+        inline_keyboard: rows,
     };
 }
 

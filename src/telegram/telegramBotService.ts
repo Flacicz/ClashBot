@@ -52,6 +52,8 @@ import {
     makeStrategyListKeyboard,
     makeSubscriptionSettingsEntryKeyboard,
     makeSubscriptionSettingsKeyboard,
+    makeTimezoneAllSelectKeyboard,
+    makeTimezoneQuickSelectKeyboard,
     makeTownHallListKeyboard,
 } from './keyboards.js';
 import {
@@ -63,6 +65,8 @@ import {
 } from './linkOnboarding.js';
 import {
     formatSubscriptionSettingsText,
+    formatTimezoneAllSelectText,
+    formatTimezoneQuickSelectText,
     LAST_CATEGORY_ALERT_TEXT,
 } from './subscriptionSettings.js';
 import { isSupportedTelegramChatType, resolveDefaultPreset } from './validation.js';
@@ -151,7 +155,15 @@ type GrammyAbortSignal = Parameters<Context['api']['getChatMember']>[2];
 type ClanSubscriptionCommand = Extract<BotCommand, { readonly kind: 'link' | 'unlink' }>;
 type SettingsCallbackData = Extract<
     KnownCallbackData,
-    { readonly kind: 'settings:open' | 'settings:preset' | 'settings:category' }
+    {
+        readonly kind:
+            | 'settings:open'
+            | 'settings:preset'
+            | 'settings:category'
+            | 'settings:tz'
+            | 'settings:tzall'
+            | 'settings:tzset';
+    }
 >;
 type SettingsActionOutcome =
     | { readonly status: 'not_found' }
@@ -1269,7 +1281,10 @@ export class TelegramBotService {
         if (
             callbackData.kind === 'settings:open' ||
             callbackData.kind === 'settings:preset' ||
-            callbackData.kind === 'settings:category'
+            callbackData.kind === 'settings:category' ||
+            callbackData.kind === 'settings:tz' ||
+            callbackData.kind === 'settings:tzall' ||
+            callbackData.kind === 'settings:tzset'
         ) {
             await this.handleSettingsCallback(api, context, callbackData);
             return;
@@ -1586,10 +1601,48 @@ export class TelegramBotService {
                 clanTag: subscription.clanTag,
                 clanName,
                 categories: subscription.categories,
+                timezoneOffsetHours: subscription.timezoneOffsetHours,
             }),
             keyboard: makeSubscriptionSettingsKeyboard(
                 subscription.clanTag,
                 subscription.categories,
+                {
+                    timezoneOffsetHours: subscription.timezoneOffsetHours,
+                },
+            ),
+        };
+    }
+
+    private buildTimezoneQuickSelectScreen(
+        subscription: SubscriptionRecord,
+        clanName: string | null,
+    ): { readonly text: string; readonly keyboard: InlineKeyboardMarkup } {
+        return {
+            text: formatTimezoneQuickSelectText({
+                clanTag: subscription.clanTag,
+                clanName,
+                timezoneOffsetHours: subscription.timezoneOffsetHours,
+            }),
+            keyboard: makeTimezoneQuickSelectKeyboard(
+                subscription.clanTag,
+                subscription.timezoneOffsetHours,
+            ),
+        };
+    }
+
+    private buildTimezoneAllSelectScreen(
+        subscription: SubscriptionRecord,
+        clanName: string | null,
+    ): { readonly text: string; readonly keyboard: InlineKeyboardMarkup } {
+        return {
+            text: formatTimezoneAllSelectText({
+                clanTag: subscription.clanTag,
+                clanName,
+                timezoneOffsetHours: subscription.timezoneOffsetHours,
+            }),
+            keyboard: makeTimezoneAllSelectKeyboard(
+                subscription.clanTag,
+                subscription.timezoneOffsetHours,
             ),
         };
     }
@@ -1599,7 +1652,11 @@ export class TelegramBotService {
         messageThreadId: number,
         callbackData: SettingsCallbackData,
     ): SettingsActionOutcome {
-        if (callbackData.kind === 'settings:open') {
+        if (
+            callbackData.kind === 'settings:open' ||
+            callbackData.kind === 'settings:tz' ||
+            callbackData.kind === 'settings:tzall'
+        ) {
             const subscription = this.subscriptionRepo.getSubscription(
                 chatId,
                 messageThreadId,
@@ -1611,6 +1668,39 @@ export class TelegramBotService {
 
             const clanName = this.clansRepo.getClanNameByTag(callbackData.clanTag);
             return { status: 'ready', subscription, clanName };
+        }
+
+        if (callbackData.kind === 'settings:tzset') {
+            return this.transactionManager.retryInTransaction((): SettingsActionOutcome => {
+                const subscription = this.subscriptionRepo.getSubscription(
+                    chatId,
+                    messageThreadId,
+                    callbackData.clanTag,
+                );
+                if (subscription === null) {
+                    return { status: 'not_found' };
+                }
+
+                const updated = this.subscriptionRepo.updateSubscriptionTimezone(
+                    chatId,
+                    messageThreadId,
+                    callbackData.clanTag,
+                    callbackData.timezoneOffsetHours,
+                );
+                if (!updated) {
+                    return { status: 'not_found' };
+                }
+
+                const clanName = this.clansRepo.getClanNameByTag(callbackData.clanTag);
+                return {
+                    status: 'ready',
+                    subscription: {
+                        ...subscription,
+                        timezoneOffsetHours: callbackData.timezoneOffsetHours,
+                    },
+                    clanName,
+                };
+            });
         }
 
         return this.transactionManager.retryInTransaction((): SettingsActionOutcome => {
@@ -1724,11 +1814,14 @@ export class TelegramBotService {
                     },
                     'Failed to process subscription settings callback',
                 );
+                const isReadOnlySettingsAction =
+                    callbackData.kind === 'settings:open' ||
+                    callbackData.kind === 'settings:tz' ||
+                    callbackData.kind === 'settings:tzall';
                 await this.safeAnswerCallbackQuery(api, context.queryId, {
-                    text:
-                        callbackData.kind === 'settings:open'
-                            ? SETTINGS_LOAD_ERROR_TEXT
-                            : SETTINGS_UPDATE_ERROR_TEXT,
+                    text: isReadOnlySettingsAction
+                        ? SETTINGS_LOAD_ERROR_TEXT
+                        : SETTINGS_UPDATE_ERROR_TEXT,
                     show_alert: true,
                 });
                 return;
@@ -1758,7 +1851,12 @@ export class TelegramBotService {
             return;
         }
 
-        const screen = this.buildSubscriptionSettingsScreen(outcome.subscription, outcome.clanName);
+        const screen =
+            callbackData.kind === 'settings:tz'
+                ? this.buildTimezoneQuickSelectScreen(outcome.subscription, outcome.clanName)
+                : callbackData.kind === 'settings:tzall'
+                  ? this.buildTimezoneAllSelectScreen(outcome.subscription, outcome.clanName)
+                  : this.buildSubscriptionSettingsScreen(outcome.subscription, outcome.clanName);
         await this.editHtmlMessage(
             api,
             context.chatId,

@@ -10,11 +10,15 @@ import {
     type SubscriptionCategories,
 } from '../../src/models/subscription.js';
 import {
+    CIS_TIMEZONE_PRESETS,
     CUSTOM_PRESET_LABEL,
     formatPresetStatusLabel,
     formatSubscriptionSettingsText,
+    formatTimezoneAllSelectText,
+    formatTimezoneQuickSelectText,
     LAST_CATEGORY_ALERT_TEXT,
     NOTIFICATION_CATEGORY_LABELS,
+    OTHER_TIMEZONE_BUTTON_LABEL,
     PENDING_CLAN_SYNC_NAME,
     resolveSynchronizedClanName,
     SUBSCRIPTION_PRESET_LABELS,
@@ -137,5 +141,43 @@ describe('subscription preset and category helpers', () => {
             system: 'Системные оповещения',
         });
         expect(LAST_CATEGORY_ALERT_TEXT).toBe('Оставьте хотя бы одну категорию или отключите клан');
+        expect(OTHER_TIMEZONE_BUTTON_LABEL).toBe('🌍 Другой пояс');
+        expect(CIS_TIMEZONE_PRESETS).toEqual([
+            { offsetHours: 2, label: 'UTC+2 Кишинёв' },
+            { offsetHours: 3, label: 'UTC+3 Москва/Минск' },
+            { offsetHours: 4, label: 'UTC+4 Баку' },
+            { offsetHours: 5, label: 'UTC+5 Астана/Ташкент' },
+            { offsetHours: 6, label: 'UTC+6 Бишкек' },
+            { offsetHours: 7, label: 'UTC+7 Новосибирск' },
+        ]);
+    });
+
+    it('formats timezone line on settings screen and timezone picker screen texts', () => {
+        const settingsWithTz = formatSubscriptionSettingsText({
+            clanTag: '#2PPLQ',
+            clanName: 'Dragons',
+            categories: getPresetCategories('players'),
+            timezoneOffsetHours: -5,
+        });
+        expect(settingsWithTz).toContain('Часовой пояс: UTC-5');
+
+        const quickText = formatTimezoneQuickSelectText({
+            clanTag: '#2PPLQ',
+            clanName: 'Dragons <A&B>',
+            timezoneOffsetHours: 3,
+        });
+        expect(quickText).toContain('🕒 <b>Часовой пояс подписки</b>');
+        expect(quickText).toContain('Клан: <b>Dragons &lt;A&amp;B&gt;</b> (#2PPLQ)');
+        expect(quickText).toContain('Текущий пояс: UTC+3');
+
+        const allText = formatTimezoneAllSelectText({
+            clanTag: '#2PPLQ',
+            clanName: PENDING_CLAN_SYNC_NAME,
+            timezoneOffsetHours: 14,
+        });
+        expect(allText).toContain('🌍 <b>Выбор часового пояса (UTC-12..UTC+14)</b>');
+        expect(allText).toContain('Клан: #2PPLQ');
+        expect(allText).not.toContain(PENDING_CLAN_SYNC_NAME);
+        expect(allText).toContain('Текущий пояс: UTC+14');
     });
 });

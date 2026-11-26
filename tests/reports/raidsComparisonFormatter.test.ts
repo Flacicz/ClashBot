@@ -765,4 +765,53 @@ describe('RaidsComparisonFormatter (golden parity)', () => {
         expect(typeof assertClansAssignable).toBe('function');
         expect(typeof assertRaidAssignable).toBe('function');
     });
+
+    it('formats raid dates in custom timezone offsets (UTC-5, UTC+0, UTC+14) including day rollover', () => {
+        // 2024-03-09 22:00:00 UTC -> 09.03.2024 in UTC-5/UTC+0, 10.03.2024 in UTC+3/UTC+14
+        const currentRaid = makeRaidStats(
+            1_710_021_600,
+            1_300_000,
+            8,
+            96,
+            120,
+            20,
+            24,
+            12,
+            4,
+            34,
+            1_680,
+            590,
+        );
+        // 2024-03-02 01:00:00 UTC -> 01.03.2024 in UTC-5, 02.03.2024 in UTC+0/UTC+3/UTC+14
+        const previousRaid = makeRaidStats(
+            1_709_341_200,
+            1_200_000,
+            8,
+            96,
+            120,
+            20,
+            24,
+            12,
+            4,
+            34,
+            1_680,
+            590,
+        );
+        const data = makeComparisonData(currentRaid, previousRaid);
+
+        const utcMinus5 = RaidsComparisonFormatter.buildReport(data, -5);
+        expect(utcMinus5).toContain(
+            'Последний рейд: 09.03.2024 (UTC-5)\nПредыдущий рейд: 01.03.2024 (UTC-5)',
+        );
+
+        const utcZero = RaidsComparisonFormatter.buildReport(data, 0);
+        expect(utcZero).toContain(
+            'Последний рейд: 09.03.2024 (UTC+0)\nПредыдущий рейд: 02.03.2024 (UTC+0)',
+        );
+
+        const utcPlus14 = RaidsComparisonFormatter.buildReport(data, 14);
+        expect(utcPlus14).toContain(
+            'Последний рейд: 10.03.2024 (UTC+14)\nПредыдущий рейд: 02.03.2024 (UTC+14)',
+        );
+    });
 });

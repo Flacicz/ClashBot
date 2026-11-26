@@ -15,6 +15,9 @@ import {
     makeSubscriptionSettingsButton,
     makeSubscriptionSettingsEntryKeyboard,
     makeSubscriptionSettingsKeyboard,
+    makeSubscriptionSettingsTimezoneButton,
+    makeTimezoneAllSelectKeyboard,
+    makeTimezoneQuickSelectKeyboard,
     makeTownHallListKeyboard,
 } from '../../src/telegram/keyboards.js';
 
@@ -249,6 +252,101 @@ describe('Telegram inline keyboards', () => {
         });
 
         for (const row of extended.inline_keyboard) {
+            for (const button of row) {
+                expect(Buffer.byteLength(button.callback_data, 'utf8')).toBeLessThanOrEqual(
+                    MAX_CALLBACK_DATA_BYTES,
+                );
+            }
+        }
+    });
+
+    it('renders timezone button in settings keyboard when timezoneOffsetHours option is provided', () => {
+        expect(makeSubscriptionSettingsTimezoneButton('#2PPLQ', -5)).toEqual({
+            text: '🕒 Часовой пояс: UTC-5',
+            callback_data: 'settings:tz:#2PPLQ',
+        });
+
+        const keyboard = makeSubscriptionSettingsKeyboard(
+            '#2PPLQ',
+            getPresetCategories('players'),
+            {
+                timezoneOffsetHours: 0,
+            },
+        );
+        expect(keyboard.inline_keyboard).toHaveLength(8);
+        expect(keyboard.inline_keyboard[6]).toEqual([
+            { text: '🕒 Часовой пояс: UTC+0', callback_data: 'settings:tz:#2PPLQ' },
+        ]);
+        expect(keyboard.inline_keyboard[7]).toEqual([
+            { text: '⬅️ Назад', callback_data: 'clans:list' },
+        ]);
+    });
+
+    it('builds CIS quick-pick timezone keyboard with 6 presets, Other timezone button, Back button, and <= 64 byte callbacks', () => {
+        const longestTag = '#PYLQGRJCUV0289P';
+        const keyboard = makeTimezoneQuickSelectKeyboard(longestTag, 3);
+
+        expect(keyboard).toEqual({
+            inline_keyboard: [
+                [{ text: 'UTC+2 Кишинёв', callback_data: `settings:tzset:${longestTag}:2` }],
+                [
+                    {
+                        text: '✅ UTC+3 Москва/Минск',
+                        callback_data: `settings:tzset:${longestTag}:3`,
+                    },
+                ],
+                [{ text: 'UTC+4 Баку', callback_data: `settings:tzset:${longestTag}:4` }],
+                [
+                    {
+                        text: 'UTC+5 Астана/Ташкент',
+                        callback_data: `settings:tzset:${longestTag}:5`,
+                    },
+                ],
+                [{ text: 'UTC+6 Бишкек', callback_data: `settings:tzset:${longestTag}:6` }],
+                [{ text: 'UTC+7 Новосибирск', callback_data: `settings:tzset:${longestTag}:7` }],
+                [{ text: '🌍 Другой пояс', callback_data: `settings:tzall:${longestTag}` }],
+                [{ text: '⬅️ Назад', callback_data: `settings:open:${longestTag}` }],
+            ],
+        });
+
+        for (const row of keyboard.inline_keyboard) {
+            for (const button of row) {
+                expect(Buffer.byteLength(button.callback_data, 'utf8')).toBeLessThanOrEqual(
+                    MAX_CALLBACK_DATA_BYTES,
+                );
+            }
+        }
+    });
+
+    it('builds full UTC-12..UTC+14 timezone grid in 9 rows of 3 plus Back button within 64-byte callback limit', () => {
+        const longestTag = '#PYLQGRJCUV0289P';
+        const keyboard = makeTimezoneAllSelectKeyboard(longestTag, -5);
+
+        // 27 integer offsets (-12..14) / 3 = 9 rows + 1 Back row = 10 rows
+        expect(keyboard.inline_keyboard).toHaveLength(10);
+        const offsetButtons = keyboard.inline_keyboard.slice(0, 9).flat();
+        expect(offsetButtons).toHaveLength(27);
+        expect(offsetButtons[0]).toEqual({
+            text: 'UTC-12',
+            callback_data: `settings:tzset:${longestTag}:-12`,
+        });
+        expect(offsetButtons[7]).toEqual({
+            text: '✅ UTC-5',
+            callback_data: `settings:tzset:${longestTag}:-5`,
+        });
+        expect(offsetButtons[12]).toEqual({
+            text: 'UTC+0',
+            callback_data: `settings:tzset:${longestTag}:0`,
+        });
+        expect(offsetButtons[26]).toEqual({
+            text: 'UTC+14',
+            callback_data: `settings:tzset:${longestTag}:14`,
+        });
+        expect(keyboard.inline_keyboard[9]).toEqual([
+            { text: '⬅️ Назад', callback_data: `settings:tz:${longestTag}` },
+        ]);
+
+        for (const row of keyboard.inline_keyboard) {
             for (const button of row) {
                 expect(Buffer.byteLength(button.callback_data, 'utf8')).toBeLessThanOrEqual(
                     MAX_CALLBACK_DATA_BYTES,

@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
     ALL_NOTIFICATION_CATEGORIES,
     ALL_SUBSCRIPTION_PRESETS,
+    MAX_TIMEZONE_OFFSET_HOURS,
+    MIN_TIMEZONE_OFFSET_HOURS,
 } from '../../src/models/subscription.js';
 import {
     buildClanUnlinkCallbackData,
@@ -10,6 +12,9 @@ import {
     buildSettingsCategoryCallbackData,
     buildSettingsOpenCallbackData,
     buildSettingsPresetCallbackData,
+    buildSettingsTimezoneAllCallbackData,
+    buildSettingsTimezoneCallbackData,
+    buildSettingsTimezoneSetCallbackData,
     buildStrategyCallbackData,
     buildTownHallCallbackData,
     CALLBACK_COMMANDS,
@@ -160,17 +165,51 @@ describe('callback_data builders and parseKnownCallbackData', () => {
                 category,
             });
         }
+        expect(parseKnownCallbackData(buildSettingsTimezoneCallbackData('#2PPLQ'))).toEqual({
+            kind: 'settings:tz',
+            clanTag: '#2PPLQ',
+        });
+        expect(parseKnownCallbackData(buildSettingsTimezoneAllCallbackData('#2PPLQ'))).toEqual({
+            kind: 'settings:tzall',
+            clanTag: '#2PPLQ',
+        });
+        for (
+            let offset = MIN_TIMEZONE_OFFSET_HOURS;
+            offset <= MAX_TIMEZONE_OFFSET_HOURS;
+            offset += 1
+        ) {
+            expect(
+                parseKnownCallbackData(buildSettingsTimezoneSetCallbackData('#2PPLQ', offset)),
+            ).toEqual({
+                kind: 'settings:tzset',
+                clanTag: '#2PPLQ',
+                timezoneOffsetHours: offset,
+            });
+        }
     });
 
     it('keeps all settings callback_data strictly within Telegram 64-byte UTF-8 limit even for max-length clan tags', () => {
         const longestClanTag = '#PYLQGRJCUV0289P';
+        const timezoneOffsets: number[] = [];
+        for (
+            let offset = MIN_TIMEZONE_OFFSET_HOURS;
+            offset <= MAX_TIMEZONE_OFFSET_HOURS;
+            offset += 1
+        ) {
+            timezoneOffsets.push(offset);
+        }
         const payloads: string[] = [
             buildSettingsOpenCallbackData(longestClanTag),
+            buildSettingsTimezoneCallbackData(longestClanTag),
+            buildSettingsTimezoneAllCallbackData(longestClanTag),
             ...ALL_SUBSCRIPTION_PRESETS.map((preset) =>
                 buildSettingsPresetCallbackData(longestClanTag, preset),
             ),
             ...ALL_NOTIFICATION_CATEGORIES.map((category) =>
                 buildSettingsCategoryCallbackData(longestClanTag, category),
+            ),
+            ...timezoneOffsets.map((offset) =>
+                buildSettingsTimezoneSetCallbackData(longestClanTag, offset),
             ),
         ];
 
@@ -207,6 +246,22 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             'settings:category:#2PPLQ:unknown',
             'settings:category:#BAD!:summaries',
             'settings:category:#2PPLQ:summaries:extra',
+            'settings:tz',
+            'settings:tz:#BAD!',
+            'settings:tz:#2PPLQ:extra',
+            'settings:tzall',
+            'settings:tzall:#BAD!',
+            'settings:tzall:#2PPLQ:extra',
+            'settings:tzset:#2PPLQ',
+            'settings:tzset:#BAD!:3',
+            'settings:tzset:#2PPLQ:-13',
+            'settings:tzset:#2PPLQ:15',
+            'settings:tzset:#2PPLQ:-0',
+            'settings:tzset:#2PPLQ:03',
+            'settings:tzset:#2PPLQ:+3',
+            'settings:tzset:#2PPLQ:3.5',
+            'settings:tzset:#2PPLQ:abc',
+            'settings:tzset:#2PPLQ:3:extra',
             'guides:townhalls:extra',
             'guides:townhall',
             'guides:townhall:6',

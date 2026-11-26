@@ -116,7 +116,7 @@ ClashBot — автономный сервис мониторинга клано
 - **Повторяемые (`retryable: true`)**: `network`, `timeout`, `rate_limit` (HTTP `429` с разбором заголовка `Retry-After`), `server_error` (`5xx`).
 - **Неповторяемые (`retryable: false`)**: `forbidden` (`403`), `not_found` (`404`), `unexpected_status`, `invalid_json`, `invalid_schema`.
 
-Временные метки API в формате `YYYYMMDDTHHMMSS[.fff]Z` преобразуются в Unix timestamp в секундах (`src/api/timeParser.ts`). Форматирование дат для сообщений Telegram выполняется в `UTC+3` (`formatUnixToMoscowDateTime` в `src/common/formatUtils.ts`).
+Временные метки API в формате `YYYYMMDDTHHMMSS[.fff]Z` преобразуются в Unix timestamp в секундах (`src/api/timeParser.ts`). Форматирование дат и времени для сообщений Telegram выполняется в часовом поясе подписки (`timezone_offset_hours`, по умолчанию `UTC+3`) с явным указанием `(UTC+N)` / `(UTC-N)` (`formatUnixToDateTime` / `formatUnixToDate` / `formatUtcOffset` в `src/common/formatUtils.ts`).
 
 ## Цикл синхронизации (`ClanManager` и `SyncService`)
 

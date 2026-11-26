@@ -1,3 +1,11 @@
+import {
+    DEFAULT_TIMEZONE_OFFSET_HOURS,
+    MAX_TIMEZONE_OFFSET_HOURS,
+    MIN_TIMEZONE_OFFSET_HOURS,
+    isValidTimezoneOffsetHours,
+} from '../models/subscription.js';
+import { ValidationError } from './errors.js';
+
 const HTML_ESCAPE_MAP: Readonly<Record<string, string>> = {
     '&': '&amp;',
     '<': '&lt;',
@@ -8,7 +16,7 @@ const HTML_ESCAPE_MAP: Readonly<Record<string, string>> = {
 
 const HTML_ESCAPE_PATTERN = /[&<>\u300A\u300B]/g;
 
-const MOSCOW_UTC_OFFSET_SECONDS = 3 * 60 * 60;
+const SECONDS_PER_HOUR = 60 * 60;
 
 /**
  * Escapes HTML special characters and decorative CJK angle brackets (`《`, `》`)
@@ -34,18 +42,49 @@ function pad4(value: number): string {
     return String(value).padStart(4, '0');
 }
 
+function assertValidTimezoneOffsetHours(timezoneOffsetHours: number): void {
+    if (!isValidTimezoneOffsetHours(timezoneOffsetHours)) {
+        throw new ValidationError(
+            `Invalid timezone offset hours: ${String(timezoneOffsetHours)} (expected integer between ${String(MIN_TIMEZONE_OFFSET_HOURS)} and ${String(MAX_TIMEZONE_OFFSET_HOURS)})`,
+            { context: { timezoneOffsetHours } },
+        );
+    }
+}
+
 /**
- * Formats a Unix timestamp (seconds) in Moscow time (UTC+3) as `DD.MM.YYYY HH:MM`,
- * or returns `"неизвестно"` for non-positive / non-finite timestamps,
- * matching C++ `utils::formatUnixToLocalDateTime`.
+ * Formats an integer UTC offset in hours as `UTC+N` (for `>= 0`, including `UTC+0`)
+ * or `UTC-N` (for `< 0`), without country or city names.
  */
-export function formatUnixToMoscowDateTime(timestampSeconds: number): string {
+export function formatUtcOffset(timezoneOffsetHours: number): string {
+    assertValidTimezoneOffsetHours(timezoneOffsetHours);
+    if (timezoneOffsetHours < 0) {
+        return `UTC${String(timezoneOffsetHours)}`;
+    }
+    return `UTC+${String(timezoneOffsetHours === 0 ? 0 : timezoneOffsetHours)}`;
+}
+
+function toOffsetUtcDate(timestampSeconds: number, timezoneOffsetHours: number): Date {
+    const shiftedMs =
+        (Math.trunc(timestampSeconds) + timezoneOffsetHours * SECONDS_PER_HOUR) * 1000;
+    return new Date(shiftedMs);
+}
+
+/**
+ * Formats a Unix timestamp (seconds) in the given integer UTC offset as
+ * `DD.MM.YYYY HH:MM (UTC+N)` / `DD.MM.YYYY HH:MM (UTC-N)`,
+ * or returns `"неизвестно"` for non-positive / non-finite timestamps.
+ */
+export function formatUnixToDateTime(
+    timestampSeconds: number,
+    timezoneOffsetHours: number = DEFAULT_TIMEZONE_OFFSET_HOURS,
+): string {
+    const utcOffset = formatUtcOffset(timezoneOffsetHours);
+
     if (!Number.isFinite(timestampSeconds) || timestampSeconds <= 0) {
         return 'неизвестно';
     }
 
-    const moscowMs = (Math.trunc(timestampSeconds) + MOSCOW_UTC_OFFSET_SECONDS) * 1000;
-    const date = new Date(moscowMs);
+    const date = toOffsetUtcDate(timestampSeconds, timezoneOffsetHours);
 
     const day = pad2(date.getUTCDate());
     const month = pad2(date.getUTCMonth() + 1);
@@ -53,7 +92,31 @@ export function formatUnixToMoscowDateTime(timestampSeconds: number): string {
     const hours = pad2(date.getUTCHours());
     const minutes = pad2(date.getUTCMinutes());
 
-    return `${day}.${month}.${year} ${hours}:${minutes}`;
+    return `${day}.${month}.${year} ${hours}:${minutes} (${utcOffset})`;
+}
+
+/**
+ * Formats a Unix timestamp (seconds) in the given integer UTC offset as
+ * `DD.MM.YYYY (UTC+N)` / `DD.MM.YYYY (UTC-N)`,
+ * or returns `"неизвестно"` for non-positive / non-finite timestamps.
+ */
+export function formatUnixToDate(
+    timestampSeconds: number,
+    timezoneOffsetHours: number = DEFAULT_TIMEZONE_OFFSET_HOURS,
+): string {
+    const utcOffset = formatUtcOffset(timezoneOffsetHours);
+
+    if (!Number.isFinite(timestampSeconds) || timestampSeconds <= 0) {
+        return 'неизвестно';
+    }
+
+    const date = toOffsetUtcDate(timestampSeconds, timezoneOffsetHours);
+
+    const day = pad2(date.getUTCDate());
+    const month = pad2(date.getUTCMonth() + 1);
+    const year = pad4(date.getUTCFullYear());
+
+    return `${day}.${month}.${year} (${utcOffset})`;
 }
 
 export function pluralizeRu(value: number, one: string, few: string, many: string): string {

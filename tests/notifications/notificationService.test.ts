@@ -1303,4 +1303,123 @@ describe('NotificationService & DomainEventMaterializer', () => {
             { chatId: CHAT_ROSTER, category: 'roster' },
         ]);
     });
+
+    it('materializes reminders and raid comparison reports in each subscribed chat own timezone offset', () => {
+        const ctx = setup();
+        ctx.subscriptionRepo.unsubscribeFromChat(PLAYERS_CHAT_ID, PLAYERS_THREAD_ID, CLAN_TAG);
+        ctx.subscriptionRepo.unsubscribeFromChat(
+            MANAGEMENT_CHAT_ID,
+            MANAGEMENT_THREAD_ID,
+            CLAN_TAG,
+        );
+
+        const CHAT_WEST = -7001; // UTC-5
+        const CHAT_EAST = -7002; // UTC+14
+
+        ctx.subscriptionRepo.saveTelegramChat(CHAT_WEST, 0, 'West Chat');
+        ctx.subscriptionRepo.saveTelegramChat(CHAT_EAST, 0, 'East Chat');
+        ctx.subscriptionRepo.subscribeToChat(CHAT_WEST, 0, CLAN_TAG, {
+            preset: 'players',
+            timezoneOffsetHours: -5,
+        });
+        ctx.subscriptionRepo.subscribeToChat(CHAT_EAST, 0, CLAN_TAG, {
+            preset: 'players',
+            timezoneOffsetHours: 14,
+        });
+
+        // Two completed raids whose start times cross day boundaries between UTC-5 and UTC+14:
+        // prev: 2024-03-02 01:00:00 UTC -> 01.03.2024 (UTC-5) vs 02.03.2024 (UTC+14)
+        // curr: 2024-03-09 22:00:00 UTC -> 09.03.2024 (UTC-5) vs 10.03.2024 (UTC+14)
+        seedRaid(ctx.raidRepo, {
+            startTime: 1_709_341_200,
+            endTime: 1_709_500_000,
+            totalLoot: 80_000,
+        });
+        const currentRaidRef = seedRaid(ctx.raidRepo, {
+            startTime: 1_710_021_600,
+            endTime: 1_710_200_000,
+            totalLoot: 100_000,
+        });
+
+        // War/raid reminder endTime = 2024-01-01 00:00:00 UTC -> 31.12.2023 19:00 (UTC-5) vs 01.01.2024 14:00 (UTC+14)
+        const events: ApplicationEvent[] = [
+            {
+                type: APPLICATION_EVENT_TYPES.warReminder,
+                clanTag: CLAN_TAG,
+                warId: 501,
+                endTime: 1_704_067_200,
+                warKind: WAR_REMINDER_WAR_KINDS.regular,
+                kind: WAR_REMINDER_KINDS.sixHoursLeft,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.raidReminder,
+                clanTag: CLAN_TAG,
+                raidReference: currentRaidRef,
+                endTime: 1_704_067_200,
+                kind: RAID_REMINDER_KINDS.oneHourLeft,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.raidsEnded,
+                clanTag: CLAN_TAG,
+                raidReference: currentRaidRef,
+            },
+        ];
+
+        ctx.recorder.recordAll(events);
+        const eventsByType = new Map<string, ApplicationEvent>(events.map((e) => [e.type, e]));
+        for (const dest of ctx.domainEventsRepo.getPendingDestinations(50)) {
+            const event = eventsByType.get(dest.eventType);
+            if (event !== undefined) {
+                ctx.notificationService.materialize(event, dest);
+            }
+            ctx.domainEventsRepo.markMaterialized(dest.destinationId);
+        }
+
+        const rows = getAllNotificationRows(ctx.db);
+        const findText = (chatId: number, eventType: string): string => {
+            const row = rows.find((r) => r.chat_id === chatId && r.event_type === eventType);
+            expect(row).toBeDefined();
+            return row?.message_text ?? '';
+        };
+
+        expect(findText(CHAT_WEST, NOTIFICATION_EVENT_TYPES.warReminder)).toContain(
+            '🕒 Окончание: <b>31.12.2023 19:00 (UTC-5)</b>',
+        );
+        expect(findText(CHAT_EAST, NOTIFICATION_EVENT_TYPES.warReminder)).toContain(
+            '🕒 Окончание: <b>01.01.2024 14:00 (UTC+14)</b>',
+        );
+
+        expect(findText(CHAT_WEST, NOTIFICATION_EVENT_TYPES.raidReminder)).toContain(
+            '🕒 Окончание: <b>31.12.2023 19:00 (UTC-5)</b>',
+        );
+        expect(findText(CHAT_EAST, NOTIFICATION_EVENT_TYPES.raidReminder)).toContain(
+            '🕒 Окончание: <b>01.01.2024 14:00 (UTC+14)</b>',
+        );
+
+        expect(findText(CHAT_WEST, NOTIFICATION_EVENT_TYPES.raidsComparison)).toContain(
+            'Последний рейд: 09.03.2024 (UTC-5)\nПредыдущий рейд: 01.03.2024 (UTC-5)',
+        );
+        expect(findText(CHAT_EAST, NOTIFICATION_EVENT_TYPES.raidsComparison)).toContain(
+            'Последний рейд: 10.03.2024 (UTC+14)\nПредыдущий рейд: 02.03.2024 (UTC+14)',
+        );
+
+        // Legacy handle() path also respects per-subscription timezones
+        ctx.notificationService.handle({
+            type: APPLICATION_EVENT_TYPES.warReminder,
+            clanTag: CLAN_TAG,
+            warId: 502,
+            endTime: 1_704_067_200,
+            warKind: WAR_REMINDER_WAR_KINDS.cwl,
+            kind: WAR_REMINDER_KINDS.started,
+        });
+        const legacyRows = getAllNotificationRows(ctx.db).filter(
+            (r) => r.domain_event_destination_id === null && r.event_id === '502:started',
+        );
+        expect(legacyRows.find((r) => r.chat_id === CHAT_WEST)?.message_text).toContain(
+            '31.12.2023 19:00 (UTC-5)',
+        );
+        expect(legacyRows.find((r) => r.chat_id === CHAT_EAST)?.message_text).toContain(
+            '01.01.2024 14:00 (UTC+14)',
+        );
+    });
 });

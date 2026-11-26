@@ -2491,8 +2491,9 @@ describe('TelegramBotService', () => {
             expect(String(openEdit?.text)).toContain('Клан: #2PPLQ');
             expect(String(openEdit?.text)).not.toContain('Pending synchronization');
             expect(String(openEdit?.text)).toContain('Пресет: Руководство');
+            expect(String(openEdit?.text)).toContain('Часовой пояс: UTC+3');
             const openKeyboard = getInlineKeyboard(openEdit);
-            expect(openKeyboard).toHaveLength(7);
+            expect(openKeyboard).toHaveLength(8);
             expect(openKeyboard[0]?.map((b) => b.text)).toEqual([
                 'Игроки',
                 'Руководство',
@@ -2501,7 +2502,11 @@ describe('TelegramBotService', () => {
             expect(openKeyboard[1]?.[0]?.text).toBe('▫️ Итоги и сравнения');
             expect(openKeyboard[4]?.[0]?.text).toBe('✅ Дисциплина и аналитика');
             expect(openKeyboard[5]?.[0]?.text).toBe('✅ Системные оповещения');
-            expect(openKeyboard[6]?.[0]).toEqual({ text: '⬅️ Назад', callback_data: 'clans:list' });
+            expect(openKeyboard[6]?.[0]).toEqual({
+                text: '🕒 Часовой пояс: UTC+3',
+                callback_data: 'settings:tz:#2PPLQ',
+            });
+            expect(openKeyboard[7]?.[0]).toEqual({ text: '⬅️ Назад', callback_data: 'clans:list' });
 
             // Sync clan name (including HTML chars) and apply all 3 presets
             clansRepo.saveClan({
@@ -2963,6 +2968,194 @@ describe('TelegramBotService', () => {
             expect(transport.editedMessages()).toHaveLength(editsBeforeErrors);
             expect(transport.answeredCallbackQueries().at(-1)).toEqual({
                 callback_query_id: 'q-db-err',
+                text: 'Не удалось обновить настройки. Попробуйте ещё раз позже.',
+                show_alert: true,
+            });
+        });
+
+        it('selects timezone via CIS quick list and full UTC-12..UTC+14 grid, enforces permissions, and isolates forum topics', async () => {
+            const { service, transport, clansRepo, subscriptionRepo, transactionManager } =
+                createHarness();
+            const groupChatId = -6400;
+            const adminId = 951;
+            const memberId = 952;
+            const topicA = 101;
+            const topicB = 202;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            clansRepo.saveClan({
+                tag: '#2PPLQ',
+                name: 'Nordic <Clan>',
+                description: 'desc',
+                locationId: 0,
+                locationName: '',
+                chatLanguageId: 0,
+                chatLanguage: '',
+                isFamilyFriendly: true,
+            });
+            subscriptionRepo.saveTelegramChat(groupChatId, topicA, 'Topic A');
+            subscriptionRepo.saveTelegramChat(groupChatId, topicB, 'Topic B');
+            subscriptionRepo.subscribeToChat(groupChatId, topicA, '#2PPLQ', 'players');
+            subscriptionRepo.subscribeToChat(groupChatId, topicB, '#2PPLQ', 'players');
+            const initialSubIdA = subscriptionRepo.getSubscriptionId(groupChatId, topicA, '#2PPLQ');
+            transport.chatMembers.set(memberKey(groupChatId, adminId), 'administrator');
+            transport.chatMembers.set(memberKey(groupChatId, memberId), 'member');
+
+            // Regular member cannot open quick list, full grid, or update timezone; shared message untouched
+            for (const [queryId, data] of [
+                ['q-tz-mem-open', 'settings:tz:#2PPLQ'],
+                ['q-tz-mem-all', 'settings:tzall:#2PPLQ'],
+                ['q-tz-mem-set', 'settings:tzset:#2PPLQ:5'],
+            ] as const) {
+                await service.bot.handleUpdate(
+                    makeCallbackUpdate({
+                        queryId,
+                        data,
+                        chatId: groupChatId,
+                        chatType: 'supergroup',
+                        userId: memberId,
+                        messageThreadId: topicA,
+                    }),
+                );
+            }
+            expect(transport.editedMessages()).toHaveLength(0);
+            expect(
+                subscriptionRepo.getSubscription(groupChatId, topicA, '#2PPLQ')
+                    ?.timezoneOffsetHours,
+            ).toBe(3);
+            expect(transport.answeredCallbackQueries()).toHaveLength(3);
+            for (const answer of transport.answeredCallbackQueries()) {
+                expect(answer.show_alert).toBe(true);
+                expect(answer.text).toBe(
+                    'Только администратор группы может изменять настройки подписки.',
+                );
+            }
+
+            // Admin opens CIS quick-pick screen
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-tz-open',
+                    data: 'settings:tz:#2PPLQ',
+                    chatId: groupChatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            const quickEdit = transport.editedMessages()[0];
+            expect(String(quickEdit?.text)).toContain('🕒 <b>Часовой пояс подписки</b>');
+            expect(String(quickEdit?.text)).toContain('Клан: <b>Nordic &lt;Clan&gt;</b> (#2PPLQ)');
+            expect(String(quickEdit?.text)).toContain('Текущий пояс: UTC+3');
+            const quickKeyboard = getInlineKeyboard(quickEdit);
+            expect(quickKeyboard.map((row) => row[0]?.text)).toEqual([
+                'UTC+2 Кишинёв',
+                '✅ UTC+3 Москва/Минск',
+                'UTC+4 Баку',
+                'UTC+5 Астана/Ташкент',
+                'UTC+6 Бишкек',
+                'UTC+7 Новосибирск',
+                '🌍 Другой пояс',
+                '⬅️ Назад',
+            ]);
+
+            // Admin selects UTC+5 Астана/Ташкент from CIS list -> returns to settings screen
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-tz-cis-5',
+                    data: 'settings:tzset:#2PPLQ:5',
+                    chatId: groupChatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(
+                subscriptionRepo.getSubscription(groupChatId, topicA, '#2PPLQ')
+                    ?.timezoneOffsetHours,
+            ).toBe(5);
+            expect(
+                subscriptionRepo.getSubscription(groupChatId, topicB, '#2PPLQ')
+                    ?.timezoneOffsetHours,
+            ).toBe(3);
+            expect(subscriptionRepo.getSubscriptionId(groupChatId, topicA, '#2PPLQ')).toBe(
+                initialSubIdA,
+            );
+            const afterCisEdit = transport.editedMessages()[1];
+            expect(String(afterCisEdit?.text)).toContain('⚙️ <b>Настройки подписки</b>');
+            expect(String(afterCisEdit?.text)).toContain('Часовой пояс: UTC+5');
+            expect(getInlineKeyboard(afterCisEdit)[6]?.[0]).toEqual({
+                text: '🕒 Часовой пояс: UTC+5',
+                callback_data: 'settings:tz:#2PPLQ',
+            });
+
+            // Admin opens "🌍 Другой пояс" -> full UTC-12..UTC+14 grid
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-tz-all',
+                    data: 'settings:tzall:#2PPLQ',
+                    chatId: groupChatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            const allEdit = transport.editedMessages()[2];
+            expect(String(allEdit?.text)).toContain(
+                '🌍 <b>Выбор часового пояса (UTC-12..UTC+14)</b>',
+            );
+            expect(String(allEdit?.text)).toContain('Текущий пояс: UTC+5');
+            const allKeyboard = getInlineKeyboard(allEdit);
+            expect(allKeyboard).toHaveLength(10);
+            const flatOffsets = allKeyboard.slice(0, 9).flat();
+            expect(flatOffsets).toHaveLength(27);
+            expect(flatOffsets[0]?.text).toBe('UTC-12');
+            expect(flatOffsets[17]?.text).toBe('✅ UTC+5');
+            expect(flatOffsets[26]?.text).toBe('UTC+14');
+            expect(allKeyboard[9]?.[0]).toEqual({
+                text: '⬅️ Назад',
+                callback_data: 'settings:tz:#2PPLQ',
+            });
+
+            // Admin selects UTC-5 from full grid -> saved and returns to settings screen
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-tz-set-neg5',
+                    data: 'settings:tzset:#2PPLQ:-5',
+                    chatId: groupChatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(
+                subscriptionRepo.getSubscription(groupChatId, topicA, '#2PPLQ')
+                    ?.timezoneOffsetHours,
+            ).toBe(-5);
+            const afterNeg5Edit = transport.editedMessages()[3];
+            expect(String(afterNeg5Edit?.text)).toContain('Часовой пояс: UTC-5');
+            expect(getInlineKeyboard(afterNeg5Edit)[6]?.[0]?.text).toBe('🕒 Часовой пояс: UTC-5');
+
+            // DB failure during tz update returns personal alert without overwriting message
+            const editsBeforeDbErr = transport.editedMessages().length;
+            const txSpy = vi
+                .spyOn(transactionManager, 'retryInTransaction')
+                .mockImplementation(() => {
+                    throw new DatabaseError('tz write failed');
+                });
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-tz-db-err',
+                    data: 'settings:tzset:#2PPLQ:14',
+                    chatId: groupChatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            txSpy.mockRestore();
+            expect(transport.editedMessages()).toHaveLength(editsBeforeDbErr);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-tz-db-err',
                 text: 'Не удалось обновить настройки. Попробуйте ещё раз позже.',
                 show_alert: true,
             });

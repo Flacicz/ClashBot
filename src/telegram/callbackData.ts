@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
     isNotificationCategory,
     isSubscriptionPreset,
+    isValidTimezoneOffsetHours,
     type NotificationCategory,
     type SubscriptionPreset,
 } from '../models/subscription.js';
@@ -20,6 +21,9 @@ export const CALLBACK_COMMANDS = {
     SETTINGS_OPEN: 'settings:open',
     SETTINGS_PRESET: 'settings:preset',
     SETTINGS_CATEGORY: 'settings:category',
+    SETTINGS_TZ: 'settings:tz',
+    SETTINGS_TZ_ALL: 'settings:tzall',
+    SETTINGS_TZ_SET: 'settings:tzset',
     GUIDES_TOWNHALLS: 'guides:townhalls',
     GUIDES_TOWNHALL: 'guides:townhall',
     GUIDES_STRATEGY: 'guides:strategy',
@@ -47,6 +51,13 @@ export type KnownCallbackData =
           readonly kind: 'settings:category';
           readonly clanTag: string;
           readonly category: NotificationCategory;
+      }
+    | { readonly kind: 'settings:tz'; readonly clanTag: string }
+    | { readonly kind: 'settings:tzall'; readonly clanTag: string }
+    | {
+          readonly kind: 'settings:tzset';
+          readonly clanTag: string;
+          readonly timezoneOffsetHours: number;
       }
     | { readonly kind: 'guides:townhalls' }
     | { readonly kind: 'guides:townhall'; readonly townHall: number }
@@ -105,6 +116,22 @@ export function buildSettingsCategoryCallbackData(
     return `${CALLBACK_COMMANDS.SETTINGS_CATEGORY}:${clanTag}:${category}`;
 }
 
+export function buildSettingsTimezoneCallbackData(clanTag: string): string {
+    return `${CALLBACK_COMMANDS.SETTINGS_TZ}:${clanTag}`;
+}
+
+export function buildSettingsTimezoneAllCallbackData(clanTag: string): string {
+    return `${CALLBACK_COMMANDS.SETTINGS_TZ_ALL}:${clanTag}`;
+}
+
+export function buildSettingsTimezoneSetCallbackData(
+    clanTag: string,
+    timezoneOffsetHours: number,
+): string {
+    const normalizedOffset = timezoneOffsetHours === 0 ? 0 : timezoneOffsetHours;
+    return `${CALLBACK_COMMANDS.SETTINGS_TZ_SET}:${clanTag}:${String(normalizedOffset)}`;
+}
+
 export function buildTownHallCallbackData(townHall: number): string {
     return `${CALLBACK_COMMANDS.GUIDES_TOWNHALL}:${String(townHall)}`;
 }
@@ -115,6 +142,17 @@ export function buildStrategyCallbackData(townHall: number, armyId: string): str
 
 export function buildGuideCallbackData(townHall: number, guideId: string): string {
     return `${CALLBACK_COMMANDS.GUIDES_GUIDE}:${String(townHall)}:${guideId}`;
+}
+
+const TIMEZONE_OFFSET_ARG_PATTERN = /^(?:0|-?[1-9]\d?)$/;
+
+function parseTimezoneOffsetArg(raw: string): number | null {
+    if (!TIMEZONE_OFFSET_ARG_PATTERN.test(raw)) {
+        return null;
+    }
+
+    const parsed = Number(raw);
+    return isValidTimezoneOffsetHours(parsed) ? parsed : null;
 }
 
 export function parseCallbackData(data: string): CallbackData | null {
@@ -196,6 +234,31 @@ export function parseKnownCallbackData(data: string): KnownCallbackData | null {
                 return null;
             }
             return { kind: 'settings:category', clanTag, category: args[1] };
+        }
+        case CALLBACK_COMMANDS.SETTINGS_TZ: {
+            if (args.length !== 1 || args[0] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            return clanTag !== null ? { kind: 'settings:tz', clanTag } : null;
+        }
+        case CALLBACK_COMMANDS.SETTINGS_TZ_ALL: {
+            if (args.length !== 1 || args[0] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            return clanTag !== null ? { kind: 'settings:tzall', clanTag } : null;
+        }
+        case CALLBACK_COMMANDS.SETTINGS_TZ_SET: {
+            if (args.length !== 2 || args[0] === undefined || args[1] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            const timezoneOffsetHours = parseTimezoneOffsetArg(args[1]);
+            if (clanTag === null || timezoneOffsetHours === null) {
+                return null;
+            }
+            return { kind: 'settings:tzset', clanTag, timezoneOffsetHours };
         }
         case CALLBACK_COMMANDS.GUIDES_TOWNHALLS:
             return args.length === 0 ? { kind: 'guides:townhalls' } : null;
