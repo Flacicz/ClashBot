@@ -24,6 +24,7 @@ import {
 } from '../events/applicationEvents.js';
 import type { Logger } from '../logging/logger.js';
 import {
+    DEFAULT_NEW_SUBSCRIPTION_MIRROR_RULE_ENABLED,
     DEFAULT_TIMEZONE_OFFSET_HOURS,
     NOTIFICATION_CATEGORIES,
     type NotificationCategory,
@@ -44,6 +45,10 @@ import {
     RaidsViolationsFormatter,
     SystemAlertReportFormatter,
     WarReminderFormatter,
+    type ClanwarComparisonFormatOptions,
+    type ClanwarRosterFormatOptions,
+    type ClanwarViolationsFormatOptions,
+    type CwlRoundViolationsFormatOptions,
 } from '../reports/index.js';
 import { getRaidReminderExpiresAt, getWarReminderExpiresAt } from '../services/reminders.js';
 import { DEFAULT_TELEGRAM_MAX_VISIBLE_LENGTH, splitHtmlMessage } from './htmlMessageSplitter.js';
@@ -73,8 +78,8 @@ export const NOTIFICATION_EVENT_TYPES = {
 export type NotificationEventType =
     (typeof NOTIFICATION_EVENT_TYPES)[keyof typeof NOTIFICATION_EVENT_TYPES];
 
-export interface EventFormatter<TEvent> {
-    format(event: TEvent): string;
+export interface EventFormatter<TEvent, TOptions = undefined> {
+    format(event: TEvent, options?: TOptions): string;
 }
 
 export interface TimezoneAwareEventFormatter<TEvent> {
@@ -105,11 +110,20 @@ export interface NotificationServiceDependencies {
     readonly raidsComparisonFormatter?: TimezoneAwareEventFormatter<RaidsEndedEvent>;
     readonly raidsViolationsFormatter?: EventFormatter<RaidsEndedEvent>;
     readonly clanwarEndedFormatter?: EventFormatter<WarEndedEvent>;
-    readonly clanwarViolationsFormatter?: EventFormatter<WarEndedEvent>;
-    readonly clanwarComparisonFormatter?: EventFormatter<WarEndedEvent>;
-    readonly clanwarRosterFormatter?: EventFormatter<WarEndedEvent>;
+    readonly clanwarViolationsFormatter?: EventFormatter<
+        WarEndedEvent,
+        ClanwarViolationsFormatOptions
+    >;
+    readonly clanwarComparisonFormatter?: EventFormatter<
+        WarEndedEvent,
+        ClanwarComparisonFormatOptions
+    >;
+    readonly clanwarRosterFormatter?: EventFormatter<WarEndedEvent, ClanwarRosterFormatOptions>;
     readonly clanwarsLeagueRoundEndedFormatter?: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
-    readonly clanwarsLeagueRoundViolationsFormatter?: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
+    readonly clanwarsLeagueRoundViolationsFormatter?: EventFormatter<
+        ClanwarsLeagueRoundEndedEvent,
+        CwlRoundViolationsFormatOptions
+    >;
     readonly maxMessageLength?: number;
     readonly logger?: Logger;
 }
@@ -137,11 +151,23 @@ export class NotificationService implements DomainEventMaterializer {
     private readonly raidsComparisonFormatter: TimezoneAwareEventFormatter<RaidsEndedEvent>;
     private readonly raidsViolationsFormatter: EventFormatter<RaidsEndedEvent>;
     private readonly clanwarEndedFormatter: EventFormatter<WarEndedEvent>;
-    private readonly clanwarViolationsFormatter: EventFormatter<WarEndedEvent>;
-    private readonly clanwarComparisonFormatter: EventFormatter<WarEndedEvent>;
-    private readonly clanwarRosterFormatter: EventFormatter<WarEndedEvent>;
+    private readonly clanwarViolationsFormatter: EventFormatter<
+        WarEndedEvent,
+        ClanwarViolationsFormatOptions
+    >;
+    private readonly clanwarComparisonFormatter: EventFormatter<
+        WarEndedEvent,
+        ClanwarComparisonFormatOptions
+    >;
+    private readonly clanwarRosterFormatter: EventFormatter<
+        WarEndedEvent,
+        ClanwarRosterFormatOptions
+    >;
     private readonly clanwarsLeagueRoundEndedFormatter: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
-    private readonly clanwarsLeagueRoundViolationsFormatter: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
+    private readonly clanwarsLeagueRoundViolationsFormatter: EventFormatter<
+        ClanwarsLeagueRoundEndedEvent,
+        CwlRoundViolationsFormatOptions
+    >;
     private readonly maxMessageLength: number;
     private readonly logger?: Logger;
 
@@ -489,6 +515,14 @@ export class NotificationService implements DomainEventMaterializer {
         this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.playerRoleChanged);
     }
 
+    private resolveMirrorRuleEnabled(destination: PendingDomainEventDestination): boolean {
+        if (this.subscriptionRepo === undefined) {
+            return DEFAULT_NEW_SUBSCRIPTION_MIRROR_RULE_ENABLED;
+        }
+        const subscription = this.subscriptionRepo.getSubscriptionById(destination.subscriptionId);
+        return subscription?.mirrorRuleEnabled ?? DEFAULT_NEW_SUBSCRIPTION_MIRROR_RULE_ENABLED;
+    }
+
     private materializeWarEnded(
         event: WarEndedEvent,
         destination: PendingDomainEventDestination,
@@ -497,7 +531,10 @@ export class NotificationService implements DomainEventMaterializer {
             const message = this.clanwarEndedFormatter.format(event);
             this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.warEnded);
 
-            const comparisonMessage = this.clanwarComparisonFormatter.format(event);
+            const mirrorRuleEnabled = this.resolveMirrorRuleEnabled(destination);
+            const comparisonMessage = this.clanwarComparisonFormatter.format(event, {
+                mirrorRuleEnabled,
+            });
             if (comparisonMessage.length > 0) {
                 this.enqueueDomainEvent(
                     comparisonMessage,
@@ -512,14 +549,19 @@ export class NotificationService implements DomainEventMaterializer {
             return;
         }
 
-        const violationsMessage = this.clanwarViolationsFormatter.format(event);
+        const mirrorRuleEnabled = this.resolveMirrorRuleEnabled(destination);
+        const violationsMessage = this.clanwarViolationsFormatter.format(event, {
+            mirrorRuleEnabled,
+        });
         this.enqueueDomainEvent(
             violationsMessage,
             destination,
             NOTIFICATION_EVENT_TYPES.warViolations,
         );
 
-        const rosterMessage = this.clanwarRosterFormatter.format(event);
+        const rosterMessage = this.clanwarRosterFormatter.format(event, {
+            mirrorRuleEnabled,
+        });
         if (rosterMessage.length > 0) {
             this.enqueueDomainEvent(
                 rosterMessage,
@@ -578,7 +620,10 @@ export class NotificationService implements DomainEventMaterializer {
             return;
         }
 
-        const violationsMessage = this.clanwarsLeagueRoundViolationsFormatter.format(event);
+        const mirrorRuleEnabled = this.resolveMirrorRuleEnabled(destination);
+        const violationsMessage = this.clanwarsLeagueRoundViolationsFormatter.format(event, {
+            mirrorRuleEnabled,
+        });
         this.enqueueDomainEvent(
             violationsMessage,
             destination,

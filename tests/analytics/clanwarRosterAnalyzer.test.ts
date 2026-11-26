@@ -147,4 +147,62 @@ describe('clanwarRosterAnalyzer', () => {
         const second = calculateRosterStats(MEMBERS, []);
         expect(second).toEqual(first);
     });
+
+    it('excludes firstAttacksNotOnMirror when mirrorRuleEnabled is false while keeping missed and one-attack violations', () => {
+        const noAttack: readonly (readonly ClanwarSlacker[])[] = [
+            [{ playerTag: '#P2', playerName: 'Bob' }],
+        ];
+        const oneAttack: readonly (readonly ClanwarSlacker[])[] = [
+            [{ playerTag: '#P1', playerName: 'Alice' }],
+        ];
+        const notMirror: readonly (readonly NotMirrorAttack[])[] = [
+            [
+                {
+                    attackerTag: '#P1',
+                    attackerName: 'Alice',
+                    attackerPosition: 1,
+                    defenderPosition: 3,
+                },
+                {
+                    attackerTag: '#P3',
+                    attackerName: 'Charlie',
+                    attackerPosition: 3,
+                    defenderPosition: 1,
+                },
+            ],
+        ];
+
+        const enabledStats = calculateViolationStats(MEMBERS, noAttack, oneAttack, notMirror, {
+            mirrorRuleEnabled: true,
+        });
+        expect(enabledStats[0]?.firstAttacksNotOnMirror).toBe(1);
+        expect(enabledStats[2]?.firstAttacksNotOnMirror).toBe(1);
+
+        const disabledStats = calculateViolationStats(MEMBERS, noAttack, oneAttack, notMirror, {
+            mirrorRuleEnabled: false,
+        });
+        expect(disabledStats).toEqual([
+            {
+                playerTag: '#P1',
+                playerName: 'Alice',
+                warsWithoutAttacks: 0,
+                warsWithOneAttack: 1,
+                firstAttacksNotOnMirror: 0,
+            },
+            {
+                playerTag: '#P2',
+                playerName: 'Bob',
+                warsWithoutAttacks: 1,
+                warsWithOneAttack: 0,
+                firstAttacksNotOnMirror: 0,
+            },
+            {
+                playerTag: '#P3',
+                playerName: 'Charlie',
+                warsWithoutAttacks: 0,
+                warsWithOneAttack: 0,
+                firstAttacksNotOnMirror: 0,
+            },
+        ]);
+    });
 });

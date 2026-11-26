@@ -542,4 +542,214 @@ describe('ClanwarComparisonFormatter (golden parity)', () => {
         const assertAssignable = (repo: ClanwarRepo): ClanwarComparisonReader => repo;
         expect(typeof assertAssignable).toBe('function');
     });
+
+    it('matches golden snapshots when mirrorRuleEnabled is false: hides not-mirror metric and recalculates trend on 3 primary metrics', () => {
+        // Case 1: one-previous-war-better with mirrorRuleEnabled=false -> 3/3 improved (100.0%)
+        const currentWar1: ClanwarWarStats = {
+            homeStars: 44,
+            opponentStars: 40,
+            homeDestruction: 94.5,
+            opponentDestruction: 88.25,
+            result: ClanwarOutcome.Victory,
+            maxAttacks: 30,
+            attacksUsed: 29,
+            teamSize: 15,
+            totalAttackStars: 78,
+            averageStarsPerAttack: 78.0 / 29.0,
+            averageDestructionPerAttack: 92.5,
+            disciplineStats: {
+                playersWithoutAttacks: 0,
+                playersWithOneAttack: 1,
+                firstAttacksNotOnMirror: 1,
+            },
+            homeClanTag: '#<2J8PJ9VLG&>',
+            homeClanName: 'Aurus & <Clan>',
+            opponentClanTag: '#RIVAL&1',
+            opponentClanName: '《ТУРАН》 <Rival>',
+        };
+        const prevWar1: ClanwarWarStats = {
+            homeStars: 38,
+            opponentStars: 42,
+            homeDestruction: 86.0,
+            opponentDestruction: 91.5,
+            result: ClanwarOutcome.Defeat,
+            maxAttacks: 30,
+            attacksUsed: 26,
+            teamSize: 15,
+            totalAttackStars: 58,
+            averageStarsPerAttack: 58.0 / 26.0,
+            averageDestructionPerAttack: 84.25,
+            disciplineStats: {
+                playersWithoutAttacks: 2,
+                playersWithOneAttack: 2,
+                firstAttacksNotOnMirror: 3,
+            },
+            homeClanTag: '#<2J8PJ9VLG&>',
+            homeClanName: 'Aurus & <Clan>',
+            opponentClanTag: '#PREV1',
+            opponentClanName: 'Old Rival',
+        };
+
+        const report1 = ClanwarComparisonFormatter.buildReport(
+            buildComparisonData(currentWar1, [prevWar1], { mirrorRuleEnabled: false }),
+        );
+        expect(report1).not.toContain('Атаки не по зеркалу');
+        expectMatchesGolden(
+            report1,
+            'clanwarComparison',
+            'one-previous-war-better-mirror-disabled',
+        );
+
+        // Case 2: three-previous-wars-similar-tie switches from Similar (2v2 / 4) to Better (2v1 / 3)
+        const currentWar2: ClanwarWarStats = {
+            homeStars: 42,
+            opponentStars: 42,
+            homeDestruction: 90.0,
+            opponentDestruction: 90.0,
+            result: ClanwarOutcome.Draw,
+            maxAttacks: 30,
+            attacksUsed: 28,
+            teamSize: 15,
+            totalAttackStars: 78,
+            averageStarsPerAttack: 78.0 / 28.0,
+            averageDestructionPerAttack: 75.0,
+            disciplineStats: {
+                playersWithoutAttacks: 0,
+                playersWithOneAttack: 2,
+                firstAttacksNotOnMirror: 4,
+            },
+            homeClanTag: '#HOME',
+            homeClanName: 'Aurus',
+            opponentClanTag: '#DRAW1',
+            opponentClanName: 'MirrorClan',
+        };
+        const prev2a: ClanwarWarStats = {
+            homeStars: 42,
+            opponentStars: 42,
+            homeDestruction: 88.0,
+            opponentDestruction: 88.0,
+            result: ClanwarOutcome.Draw,
+            maxAttacks: 30,
+            attacksUsed: 27,
+            teamSize: 15,
+            totalAttackStars: 62,
+            averageStarsPerAttack: 62.0 / 27.0,
+            averageDestructionPerAttack: 84.0,
+            disciplineStats: {
+                playersWithoutAttacks: 1,
+                playersWithOneAttack: 1,
+                firstAttacksNotOnMirror: 1,
+            },
+            homeClanTag: '#HOME',
+            homeClanName: 'Aurus',
+            opponentClanTag: '#DRAW0',
+            opponentClanName: 'EqualClan',
+        };
+        const prev2b: ClanwarWarStats = {
+            homeStars: 40,
+            opponentStars: 43,
+            homeDestruction: 86.0,
+            opponentDestruction: 90.0,
+            result: ClanwarOutcome.Defeat,
+            maxAttacks: 30,
+            attacksUsed: 27,
+            teamSize: 15,
+            totalAttackStars: 60,
+            averageStarsPerAttack: 60.0 / 27.0,
+            averageDestructionPerAttack: 82.0,
+            disciplineStats: {
+                playersWithoutAttacks: 2,
+                playersWithOneAttack: 0,
+                firstAttacksNotOnMirror: 2,
+            },
+            homeClanTag: '#HOME',
+            homeClanName: 'Aurus',
+            opponentClanTag: '#LOSS0',
+            opponentClanName: 'StrongClan',
+        };
+        const prev2c: ClanwarWarStats = {
+            homeStars: 44,
+            opponentStars: 38,
+            homeDestruction: 92.0,
+            opponentDestruction: 80.0,
+            result: ClanwarOutcome.Victory,
+            maxAttacks: 30,
+            attacksUsed: 29,
+            teamSize: 15,
+            totalAttackStars: 72,
+            averageStarsPerAttack: 72.0 / 29.0,
+            averageDestructionPerAttack: 86.0,
+            disciplineStats: {
+                playersWithoutAttacks: 1,
+                playersWithOneAttack: 1,
+                firstAttacksNotOnMirror: 1,
+            },
+            homeClanTag: '#HOME',
+            homeClanName: 'Aurus',
+            opponentClanTag: '#WIN0',
+            opponentClanName: 'WeakClan',
+        };
+
+        const refCurr: ClanwarReference = {
+            clanTag: '#HOME',
+            warId: 4,
+            homeClanId: 41,
+            opponentClanId: 42,
+        };
+        const refPrevA: ClanwarReference = {
+            clanTag: '#HOME',
+            warId: 3,
+            homeClanId: 31,
+            opponentClanId: 32,
+        };
+        const refPrevB: ClanwarReference = {
+            clanTag: '#HOME',
+            warId: 2,
+            homeClanId: 21,
+            opponentClanId: 22,
+        };
+        const refPrevC: ClanwarReference = {
+            clanTag: '#HOME',
+            warId: 1,
+            homeClanId: 11,
+            opponentClanId: 12,
+        };
+
+        const statsByWarId = new Map<number, ClanwarWarStats>([
+            [4, currentWar2],
+            [3, prev2a],
+            [2, prev2b],
+            [1, prev2c],
+        ]);
+        const formatter = new ClanwarComparisonFormatter({
+            getClanwarStats: (ref) => {
+                const found = statsByWarId.get(ref.warId);
+                if (found === undefined) {
+                    throw new Error(`Unexpected warId ${String(ref.warId)}`);
+                }
+                return found;
+            },
+            getPreviousClanwars: () => [refPrevA, refPrevB, refPrevC],
+        });
+        const event: WarEndedEvent = {
+            type: APPLICATION_EVENT_TYPES.warEnded,
+            clanTag: '#HOME',
+            warReference: refCurr,
+        };
+
+        const disabledViaFormat = formatter.format(event, { mirrorRuleEnabled: false });
+        expect(disabledViaFormat).not.toContain('Атаки не по зеркалу');
+        expectMatchesGolden(
+            disabledViaFormat,
+            'clanwarComparison',
+            'three-previous-wars-trend-changes-mirror-disabled',
+        );
+
+        const enabledViaFormat = formatter.format(event, { mirrorRuleEnabled: true });
+        expectMatchesGolden(
+            enabledViaFormat,
+            'clanwarComparison',
+            'three-previous-wars-similar-tie',
+        );
+    });
 });

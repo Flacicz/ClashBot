@@ -45,6 +45,11 @@ export interface ClanwarRosterReportData {
     readonly warsCount: number;
     readonly players: readonly ClanwarRosterPlayerReport[];
     readonly skippedIncompleteWarsCount?: number;
+    readonly mirrorRuleEnabled?: boolean;
+}
+
+export interface RosterViolationStatsOptions {
+    readonly mirrorRuleEnabled?: boolean;
 }
 
 interface MutablePlayerRosterStats {
@@ -172,7 +177,9 @@ export function calculateViolationStats(
     noAttackPlayersByWar: readonly (readonly ClanwarSlacker[])[],
     oneAttackPlayersByWar: readonly (readonly ClanwarSlacker[])[],
     notMirrorAttacksByWar: readonly (readonly NotMirrorAttack[])[],
+    options?: RosterViolationStatsOptions,
 ): PlayerViolationStats[] {
+    const mirrorRuleEnabled = options?.mirrorRuleEnabled ?? true;
     const statsByTag = new Map<string, MutablePlayerViolationStats>();
 
     for (const currentMember of currentMembers) {
@@ -205,13 +212,15 @@ export function calculateViolationStats(
         }
     }
 
-    for (const currentWar of notMirrorAttacksByWar) {
-        for (const attacker of currentWar) {
-            const entry = statsByTag.get(attacker.attackerTag);
-            if (entry === undefined) {
-                continue;
+    if (mirrorRuleEnabled) {
+        for (const currentWar of notMirrorAttacksByWar) {
+            for (const attacker of currentWar) {
+                const entry = statsByTag.get(attacker.attackerTag);
+                if (entry === undefined) {
+                    continue;
+                }
+                entry.firstAttacksNotOnMirror += 1;
             }
-            entry.firstAttacksNotOnMirror += 1;
         }
     }
 

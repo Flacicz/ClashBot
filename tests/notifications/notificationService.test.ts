@@ -21,6 +21,7 @@ import {
 import {
     DomainEventPayloadSerializer,
     DomainEventRecorder,
+    DomainEventWorker,
     EventNotificationPolicy,
 } from '../../src/domainEvents/index.js';
 import {
@@ -1302,6 +1303,642 @@ describe('NotificationService & DomainEventMaterializer', () => {
         expect(newPending.map((d) => ({ chatId: d.chatId, category: d.category }))).toEqual([
             { chatId: CHAT_ROSTER, category: 'roster' },
         ]);
+    });
+
+    it('delivers different war/CWL report variants to two chats of the same clan with opposite mirrorRuleEnabled settings', () => {
+        const ctx = setup();
+
+        // Remove default subscriptions from setup() and create two chats with opposite mirrorRuleEnabled
+        ctx.subscriptionRepo.unsubscribeFromChat(PLAYERS_CHAT_ID, PLAYERS_THREAD_ID, CLAN_TAG);
+        ctx.subscriptionRepo.unsubscribeFromChat(
+            MANAGEMENT_CHAT_ID,
+            MANAGEMENT_THREAD_ID,
+            CLAN_TAG,
+        );
+
+        const MIRROR_ON_CHAT_ID = -7001;
+        const MIRROR_OFF_CHAT_ID = -7002;
+        ctx.subscriptionRepo.saveTelegramChat(MIRROR_ON_CHAT_ID, 0, 'Mirror ON Chat');
+        ctx.subscriptionRepo.saveTelegramChat(MIRROR_OFF_CHAT_ID, 0, 'Mirror OFF Chat');
+        ctx.subscriptionRepo.subscribeToChat(MIRROR_ON_CHAT_ID, 0, CLAN_TAG, {
+            preset: 'all',
+            mirrorRuleEnabled: true,
+        });
+        ctx.subscriptionRepo.subscribeToChat(MIRROR_OFF_CHAT_ID, 0, CLAN_TAG, {
+            preset: 'all',
+            mirrorRuleEnabled: false,
+        });
+
+        // Add third active player so we can have: Alice (mirror violation only), Bob (0 attacks), Charlie (2 mirror attacks)
+        ctx.clansRepo.savePlayers([{ tag: '#P3', name: 'Charlie', clanTag: CLAN_TAG }]);
+        ctx.db.connection
+            .prepare(
+                'INSERT INTO clan_memberships (clan_tag, player_tag, joined_at, left_at) VALUES (?, ?, ?, NULL);',
+            )
+            .run(CLAN_TAG, '#P3', 1_600_000_000);
+
+        // Previous war (baseline for war_comparison)
+        seedRegularWar(ctx.clanwarRepo, {
+            warUID: 'mirror-prev-war',
+            startTime: 1_700_000_000,
+            endTime: 1_700_086_400,
+            homeStars: 4,
+            opponentStars: 4,
+            opponentTag: '#MOPP0',
+            opponentName: 'Prev Opponent',
+        });
+
+        // Current war 1: Alice attacks non-mirror (1 -> 2) with 2 attacks; Bob misses (0 attacks)
+        const mixedWarRef = ctx.clanwarRepo.saveCompleteClanwarData(
+            {
+                warUID: 'mirror-mixed-war',
+                clanTag: CLAN_TAG,
+                state: 'warEnded',
+                warType: WarTypes.Regular,
+                teamSize: 2,
+                attacksPerMember: 2,
+                preparationStartTime: 1_700_100_000,
+                startTime: 1_700_186_400,
+                endTime: 1_700_272_800,
+                seasonId: null,
+                roundNumber: null,
+            },
+            {
+                home: {
+                    side: ClanType.Home,
+                    clanTag: CLAN_TAG,
+                    clanName: 'Alpha Clan',
+                    clanLevel: 15,
+                    attacksCount: 2,
+                    stars: 5,
+                    destructionPercentage: 90.0,
+                },
+                opponent: {
+                    side: ClanType.Opponent,
+                    clanTag: '#MOPP1',
+                    clanName: 'Mixed Opponent',
+                    clanLevel: 15,
+                    attacksCount: 2,
+                    stars: 4,
+                    destructionPercentage: 80.0,
+                },
+            },
+            [
+                {
+                    attackerTag: '#P1',
+                    defenderTag: '#ME2',
+                    attackerClanTag: CLAN_TAG,
+                    defenderClanTag: '#MOPP1',
+                    attackerPosition: 1,
+                    defenderPosition: 2,
+                    orderNum: 1,
+                    stars: 3,
+                    destructionPercentage: 100.0,
+                    duration: 100,
+                },
+                {
+                    attackerTag: '#P1',
+                    defenderTag: '#ME1',
+                    attackerClanTag: CLAN_TAG,
+                    defenderClanTag: '#MOPP1',
+                    attackerPosition: 1,
+                    defenderPosition: 1,
+                    orderNum: 2,
+                    stars: 2,
+                    destructionPercentage: 80.0,
+                    duration: 110,
+                },
+            ],
+            {
+                home: [
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P1',
+                        playerName: 'Alice',
+                        townhallLevel: 16,
+                        mapPosition: 1,
+                    },
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P2',
+                        playerName: 'Bob',
+                        townhallLevel: 15,
+                        mapPosition: 2,
+                    },
+                ],
+                opponent: [
+                    {
+                        clanTag: '#MOPP1',
+                        playerTag: '#ME1',
+                        playerName: 'Enemy 1',
+                        townhallLevel: 16,
+                        mapPosition: 1,
+                    },
+                    {
+                        clanTag: '#MOPP1',
+                        playerTag: '#ME2',
+                        playerName: 'Enemy 2',
+                        townhallLevel: 15,
+                        mapPosition: 2,
+                    },
+                ],
+            },
+        );
+
+        // Current war 2: ONLY violation is non-mirror first attack (no missed / one-attack players)
+        const mirrorOnlyWarRef = ctx.clanwarRepo.saveCompleteClanwarData(
+            {
+                warUID: 'mirror-only-war',
+                clanTag: CLAN_TAG,
+                state: 'warEnded',
+                warType: WarTypes.Regular,
+                teamSize: 2,
+                attacksPerMember: 2,
+                preparationStartTime: 1_700_300_000,
+                startTime: 1_700_386_400,
+                endTime: 1_700_472_800,
+                seasonId: null,
+                roundNumber: null,
+            },
+            {
+                home: {
+                    side: ClanType.Home,
+                    clanTag: CLAN_TAG,
+                    clanName: 'Alpha Clan',
+                    clanLevel: 15,
+                    attacksCount: 4,
+                    stars: 6,
+                    destructionPercentage: 100.0,
+                },
+                opponent: {
+                    side: ClanType.Opponent,
+                    clanTag: '#MOPP2',
+                    clanName: 'Clean Opponent',
+                    clanLevel: 15,
+                    attacksCount: 4,
+                    stars: 5,
+                    destructionPercentage: 90.0,
+                },
+            },
+            [
+                {
+                    attackerTag: '#P1',
+                    defenderTag: '#CE2',
+                    attackerClanTag: CLAN_TAG,
+                    defenderClanTag: '#MOPP2',
+                    attackerPosition: 1,
+                    defenderPosition: 2,
+                    orderNum: 1,
+                    stars: 3,
+                    destructionPercentage: 100.0,
+                    duration: 95,
+                },
+                {
+                    attackerTag: '#P1',
+                    defenderTag: '#CE1',
+                    attackerClanTag: CLAN_TAG,
+                    defenderClanTag: '#MOPP2',
+                    attackerPosition: 1,
+                    defenderPosition: 1,
+                    orderNum: 2,
+                    stars: 3,
+                    destructionPercentage: 100.0,
+                    duration: 105,
+                },
+                {
+                    attackerTag: '#P3',
+                    defenderTag: '#CE2',
+                    attackerClanTag: CLAN_TAG,
+                    defenderClanTag: '#MOPP2',
+                    attackerPosition: 2,
+                    defenderPosition: 2,
+                    orderNum: 3,
+                    stars: 3,
+                    destructionPercentage: 100.0,
+                    duration: 90,
+                },
+                {
+                    attackerTag: '#P3',
+                    defenderTag: '#CE1',
+                    attackerClanTag: CLAN_TAG,
+                    defenderClanTag: '#MOPP2',
+                    attackerPosition: 2,
+                    defenderPosition: 1,
+                    orderNum: 4,
+                    stars: 3,
+                    destructionPercentage: 100.0,
+                    duration: 100,
+                },
+            ],
+            {
+                home: [
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P1',
+                        playerName: 'Alice',
+                        townhallLevel: 16,
+                        mapPosition: 1,
+                    },
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P3',
+                        playerName: 'Charlie',
+                        townhallLevel: 15,
+                        mapPosition: 2,
+                    },
+                ],
+                opponent: [
+                    {
+                        clanTag: '#MOPP2',
+                        playerTag: '#CE1',
+                        playerName: 'Clean Enemy 1',
+                        townhallLevel: 16,
+                        mapPosition: 1,
+                    },
+                    {
+                        clanTag: '#MOPP2',
+                        playerTag: '#CE2',
+                        playerName: 'Clean Enemy 2',
+                        townhallLevel: 15,
+                        mapPosition: 2,
+                    },
+                ],
+            },
+        );
+
+        // CWL round 1: mixed (Alice non-mirror + Bob missed)
+        const cwlMixed = seedCwlSeasonAndRound(ctx.clanwarRepo, ctx.clanwarsLeagueRepo);
+
+        // CWL round 2: ONLY non-mirror violation (all players attacked)
+        const cwlMirrorOnlyRef = ctx.clanwarRepo.saveCompleteClanwarData(
+            {
+                warUID: 'cwl-round-2-mirror-only',
+                clanTag: CLAN_TAG,
+                state: 'warEnded',
+                warType: WarTypes.CWL,
+                teamSize: 2,
+                attacksPerMember: 1,
+                preparationStartTime: 1_700_700_000,
+                startTime: 1_700_786_400,
+                endTime: 1_700_872_800,
+                seasonId: cwlMixed.cwlSeasonId,
+                roundNumber: 2,
+            },
+            {
+                home: {
+                    side: ClanType.Home,
+                    clanTag: CLAN_TAG,
+                    clanName: 'Alpha Clan',
+                    clanLevel: 15,
+                    attacksCount: 2,
+                    stars: 6,
+                    destructionPercentage: 100.0,
+                },
+                opponent: {
+                    side: ClanType.Opponent,
+                    clanTag: '#CWLOPP2',
+                    clanName: 'CWL Opponent 2',
+                    clanLevel: 15,
+                    attacksCount: 2,
+                    stars: 4,
+                    destructionPercentage: 80.0,
+                },
+            },
+            [
+                {
+                    attackerTag: '#P1',
+                    defenderTag: '#CE2B',
+                    attackerClanTag: CLAN_TAG,
+                    defenderClanTag: '#CWLOPP2',
+                    attackerPosition: 1,
+                    defenderPosition: 2,
+                    orderNum: 1,
+                    stars: 3,
+                    destructionPercentage: 100.0,
+                    duration: 100,
+                },
+                {
+                    attackerTag: '#P2',
+                    defenderTag: '#CE2B',
+                    attackerClanTag: CLAN_TAG,
+                    defenderClanTag: '#CWLOPP2',
+                    attackerPosition: 2,
+                    defenderPosition: 2,
+                    orderNum: 2,
+                    stars: 3,
+                    destructionPercentage: 100.0,
+                    duration: 110,
+                },
+            ],
+            {
+                home: [
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P1',
+                        playerName: 'Alice',
+                        townhallLevel: 16,
+                        mapPosition: 1,
+                    },
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P2',
+                        playerName: 'Bob',
+                        townhallLevel: 15,
+                        mapPosition: 2,
+                    },
+                ],
+                opponent: [
+                    {
+                        clanTag: '#CWLOPP2',
+                        playerTag: '#CE1B',
+                        playerName: 'CWL Enemy 1B',
+                        townhallLevel: 16,
+                        mapPosition: 1,
+                    },
+                    {
+                        clanTag: '#CWLOPP2',
+                        playerTag: '#CE2B',
+                        playerName: 'CWL Enemy 2B',
+                        townhallLevel: 15,
+                        mapPosition: 2,
+                    },
+                ],
+            },
+        );
+
+        const events: ApplicationEvent[] = [
+            {
+                type: APPLICATION_EVENT_TYPES.warEnded,
+                clanTag: CLAN_TAG,
+                warReference: mixedWarRef,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.warEnded,
+                clanTag: CLAN_TAG,
+                warReference: mirrorOnlyWarRef,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.cwlRoundEnded,
+                clanTag: CLAN_TAG,
+                cwlSeasonId: cwlMixed.cwlSeasonId,
+                warReference: cwlMixed.warReference,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.cwlRoundEnded,
+                clanTag: CLAN_TAG,
+                cwlSeasonId: cwlMixed.cwlSeasonId,
+                warReference: cwlMirrorOnlyRef,
+            },
+        ];
+
+        ctx.recorder.recordAll(events);
+        const worker = new DomainEventWorker({
+            domainEventsRepo: ctx.domainEventsRepo,
+            transactionManager: ctx.tx,
+            materializer: ctx.notificationService,
+            notificationWorker: { notify: ctx.wakeSpy },
+        });
+        worker.processPending();
+
+        const rows = getAllNotificationRows(ctx.db);
+        const findNotification = (chatId: number, eventType: string, eventId: string): string => {
+            const match = rows.find(
+                (r) => r.chat_id === chatId && r.event_type === eventType && r.event_id === eventId,
+            );
+            expect(
+                match,
+                `Missing ${eventType}:${eventId} for chat ${String(chatId)}`,
+            ).toBeDefined();
+            return match?.message_text ?? '';
+        };
+
+        const mixedWarId = String(mixedWarRef.warId);
+        const mirrorOnlyWarId = String(mirrorOnlyWarRef.warId);
+        const cwlMixedId = String(cwlMixed.warReference.warId);
+        const cwlMirrorOnlyId = String(cwlMirrorOnlyRef.warId);
+
+        // 1. Mixed regular war: both chats get Bob's missed attack; only ON chat gets not-mirror
+        const mixedViolOn = findNotification(
+            MIRROR_ON_CHAT_ID,
+            NOTIFICATION_EVENT_TYPES.warViolations,
+            mixedWarId,
+        );
+        const mixedViolOff = findNotification(
+            MIRROR_OFF_CHAT_ID,
+            NOTIFICATION_EVENT_TYPES.warViolations,
+            mixedWarId,
+        );
+        expect(mixedViolOn).toContain('🔴 <b>Не сделали ни одной атаки:</b>\n• Bob');
+        expect(mixedViolOn).toContain('🎯 <b>Атаки не по зеркалу:</b>\n• Alice (№1 ➜ №2)');
+        expect(mixedViolOff).toContain('🔴 <b>Не сделали ни одной атаки:</b>\n• Bob');
+        expect(mixedViolOff).not.toContain('Атаки не по зеркалу');
+
+        // 2. Mirror-only regular war: ON chat reports not-mirror; OFF chat gets standard no-violations message
+        const mirrorOnlyViolOn = findNotification(
+            MIRROR_ON_CHAT_ID,
+            NOTIFICATION_EVENT_TYPES.warViolations,
+            mirrorOnlyWarId,
+        );
+        const mirrorOnlyViolOff = findNotification(
+            MIRROR_OFF_CHAT_ID,
+            NOTIFICATION_EVENT_TYPES.warViolations,
+            mirrorOnlyWarId,
+        );
+        expect(mirrorOnlyViolOn).toContain('🎯 <b>Атаки не по зеркалу:</b>\n• Alice (№1 ➜ №2)');
+        expect(mirrorOnlyViolOff).toContain('✅ <b>Нарушений в войне кланов не обнаружено!</b>');
+        expect(mirrorOnlyViolOff).not.toContain('Атаки не по зеркалу');
+
+        // 3. Roster reliability: ON chat puts Alice in "Требуют внимания" with "не по зеркалу"; OFF chat puts Alice in "Стабильные"
+        const rosterOn = findNotification(
+            MIRROR_ON_CHAT_ID,
+            NOTIFICATION_EVENT_TYPES.warRosterReliability,
+            mixedWarId,
+        );
+        const rosterOff = findNotification(
+            MIRROR_OFF_CHAT_ID,
+            NOTIFICATION_EVENT_TYPES.warRosterReliability,
+            mixedWarId,
+        );
+        expect(rosterOn).toContain('⚠️ <b>ТРЕБУЮТ ВНИМАНИЯ</b>\n• Alice');
+        expect(rosterOn).toContain('не по зеркалу');
+        expect(rosterOff).toContain('✅ <b>СТАБИЛЬНЫЕ</b>\n• Alice');
+        expect(rosterOff).toContain('🔴 <b>РИСК</b>\n• Bob');
+        expect(rosterOff).not.toContain('не по зеркалу');
+
+        // 4. War comparison: ON chat has 4 primary metrics + not-mirror; OFF chat has 3 primary metrics without not-mirror
+        const compOn = findNotification(
+            MIRROR_ON_CHAT_ID,
+            NOTIFICATION_EVENT_TYPES.warComparison,
+            mixedWarId,
+        );
+        const compOff = findNotification(
+            MIRROR_OFF_CHAT_ID,
+            NOTIFICATION_EVENT_TYPES.warComparison,
+            mixedWarId,
+        );
+        expect(compOn).toContain('Атаки не по зеркалу');
+        expect(compOn).toContain('Итог по 4 основным метрикам:');
+        expect(compOff).not.toContain('Атаки не по зеркалу');
+        expect(compOff).toContain('Итог по 3 основным метрикам:');
+
+        // 5. CWL mixed round: both chats report Bob [0/1], only ON chat reports Alice not-mirror
+        const cwlMixedOn = findNotification(
+            MIRROR_ON_CHAT_ID,
+            NOTIFICATION_EVENT_TYPES.cwlViolations,
+            cwlMixedId,
+        );
+        const cwlMixedOff = findNotification(
+            MIRROR_OFF_CHAT_ID,
+            NOTIFICATION_EVENT_TYPES.cwlViolations,
+            cwlMixedId,
+        );
+        expect(cwlMixedOn).toContain('🔴 <b>Пропустили атаку в ЛВК:</b>\n• Bob [0/1]');
+        expect(cwlMixedOn).toContain('🎯 <b>Атаки не по зеркалу:</b>\n• Alice (№1 ➜ №2)');
+        expect(cwlMixedOff).toContain('🔴 <b>Пропустили атаку в ЛВК:</b>\n• Bob [0/1]');
+        expect(cwlMixedOff).not.toContain('Атаки не по зеркалу');
+
+        // 6. CWL mirror-only round: ON chat reports not-mirror, OFF chat reports no violations
+        const cwlMirrorOnlyOn = findNotification(
+            MIRROR_ON_CHAT_ID,
+            NOTIFICATION_EVENT_TYPES.cwlViolations,
+            cwlMirrorOnlyId,
+        );
+        const cwlMirrorOnlyOff = findNotification(
+            MIRROR_OFF_CHAT_ID,
+            NOTIFICATION_EVENT_TYPES.cwlViolations,
+            cwlMirrorOnlyId,
+        );
+        expect(cwlMirrorOnlyOn).toContain('🎯 <b>Атаки не по зеркалу:</b>\n• Alice (№1 ➜ №2)');
+        expect(cwlMirrorOnlyOff).toContain('✅ <b>Нарушений в раунде ЛВК не обнаружено!</b>');
+        expect(cwlMirrorOnlyOff).not.toContain('Атаки не по зеркалу');
+
+        // 7. Toggling mirrorRuleEnabled affects newly materialized events without modifying already materialized ones
+        ctx.subscriptionRepo.updateSubscriptionMirrorRule(MIRROR_OFF_CHAT_ID, 0, CLAN_TAG, true);
+        const cwlRound3Ref = ctx.clanwarRepo.saveCompleteClanwarData(
+            {
+                warUID: 'cwl-round-3-after-toggle',
+                clanTag: CLAN_TAG,
+                state: 'warEnded',
+                warType: WarTypes.CWL,
+                teamSize: 2,
+                attacksPerMember: 1,
+                preparationStartTime: 1_700_900_000,
+                startTime: 1_700_986_400,
+                endTime: 1_701_072_800,
+                seasonId: cwlMixed.cwlSeasonId,
+                roundNumber: 3,
+            },
+            {
+                home: {
+                    side: ClanType.Home,
+                    clanTag: CLAN_TAG,
+                    clanName: 'Alpha Clan',
+                    clanLevel: 15,
+                    attacksCount: 2,
+                    stars: 6,
+                    destructionPercentage: 100.0,
+                },
+                opponent: {
+                    side: ClanType.Opponent,
+                    clanTag: '#CWLOPP3',
+                    clanName: 'CWL Opponent 3',
+                    clanLevel: 15,
+                    attacksCount: 2,
+                    stars: 3,
+                    destructionPercentage: 60.0,
+                },
+            },
+            [
+                {
+                    attackerTag: '#P1',
+                    defenderTag: '#CE2C',
+                    attackerClanTag: CLAN_TAG,
+                    defenderClanTag: '#CWLOPP3',
+                    attackerPosition: 1,
+                    defenderPosition: 2,
+                    orderNum: 1,
+                    stars: 3,
+                    destructionPercentage: 100.0,
+                    duration: 95,
+                },
+                {
+                    attackerTag: '#P2',
+                    defenderTag: '#CE2C',
+                    attackerClanTag: CLAN_TAG,
+                    defenderClanTag: '#CWLOPP3',
+                    attackerPosition: 2,
+                    defenderPosition: 2,
+                    orderNum: 2,
+                    stars: 3,
+                    destructionPercentage: 100.0,
+                    duration: 100,
+                },
+            ],
+            {
+                home: [
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P1',
+                        playerName: 'Alice',
+                        townhallLevel: 16,
+                        mapPosition: 1,
+                    },
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P2',
+                        playerName: 'Bob',
+                        townhallLevel: 15,
+                        mapPosition: 2,
+                    },
+                ],
+                opponent: [
+                    {
+                        clanTag: '#CWLOPP3',
+                        playerTag: '#CE1C',
+                        playerName: 'CWL Enemy 1C',
+                        townhallLevel: 16,
+                        mapPosition: 1,
+                    },
+                    {
+                        clanTag: '#CWLOPP3',
+                        playerTag: '#CE2C',
+                        playerName: 'CWL Enemy 2C',
+                        townhallLevel: 15,
+                        mapPosition: 2,
+                    },
+                ],
+            },
+        );
+        ctx.recorder.recordAll([
+            {
+                type: APPLICATION_EVENT_TYPES.cwlRoundEnded,
+                clanTag: CLAN_TAG,
+                cwlSeasonId: cwlMixed.cwlSeasonId,
+                warReference: cwlRound3Ref,
+            },
+        ]);
+        worker.processPending();
+
+        const updatedRows = getAllNotificationRows(ctx.db);
+        const afterToggleMsg = updatedRows.find(
+            (r) =>
+                r.chat_id === MIRROR_OFF_CHAT_ID &&
+                r.event_type === NOTIFICATION_EVENT_TYPES.cwlViolations &&
+                r.event_id === String(cwlRound3Ref.warId),
+        );
+        expect(afterToggleMsg?.message_text).toContain(
+            '🎯 <b>Атаки не по зеркалу:</b>\n• Alice (№1 ➜ №2)',
+        );
+        // Earlier materialized notification for round 2 remains untouched
+        const earlierRound2Msg = updatedRows.find(
+            (r) =>
+                r.chat_id === MIRROR_OFF_CHAT_ID &&
+                r.event_type === NOTIFICATION_EVENT_TYPES.cwlViolations &&
+                r.event_id === cwlMirrorOnlyId,
+        );
+        expect(earlierRound2Msg?.message_text).toContain(
+            '✅ <b>Нарушений в раунде ЛВК не обнаружено!</b>',
+        );
     });
 
     it('materializes reminders and raid comparison reports in each subscribed chat own timezone offset', () => {

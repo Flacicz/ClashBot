@@ -47,6 +47,7 @@ import {
     makeGuideNavigationKeyboard,
     makeHelpNavigationKeyboard,
     makeLinkInstructionsKeyboard,
+    makeMirrorRuleToggleButton,
     makeMyClansNavigationKeyboard,
     makeStartMenuKeyboard,
     makeStrategyListKeyboard,
@@ -160,6 +161,7 @@ type SettingsCallbackData = Extract<
             | 'settings:open'
             | 'settings:preset'
             | 'settings:category'
+            | 'settings:mirror'
             | 'settings:tz'
             | 'settings:tzall'
             | 'settings:tzset';
@@ -1282,6 +1284,7 @@ export class TelegramBotService {
             callbackData.kind === 'settings:open' ||
             callbackData.kind === 'settings:preset' ||
             callbackData.kind === 'settings:category' ||
+            callbackData.kind === 'settings:mirror' ||
             callbackData.kind === 'settings:tz' ||
             callbackData.kind === 'settings:tzall' ||
             callbackData.kind === 'settings:tzset'
@@ -1601,12 +1604,21 @@ export class TelegramBotService {
                 clanTag: subscription.clanTag,
                 clanName,
                 categories: subscription.categories,
+                mirrorRuleEnabled: subscription.mirrorRuleEnabled,
                 timezoneOffsetHours: subscription.timezoneOffsetHours,
             }),
             keyboard: makeSubscriptionSettingsKeyboard(
                 subscription.clanTag,
                 subscription.categories,
                 {
+                    extraRows: [
+                        [
+                            makeMirrorRuleToggleButton(
+                                subscription.clanTag,
+                                subscription.mirrorRuleEnabled,
+                            ),
+                        ],
+                    ],
                     timezoneOffsetHours: subscription.timezoneOffsetHours,
                 },
             ),
@@ -1711,6 +1723,29 @@ export class TelegramBotService {
             );
             if (subscription === null) {
                 return { status: 'not_found' };
+            }
+
+            if (callbackData.kind === 'settings:mirror') {
+                const nextMirrorRuleEnabled = !subscription.mirrorRuleEnabled;
+                const updated = this.subscriptionRepo.updateSubscriptionMirrorRule(
+                    chatId,
+                    messageThreadId,
+                    callbackData.clanTag,
+                    nextMirrorRuleEnabled,
+                );
+                if (!updated) {
+                    return { status: 'not_found' };
+                }
+
+                const clanName = this.clansRepo.getClanNameByTag(callbackData.clanTag);
+                return {
+                    status: 'ready',
+                    subscription: {
+                        ...subscription,
+                        mirrorRuleEnabled: nextMirrorRuleEnabled,
+                    },
+                    clanName,
+                };
             }
 
             const nextCategories =

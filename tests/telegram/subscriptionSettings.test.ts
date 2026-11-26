@@ -12,11 +12,13 @@ import {
 import {
     CIS_TIMEZONE_PRESETS,
     CUSTOM_PRESET_LABEL,
+    formatMirrorRuleStatusLabel,
     formatPresetStatusLabel,
     formatSubscriptionSettingsText,
     formatTimezoneAllSelectText,
     formatTimezoneQuickSelectText,
     LAST_CATEGORY_ALERT_TEXT,
+    MIRROR_RULE_LABEL,
     NOTIFICATION_CATEGORY_LABELS,
     OTHER_TIMEZONE_BUTTON_LABEL,
     PENDING_CLAN_SYNC_NAME,
@@ -141,6 +143,9 @@ describe('subscription preset and category helpers', () => {
             system: 'Системные оповещения',
         });
         expect(LAST_CATEGORY_ALERT_TEXT).toBe('Оставьте хотя бы одну категорию или отключите клан');
+        expect(MIRROR_RULE_LABEL).toBe('Первая атака не по зеркалу');
+        expect(formatMirrorRuleStatusLabel(true)).toBe('вкл');
+        expect(formatMirrorRuleStatusLabel(false)).toBe('выкл');
         expect(OTHER_TIMEZONE_BUTTON_LABEL).toBe('🌍 Другой пояс');
         expect(CIS_TIMEZONE_PRESETS).toEqual([
             { offsetHours: 2, label: 'UTC+2 Кишинёв' },
@@ -152,7 +157,23 @@ describe('subscription preset and category helpers', () => {
         ]);
     });
 
-    it('formats timezone line on settings screen and timezone picker screen texts', () => {
+    it('formats mirror rule and timezone lines on settings screen and timezone picker screen texts', () => {
+        const withMirrorEnabled = formatSubscriptionSettingsText({
+            clanTag: '#2PPLQ',
+            clanName: 'Dark Dragons',
+            categories: getPresetCategories('management'),
+            mirrorRuleEnabled: true,
+        });
+        expect(withMirrorEnabled).toContain('Первая атака не по зеркалу: вкл');
+
+        const withMirrorDisabled = formatSubscriptionSettingsText({
+            clanTag: '#2PPLQ',
+            clanName: 'Dark Dragons',
+            categories: getPresetCategories('management'),
+            mirrorRuleEnabled: false,
+        });
+        expect(withMirrorDisabled).toContain('Первая атака не по зеркалу: выкл');
+
         const settingsWithTz = formatSubscriptionSettingsText({
             clanTag: '#2PPLQ',
             clanName: 'Dragons',

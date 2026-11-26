@@ -10,6 +10,7 @@ import {
     buildClanUnlinkCallbackData,
     buildGuideCallbackData,
     buildSettingsCategoryCallbackData,
+    buildSettingsMirrorCallbackData,
     buildSettingsOpenCallbackData,
     buildSettingsPresetCallbackData,
     buildSettingsTimezoneAllCallbackData,
@@ -165,6 +166,14 @@ describe('callback_data builders and parseKnownCallbackData', () => {
                 category,
             });
         }
+        expect(parseKnownCallbackData(buildSettingsMirrorCallbackData('#2PPLQ'))).toEqual({
+            kind: 'settings:mirror',
+            clanTag: '#2PPLQ',
+        });
+        expect(parseKnownCallbackData('settings:mirror:2pplq')).toEqual({
+            kind: 'settings:mirror',
+            clanTag: '#2PPLQ',
+        });
         expect(parseKnownCallbackData(buildSettingsTimezoneCallbackData('#2PPLQ'))).toEqual({
             kind: 'settings:tz',
             clanTag: '#2PPLQ',
@@ -200,6 +209,7 @@ describe('callback_data builders and parseKnownCallbackData', () => {
         }
         const payloads: string[] = [
             buildSettingsOpenCallbackData(longestClanTag),
+            buildSettingsMirrorCallbackData(longestClanTag),
             buildSettingsTimezoneCallbackData(longestClanTag),
             buildSettingsTimezoneAllCallbackData(longestClanTag),
             ...ALL_SUBSCRIPTION_PRESETS.map((preset) =>
@@ -246,6 +256,9 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             'settings:category:#2PPLQ:unknown',
             'settings:category:#BAD!:summaries',
             'settings:category:#2PPLQ:summaries:extra',
+            'settings:mirror',
+            'settings:mirror:#BAD!',
+            'settings:mirror:#2PPLQ:extra',
             'settings:tz',
             'settings:tz:#BAD!',
             'settings:tz:#2PPLQ:extra',

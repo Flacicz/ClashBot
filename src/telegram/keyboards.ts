@@ -12,6 +12,7 @@ import {
     buildClanUnlinkCallbackData,
     buildGuideCallbackData,
     buildSettingsCategoryCallbackData,
+    buildSettingsMirrorCallbackData,
     buildSettingsOpenCallbackData,
     buildSettingsPresetCallbackData,
     buildSettingsTimezoneAllCallbackData,
@@ -23,6 +24,7 @@ import {
 } from './callbackData.js';
 import {
     CIS_TIMEZONE_PRESETS,
+    MIRROR_RULE_LABEL,
     NOTIFICATION_CATEGORY_LABELS,
     OTHER_TIMEZONE_BUTTON_LABEL,
     SUBSCRIPTION_PRESET_LABELS,
@@ -112,6 +114,17 @@ export function makeSubscriptionSettingsButton(clanTag: string): InlineKeyboardB
 export function makeSubscriptionSettingsEntryKeyboard(clanTag: string): InlineKeyboardMarkup {
     return {
         inline_keyboard: [[makeSubscriptionSettingsButton(clanTag)]],
+    };
+}
+
+export function makeMirrorRuleToggleButton(
+    clanTag: string,
+    mirrorRuleEnabled: boolean,
+): InlineKeyboardButton {
+    const indicator = mirrorRuleEnabled ? '✅' : '▫️';
+    return {
+        text: `${indicator} ${MIRROR_RULE_LABEL}`,
+        callback_data: buildSettingsMirrorCallbackData(clanTag),
     };
 }
 

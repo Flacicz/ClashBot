@@ -466,6 +466,159 @@ describe('ClanwarRosterFormatter (golden parity)', () => {
         expect(report).not.toContain('Примечание');
         expectMatchesGolden(report, 'clanwarRoster', 'only-stable-and-absent');
     });
+
+    it('matches golden snapshot when mirrorRuleEnabled is false: hides not-mirror stats, moves mirror-only player to Stable, and skips querying not-mirror attacks', () => {
+        const data: ClanwarRosterReportData = {
+            warsCount: 5,
+            mirrorRuleEnabled: false,
+            players: [
+                {
+                    playerTag: '#P1',
+                    playerName: 'Flacicz',
+                    includedWars: 5,
+                    lastWarOffset: 0,
+                    attacksUsed: 10,
+                    averageStarsPerAttack: 2.8,
+                    averageDestructionPerAttack: 96.5,
+                    warsWithoutAttacks: 0,
+                    warsWithOneAttack: 0,
+                    firstAttacksNotOnMirror: 0,
+                },
+                {
+                    playerTag: '#P2',
+                    playerName: 'Alpha & <Beta>',
+                    includedWars: 3,
+                    lastWarOffset: 2,
+                    attacksUsed: 6,
+                    averageStarsPerAttack: 2.5,
+                    averageDestructionPerAttack: 88.333333,
+                    warsWithoutAttacks: 0,
+                    warsWithOneAttack: 0,
+                    firstAttacksNotOnMirror: 0,
+                },
+                {
+                    playerTag: '#P3',
+                    playerName: '《ТУРАН》 OneAtk',
+                    includedWars: 4,
+                    lastWarOffset: 1,
+                    attacksUsed: 7,
+                    averageStarsPerAttack: 2.142857,
+                    averageDestructionPerAttack: 81.25,
+                    warsWithoutAttacks: 0,
+                    warsWithOneAttack: 1,
+                    firstAttacksNotOnMirror: 0,
+                },
+                {
+                    playerTag: '#P4',
+                    playerName: 'MirrorBreaker',
+                    includedWars: 2,
+                    lastWarOffset: 0,
+                    attacksUsed: 4,
+                    averageStarsPerAttack: 2.25,
+                    averageDestructionPerAttack: 84.0,
+                    warsWithoutAttacks: 0,
+                    warsWithOneAttack: 0,
+                    firstAttacksNotOnMirror: 2,
+                },
+                {
+                    playerTag: '#P5',
+                    playerName: 'GhostSlacker',
+                    includedWars: 1,
+                    lastWarOffset: 0,
+                    attacksUsed: 0,
+                    averageStarsPerAttack: 0.0,
+                    averageDestructionPerAttack: 0.0,
+                    warsWithoutAttacks: 1,
+                    warsWithOneAttack: 0,
+                    firstAttacksNotOnMirror: 0,
+                },
+                {
+                    playerTag: '#P6',
+                    playerName: 'RiskPriority',
+                    includedWars: 3,
+                    lastWarOffset: 1,
+                    attacksUsed: 3,
+                    averageStarsPerAttack: 2.0,
+                    averageDestructionPerAttack: 75.5,
+                    warsWithoutAttacks: 1,
+                    warsWithOneAttack: 1,
+                    firstAttacksNotOnMirror: 1,
+                },
+                {
+                    playerTag: '#P7',
+                    playerName: 'Bench <Player>',
+                    includedWars: 0,
+                    lastWarOffset: null,
+                    attacksUsed: 0,
+                    averageStarsPerAttack: 0.0,
+                    averageDestructionPerAttack: 0.0,
+                    warsWithoutAttacks: 0,
+                    warsWithOneAttack: 0,
+                    firstAttacksNotOnMirror: 0,
+                },
+            ],
+        };
+
+        const report = ClanwarRosterFormatter.buildReport(data);
+        expect(report).not.toContain('не по зеркалу');
+        expectMatchesGolden(report, 'clanwarRoster', 'all-four-categories-mirror-disabled');
+
+        // Verify format(event, { mirrorRuleEnabled: false }) vs true via readers
+        const currentRef: ClanwarReference = {
+            clanTag: '#CLAN',
+            warId: 30,
+            homeClanId: 301,
+            opponentClanId: 302,
+        };
+        const members: Player[] = [
+            { tag: '#P1', name: 'MirrorOnly', clanTag: '#CLAN' },
+            { tag: '#P2', name: 'OneAtk', clanTag: '#CLAN' },
+            { tag: '#P3', name: 'NoAtk', clanTag: '#CLAN' },
+        ];
+        const getNotMirror = vi.fn((): NotMirrorAttack[] => [
+            {
+                attackerTag: '#P1',
+                attackerName: 'MirrorOnly',
+                attackerPosition: 1,
+                defenderPosition: 2,
+            },
+        ]);
+        const formatter = new ClanwarRosterFormatter(
+            { getActiveMembers: () => members },
+            {
+                getPreviousClanwars: () => [],
+                getHomeMemberTags: () => ['#P1', '#P2', '#P3'],
+                getHomeClanwarAttackResults: () => [
+                    { playerTag: '#P1', stars: 3, destructionPercentage: 100 },
+                    { playerTag: '#P1', stars: 3, destructionPercentage: 100 },
+                    { playerTag: '#P2', stars: 2, destructionPercentage: 80 },
+                ],
+                getSlackersWithNoAttacks: () => [{ playerTag: '#P3', playerName: 'NoAtk' }],
+                getSlackersWithOneAttack: () => [{ playerTag: '#P2', playerName: 'OneAtk' }],
+                getPlayersWithFirstAttackNotOnMirror: getNotMirror,
+            },
+        );
+        const event: WarEndedEvent = {
+            type: APPLICATION_EVENT_TYPES.warEnded,
+            clanTag: '#CLAN',
+            warReference: currentRef,
+        };
+
+        const disabledReport = formatter.format(event, { mirrorRuleEnabled: false });
+        expect(getNotMirror).not.toHaveBeenCalled();
+        expect(disabledReport).toContain('✅ Стабильные: 1');
+        expect(disabledReport).toContain('⚠️ Требуют внимания: 1');
+        expect(disabledReport).toContain('🔴 Риск: 1');
+        expect(disabledReport).toContain('✅ <b>СТАБИЛЬНЫЕ</b>\n• MirrorOnly');
+        expect(disabledReport).not.toContain('не по зеркалу');
+
+        const enabledReport = formatter.format(event, { mirrorRuleEnabled: true });
+        expect(getNotMirror).toHaveBeenCalledTimes(1);
+        expect(enabledReport).toContain('✅ Стабильные: 0');
+        expect(enabledReport).toContain('⚠️ Требуют внимания: 2');
+        expect(enabledReport).toContain('🔴 Риск: 1');
+        expect(enabledReport).toContain('не по зеркалу 1');
+    });
 });
 
 describe('History completeness integration with SQLite repositories and formatters', () => {

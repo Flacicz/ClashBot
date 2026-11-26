@@ -11,6 +11,7 @@ import {
 export const PENDING_CLAN_SYNC_NAME = 'Pending synchronization';
 export const CUSTOM_PRESET_LABEL = 'своя настройка';
 export const LAST_CATEGORY_ALERT_TEXT = 'Оставьте хотя бы одну категорию или отключите клан';
+export const MIRROR_RULE_LABEL = 'Первая атака не по зеркалу';
 export const OTHER_TIMEZONE_BUTTON_LABEL = '🌍 Другой пояс';
 
 export interface TimezonePresetOption {
@@ -45,6 +46,7 @@ export interface SubscriptionSettingsView {
     readonly clanTag: string;
     readonly clanName?: string | null;
     readonly categories: SubscriptionCategories;
+    readonly mirrorRuleEnabled?: boolean;
     readonly timezoneOffsetHours?: number;
     readonly extraLines?: readonly string[];
 }
@@ -73,6 +75,10 @@ export function formatPresetStatusLabel(categories: SubscriptionCategories): str
     return preset !== null ? SUBSCRIPTION_PRESET_LABELS[preset] : CUSTOM_PRESET_LABEL;
 }
 
+export function formatMirrorRuleStatusLabel(enabled: boolean): string {
+    return enabled ? 'вкл' : 'выкл';
+}
+
 function formatClanLine(clanTag: string, clanName: string | null | undefined): string {
     const synchronizedName = resolveSynchronizedClanName(clanName);
     return synchronizedName !== null
@@ -92,6 +98,9 @@ export function formatSubscriptionSettingsText(view: SubscriptionSettingsView): 
         '⚙️ <b>Настройки подписки</b>',
         clanLine,
         `Пресет: ${presetLabel}`,
+        ...(view.mirrorRuleEnabled !== undefined
+            ? [`${MIRROR_RULE_LABEL}: ${formatMirrorRuleStatusLabel(view.mirrorRuleEnabled)}`]
+            : []),
         ...(view.extraLines ?? []),
         ...timezoneLine,
         '',

@@ -409,4 +409,57 @@ describe('clanwarComparisonAnalyzer.compareWithHistoricalAverage', () => {
         expect(zeroRes.trend).toBe(ClanwarPerformanceTrend.Similar);
         expect(zeroRes.unchangedMetrics).toBe(4);
     });
+
+    it('excludes firstAttacksNotOnMirrorRate from trend calculation when mirrorRuleEnabled is false (3 primary metrics)', () => {
+        // 2 improved (stars, without-attacks), 1 worsened (destruction), 1 worsened (not-on-mirror)
+        const current = makeWarStats({
+            averageStarsPerAttack: 3.0, // better vs 2.0
+            averageDestructionPerAttack: 70.0, // worse vs 80.0
+            disciplineStats: {
+                playersWithoutAttacks: 0, // better vs 0.1
+                playersWithOneAttack: 0,
+                firstAttacksNotOnMirror: 5, // worse (5/15 vs 0.1)
+            },
+        });
+        const avg = makeHistoricalAverages({
+            averageStarsPerAttack: 2.0,
+            averageDestructionPerAttack: 80.0,
+            averagePlayersWithoutAttacksRate: 0.1,
+            averageFirstAttacksNotOnMirrorRate: 0.1,
+        });
+
+        const withMirror = compareWithHistoricalAverage(current, avg, { mirrorRuleEnabled: true });
+        expect(withMirror.totalMetrics).toBe(4);
+        expect(withMirror.trend).toBe(ClanwarPerformanceTrend.Similar);
+        expect(withMirror.improvedMetrics).toBe(2);
+        expect(withMirror.worsenedMetrics).toBe(2);
+
+        const withoutMirror = compareWithHistoricalAverage(current, avg, {
+            mirrorRuleEnabled: false,
+        });
+        expect(withoutMirror).toEqual({
+            trend: ClanwarPerformanceTrend.Better,
+            improvedMetrics: 2,
+            worsenedMetrics: 1,
+            unchangedMetrics: 0,
+            totalMetrics: 3,
+            improvedMetricsRate: 2 / 3,
+            worsenedMetricsRate: 1 / 3,
+            unchangedMetricsRate: 0,
+        });
+
+        const prevWar = makeWarStats({
+            averageStarsPerAttack: 2.0,
+            averageDestructionPerAttack: 80.0,
+            disciplineStats: {
+                playersWithoutAttacks: 2,
+                playersWithOneAttack: 0,
+                firstAttacksNotOnMirror: 0,
+            },
+        });
+        const dataDisabled = buildComparisonData(current, [prevWar], { mirrorRuleEnabled: false });
+        expect(dataDisabled.mirrorRuleEnabled).toBe(false);
+        expect(dataDisabled.performanceComparison?.totalMetrics).toBe(3);
+        expect(dataDisabled.performanceComparison?.trend).toBe(ClanwarPerformanceTrend.Better);
+    });
 });

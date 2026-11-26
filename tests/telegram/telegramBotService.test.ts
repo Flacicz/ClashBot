@@ -2491,9 +2491,10 @@ describe('TelegramBotService', () => {
             expect(String(openEdit?.text)).toContain('Клан: #2PPLQ');
             expect(String(openEdit?.text)).not.toContain('Pending synchronization');
             expect(String(openEdit?.text)).toContain('Пресет: Руководство');
+            expect(String(openEdit?.text)).toContain('Первая атака не по зеркалу: выкл');
             expect(String(openEdit?.text)).toContain('Часовой пояс: UTC+3');
             const openKeyboard = getInlineKeyboard(openEdit);
-            expect(openKeyboard).toHaveLength(8);
+            expect(openKeyboard).toHaveLength(9);
             expect(openKeyboard[0]?.map((b) => b.text)).toEqual([
                 'Игроки',
                 'Руководство',
@@ -2503,10 +2504,14 @@ describe('TelegramBotService', () => {
             expect(openKeyboard[4]?.[0]?.text).toBe('✅ Дисциплина и аналитика');
             expect(openKeyboard[5]?.[0]?.text).toBe('✅ Системные оповещения');
             expect(openKeyboard[6]?.[0]).toEqual({
+                text: '▫️ Первая атака не по зеркалу',
+                callback_data: 'settings:mirror:#2PPLQ',
+            });
+            expect(openKeyboard[7]?.[0]).toEqual({
                 text: '🕒 Часовой пояс: UTC+3',
                 callback_data: 'settings:tz:#2PPLQ',
             });
-            expect(openKeyboard[7]?.[0]).toEqual({ text: '⬅️ Назад', callback_data: 'clans:list' });
+            expect(openKeyboard[8]?.[0]).toEqual({ text: '⬅️ Назад', callback_data: 'clans:list' });
 
             // Sync clan name (including HTML chars) and apply all 3 presets
             clansRepo.saveClan({
@@ -2652,11 +2657,12 @@ describe('TelegramBotService', () => {
             transport.chatMembers.set(memberKey(chatId, creatorId), 'creator');
             transport.chatMembers.set(memberKey(chatId, memberId), 'member');
 
-            // Regular member cannot open, apply preset, or toggle category; shared message untouched
+            // Regular member cannot open, apply preset, toggle category, or toggle mirror rule; shared message untouched
             for (const [queryId, data] of [
                 ['q-mem-open', 'settings:open:#2PPLQ'],
                 ['q-mem-preset', 'settings:preset:#2PPLQ:all'],
                 ['q-mem-cat', 'settings:category:#2PPLQ:discipline'],
+                ['q-mem-mirror', 'settings:mirror:#2PPLQ'],
             ] as const) {
                 await service.bot.handleUpdate(
                     makeCallbackUpdate({
@@ -2676,6 +2682,9 @@ describe('TelegramBotService', () => {
                 discipline: false,
                 system: false,
             });
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.mirrorRuleEnabled).toBe(
+                false,
+            );
             expect(transport.answeredCallbackQueries()).toEqual([
                 {
                     callback_query_id: 'q-mem-open',
@@ -2689,6 +2698,11 @@ describe('TelegramBotService', () => {
                 },
                 {
                     callback_query_id: 'q-mem-cat',
+                    text: 'Только администратор группы может изменять настройки подписки.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-mem-mirror',
                     text: 'Только администратор группы может изменять настройки подписки.',
                     show_alert: true,
                 },
@@ -2973,6 +2987,139 @@ describe('TelegramBotService', () => {
             });
         });
 
+        it('toggles mirror rule on/off, preserves preset/categories and subscription_id, and isolates across forum topics', async () => {
+            const { service, transport, clansRepo, subscriptionRepo, transactionManager } =
+                createHarness();
+            const chatId = -6400;
+            const adminId = 950;
+            const topicA = 101;
+            const topicB = 202;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.saveTelegramChat(chatId, topicA, 'Topic A');
+            subscriptionRepo.saveTelegramChat(chatId, topicB, 'Topic B');
+            subscriptionRepo.subscribeToChat(chatId, topicA, '#2PPLQ', 'players');
+            subscriptionRepo.subscribeToChat(chatId, topicB, '#2PPLQ', 'players');
+            transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
+
+            const initialSubIdA = subscriptionRepo.getSubscriptionId(chatId, topicA, '#2PPLQ');
+            expect(
+                subscriptionRepo.getSubscription(chatId, topicA, '#2PPLQ')?.mirrorRuleEnabled,
+            ).toBe(false);
+            expect(
+                subscriptionRepo.getSubscription(chatId, topicB, '#2PPLQ')?.mirrorRuleEnabled,
+            ).toBe(false);
+
+            // Toggle mirror rule ON in topic A
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-mirror-on',
+                    data: 'settings:mirror:#2PPLQ',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(
+                subscriptionRepo.getSubscription(chatId, topicA, '#2PPLQ')?.mirrorRuleEnabled,
+            ).toBe(true);
+            expect(
+                subscriptionRepo.getSubscription(chatId, topicB, '#2PPLQ')?.mirrorRuleEnabled,
+            ).toBe(false);
+            expect(subscriptionRepo.getSubscriptionId(chatId, topicA, '#2PPLQ')).toBe(
+                initialSubIdA,
+            );
+            const editOn = transport.editedMessages()[0];
+            expect(String(editOn?.text)).toContain('Первая атака не по зеркалу: вкл');
+            expect(String(editOn?.text)).toContain('Пресет: Игроки');
+            expect(getInlineKeyboard(editOn)[6]?.[0]).toEqual({
+                text: '✅ Первая атака не по зеркалу',
+                callback_data: 'settings:mirror:#2PPLQ',
+            });
+
+            // Switching preset preserves mirrorRuleEnabled=true
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-preset-keep-mirror',
+                    data: 'settings:preset:#2PPLQ:all',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(
+                subscriptionRepo.getSubscription(chatId, topicA, '#2PPLQ')?.mirrorRuleEnabled,
+            ).toBe(true);
+            const editAfterPreset = transport.editedMessages()[1];
+            expect(String(editAfterPreset?.text)).toContain('Пресет: Всё вместе');
+            expect(String(editAfterPreset?.text)).toContain('Первая атака не по зеркалу: вкл');
+            expect(getInlineKeyboard(editAfterPreset)[6]?.[0]?.text).toBe(
+                '✅ Первая атака не по зеркалу',
+            );
+
+            // Toggle mirror rule OFF in topic A
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-mirror-off',
+                    data: 'settings:mirror:#2PPLQ',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(
+                subscriptionRepo.getSubscription(chatId, topicA, '#2PPLQ')?.mirrorRuleEnabled,
+            ).toBe(false);
+            const editOff = transport.editedMessages()[2];
+            expect(String(editOff?.text)).toContain('Первая атака не по зеркалу: выкл');
+            expect(getInlineKeyboard(editOff)[6]?.[0]?.text).toBe('▫️ Первая атака не по зеркалу');
+
+            // Stale unlinked clan and DB error show personal alert without overwriting message
+            const editsBeforeErrors = transport.editedMessages().length;
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-mirror-unlinked',
+                    data: 'settings:mirror:#999888',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(editsBeforeErrors);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-mirror-unlinked',
+                text: 'Этот чат не привязан к клану #999888.',
+                show_alert: true,
+            });
+
+            const txSpy = vi
+                .spyOn(transactionManager, 'retryInTransaction')
+                .mockImplementation(() => {
+                    throw new DatabaseError('mirror write failed');
+                });
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-mirror-db-err',
+                    data: 'settings:mirror:#2PPLQ',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            txSpy.mockRestore();
+            expect(transport.editedMessages()).toHaveLength(editsBeforeErrors);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-mirror-db-err',
+                text: 'Не удалось обновить настройки. Попробуйте ещё раз позже.',
+                show_alert: true,
+            });
+        });
+
         it('selects timezone via CIS quick list and full UTC-12..UTC+14 grid, enforces permissions, and isolates forum topics', async () => {
             const { service, transport, clansRepo, subscriptionRepo, transactionManager } =
                 createHarness();
@@ -3083,7 +3230,7 @@ describe('TelegramBotService', () => {
             const afterCisEdit = transport.editedMessages()[1];
             expect(String(afterCisEdit?.text)).toContain('⚙️ <b>Настройки подписки</b>');
             expect(String(afterCisEdit?.text)).toContain('Часовой пояс: UTC+5');
-            expect(getInlineKeyboard(afterCisEdit)[6]?.[0]).toEqual({
+            expect(getInlineKeyboard(afterCisEdit)[7]?.[0]).toEqual({
                 text: '🕒 Часовой пояс: UTC+5',
                 callback_data: 'settings:tz:#2PPLQ',
             });
@@ -3133,7 +3280,7 @@ describe('TelegramBotService', () => {
             ).toBe(-5);
             const afterNeg5Edit = transport.editedMessages()[3];
             expect(String(afterNeg5Edit?.text)).toContain('Часовой пояс: UTC-5');
-            expect(getInlineKeyboard(afterNeg5Edit)[6]?.[0]?.text).toBe('🕒 Часовой пояс: UTC-5');
+            expect(getInlineKeyboard(afterNeg5Edit)[7]?.[0]?.text).toBe('🕒 Часовой пояс: UTC-5');
 
             // DB failure during tz update returns personal alert without overwriting message
             const editsBeforeDbErr = transport.editedMessages().length;

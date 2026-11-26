@@ -4,6 +4,7 @@ export {
     ClanwarPerformanceTrend,
     compareWithHistoricalAverage,
     type ClanwarComparisonData,
+    type ClanwarComparisonOptions,
     type ClanwarHistoricalAverages,
     type ClanwarPerformanceComparison,
     type ClanwarPerformanceTrendValue,
@@ -17,6 +18,7 @@ export {
     type PlayerAttackStats,
     type PlayerRosterStats,
     type PlayerViolationStats,
+    type RosterViolationStatsOptions,
 } from './clanwarRosterAnalyzer.js';
 export {
     buildRaidComparisonData,

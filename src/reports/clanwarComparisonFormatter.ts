@@ -2,6 +2,7 @@ import {
     buildComparisonData,
     ClanwarPerformanceTrend,
     type ClanwarComparisonData,
+    type ClanwarComparisonOptions,
 } from '../analytics/clanwarComparisonAnalyzer.js';
 import { escapeHtml, removeTrailingNewlines } from '../common/formatUtils.js';
 import {
@@ -196,7 +197,13 @@ function formatHistoricalAveragesLabel(warsCount: number): string {
     return `📉 <b>СРАВНЕНИЕ СО СРЕДНИМ ЗА ${String(warsCount)} ПРЕДЫДУЩИХ ВОЙН</b>`;
 }
 
-function formatDisciplineChange(currentWar: ClanwarWarStats, previousWar: ClanwarWarStats): string {
+export type ClanwarComparisonFormatOptions = ClanwarComparisonOptions;
+
+function formatDisciplineChange(
+    currentWar: ClanwarWarStats,
+    previousWar: ClanwarWarStats,
+    mirrorRuleEnabled: boolean,
+): string {
     const previousPlayersWithoutAttacksRate = calculateRate(
         previousWar.disciplineStats.playersWithoutAttacks,
         previousWar.teamSize,
@@ -206,33 +213,35 @@ function formatDisciplineChange(currentWar: ClanwarWarStats, previousWar: Clanwa
         currentWar.teamSize,
     );
 
-    const previousFirstAttacksNotOnMirrorRate = calculateRate(
-        previousWar.disciplineStats.firstAttacksNotOnMirror,
-        previousWar.teamSize - previousWar.disciplineStats.playersWithoutAttacks,
-    );
-    const currentFirstAttacksNotOnMirrorRate = calculateRate(
-        currentWar.disciplineStats.firstAttacksNotOnMirror,
-        currentWar.teamSize - currentWar.disciplineStats.playersWithoutAttacks,
+    let section = formatRateComparison(
+        'Без атак\n(среди всех участников)',
+        previousPlayersWithoutAttacksRate,
+        currentPlayersWithoutAttacksRate,
+        String(previousWar.disciplineStats.playersWithoutAttacks),
+        String(currentWar.disciplineStats.playersWithoutAttacks),
+        false,
     );
 
-    return (
-        formatRateComparison(
-            'Без атак\n(среди всех участников)',
-            previousPlayersWithoutAttacksRate,
-            currentPlayersWithoutAttacksRate,
-            String(previousWar.disciplineStats.playersWithoutAttacks),
-            String(currentWar.disciplineStats.playersWithoutAttacks),
-            false,
-        ) +
-        formatRateComparison(
+    if (mirrorRuleEnabled) {
+        const previousFirstAttacksNotOnMirrorRate = calculateRate(
+            previousWar.disciplineStats.firstAttacksNotOnMirror,
+            previousWar.teamSize - previousWar.disciplineStats.playersWithoutAttacks,
+        );
+        const currentFirstAttacksNotOnMirrorRate = calculateRate(
+            currentWar.disciplineStats.firstAttacksNotOnMirror,
+            currentWar.teamSize - currentWar.disciplineStats.playersWithoutAttacks,
+        );
+        section += formatRateComparison(
             'Атаки не по зеркалу\n(среди участников с атаками)',
             previousFirstAttacksNotOnMirrorRate,
             currentFirstAttacksNotOnMirrorRate,
             String(previousWar.disciplineStats.firstAttacksNotOnMirror),
             String(currentWar.disciplineStats.firstAttacksNotOnMirror),
             false,
-        )
-    );
+        );
+    }
+
+    return section;
 }
 
 function formatSingleAttackActivity(
@@ -258,7 +267,10 @@ function formatSingleAttackActivity(
     );
 }
 
-function formatHistoricalAveragesSection(reportData: ClanwarComparisonData): string {
+function formatHistoricalAveragesSection(
+    reportData: ClanwarComparisonData,
+    mirrorRuleEnabled: boolean,
+): string {
     if (reportData.previousWarsAverage === null) {
         return '';
     }
@@ -279,10 +291,6 @@ function formatHistoricalAveragesSection(reportData: ClanwarComparisonData): str
     const currentPlayersWithOneAttackRate = calculateRate(
         currentWar.disciplineStats.playersWithOneAttack,
         currentWar.teamSize,
-    );
-    const currentFirstAttacksNotOnMirrorRate = calculateRate(
-        currentWar.disciplineStats.firstAttacksNotOnMirror,
-        currentWar.teamSize - currentWar.disciplineStats.playersWithoutAttacks,
     );
 
     let section = '';
@@ -305,14 +313,20 @@ function formatHistoricalAveragesSection(reportData: ClanwarComparisonData): str
         false,
     );
 
-    section += formatRateComparison(
-        'Атаки не по зеркалу\n(среди участников с атаками)',
-        average.averageFirstAttacksNotOnMirrorRate,
-        currentFirstAttacksNotOnMirrorRate,
-        formatFixedHalfToEven(average.averageFirstAttacksNotOnMirror, 1),
-        String(currentWar.disciplineStats.firstAttacksNotOnMirror),
-        false,
-    );
+    if (mirrorRuleEnabled) {
+        const currentFirstAttacksNotOnMirrorRate = calculateRate(
+            currentWar.disciplineStats.firstAttacksNotOnMirror,
+            currentWar.teamSize - currentWar.disciplineStats.playersWithoutAttacks,
+        );
+        section += formatRateComparison(
+            'Атаки не по зеркалу\n(среди участников с атаками)',
+            average.averageFirstAttacksNotOnMirrorRate,
+            currentFirstAttacksNotOnMirrorRate,
+            formatFixedHalfToEven(average.averageFirstAttacksNotOnMirror, 1),
+            String(currentWar.disciplineStats.firstAttacksNotOnMirror),
+            false,
+        );
+    }
 
     section += '\n⚔️ Активность (не входит в итоговую оценку):\n';
 
@@ -385,7 +399,7 @@ export class ClanwarComparisonFormatter {
         this.#clanwarRepo = clanwarRepo;
     }
 
-    format(event: WarEndedEvent): string {
+    format(event: WarEndedEvent, options?: ClanwarComparisonFormatOptions): string {
         const currentWarStats = this.#clanwarRepo.getClanwarStats(event.warReference);
         const previousWarReferences = this.#clanwarRepo.getPreviousClanwars(
             event.warReference,
@@ -396,7 +410,7 @@ export class ClanwarComparisonFormatter {
             this.#clanwarRepo.getClanwarStats(reference),
         );
 
-        const reportData = buildComparisonData(currentWarStats, previousWarStats);
+        const reportData = buildComparisonData(currentWarStats, previousWarStats, options);
         return ClanwarComparisonFormatter.buildReport(reportData);
     }
 
@@ -405,6 +419,7 @@ export class ClanwarComparisonFormatter {
             return '';
         }
 
+        const mirrorRuleEnabled = reportData.mirrorRuleEnabled ?? true;
         const currentWar = reportData.currentWar;
         const previousWar = reportData.previousWar;
 
@@ -448,7 +463,7 @@ export class ClanwarComparisonFormatter {
         );
 
         report += '\n🎯 Дисциплина:\n';
-        report += formatDisciplineChange(currentWar, previousWar);
+        report += formatDisciplineChange(currentWar, previousWar, mirrorRuleEnabled);
 
         report += '\n⚔️ Активность (не входит в итоговую оценку):\n';
         report += formatRateComparison(
@@ -479,7 +494,7 @@ export class ClanwarComparisonFormatter {
             report += '\n\n';
         }
 
-        report += formatHistoricalAveragesSection(reportData);
+        report += formatHistoricalAveragesSection(reportData, mirrorRuleEnabled);
         report += formatPerformanceComparisonSection(reportData);
 
         return removeTrailingNewlines(report);

@@ -21,6 +21,7 @@ export const CALLBACK_COMMANDS = {
     SETTINGS_OPEN: 'settings:open',
     SETTINGS_PRESET: 'settings:preset',
     SETTINGS_CATEGORY: 'settings:category',
+    SETTINGS_MIRROR: 'settings:mirror',
     SETTINGS_TZ: 'settings:tz',
     SETTINGS_TZ_ALL: 'settings:tzall',
     SETTINGS_TZ_SET: 'settings:tzset',
@@ -52,6 +53,7 @@ export type KnownCallbackData =
           readonly clanTag: string;
           readonly category: NotificationCategory;
       }
+    | { readonly kind: 'settings:mirror'; readonly clanTag: string }
     | { readonly kind: 'settings:tz'; readonly clanTag: string }
     | { readonly kind: 'settings:tzall'; readonly clanTag: string }
     | {
@@ -114,6 +116,10 @@ export function buildSettingsCategoryCallbackData(
     category: NotificationCategory,
 ): string {
     return `${CALLBACK_COMMANDS.SETTINGS_CATEGORY}:${clanTag}:${category}`;
+}
+
+export function buildSettingsMirrorCallbackData(clanTag: string): string {
+    return `${CALLBACK_COMMANDS.SETTINGS_MIRROR}:${clanTag}`;
 }
 
 export function buildSettingsTimezoneCallbackData(clanTag: string): string {
@@ -234,6 +240,13 @@ export function parseKnownCallbackData(data: string): KnownCallbackData | null {
                 return null;
             }
             return { kind: 'settings:category', clanTag, category: args[1] };
+        }
+        case CALLBACK_COMMANDS.SETTINGS_MIRROR: {
+            if (args.length !== 1 || args[0] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            return clanTag !== null ? { kind: 'settings:mirror', clanTag } : null;
         }
         case CALLBACK_COMMANDS.SETTINGS_TZ: {
             if (args.length !== 1 || args[0] === undefined) {

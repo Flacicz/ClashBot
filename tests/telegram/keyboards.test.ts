@@ -9,6 +9,7 @@ import {
     makeGuideNavigationKeyboard,
     makeHelpNavigationKeyboard,
     makeLinkInstructionsKeyboard,
+    makeMirrorRuleToggleButton,
     makeMyClansNavigationKeyboard,
     makeStartMenuKeyboard,
     makeStrategyListKeyboard,
@@ -226,12 +227,7 @@ describe('Telegram inline keyboards', () => {
             getPresetCategories('management'),
             {
                 extraRows: [
-                    [
-                        {
-                            text: '▫️ Первая атака не по зеркалу',
-                            callback_data: 'settings:mirror:#PYLQGRJCUV0289P',
-                        },
-                    ],
+                    [makeMirrorRuleToggleButton('#PYLQGRJCUV0289P', false)],
                     [
                         {
                             text: '🕒 Часовой пояс: UTC+3',
@@ -244,7 +240,14 @@ describe('Telegram inline keyboards', () => {
         );
 
         expect(extended.inline_keyboard).toHaveLength(9);
-        expect(extended.inline_keyboard[6]?.[0]?.text).toBe('▫️ Первая атака не по зеркалу');
+        expect(extended.inline_keyboard[6]?.[0]).toEqual({
+            text: '▫️ Первая атака не по зеркалу',
+            callback_data: 'settings:mirror:#PYLQGRJCUV0289P',
+        });
+        expect(makeMirrorRuleToggleButton('#2PPLQ', true)).toEqual({
+            text: '✅ Первая атака не по зеркалу',
+            callback_data: 'settings:mirror:#2PPLQ',
+        });
         expect(extended.inline_keyboard[7]?.[0]?.text).toBe('🕒 Часовой пояс: UTC+3');
         expect(extended.inline_keyboard[8]?.[0]).toEqual({
             text: '⬅️ К карточке клана',
