@@ -87,7 +87,7 @@ Telegram-слой разделён на два независимых компо
 Функции `resolveDefaultPreset(chatType)` и `isSupportedTelegramChatType(chatType)` (`src/telegram/validation.ts`), а также
 проверка `canManageCurrentChat` определяют пресет по умолчанию при первом `/link` и права управления подписками:
 
-| Тип чата Telegram        | Пресет по умолчанию при `/link` | Проверка прав для `/link`, `/unlink` и `clans:unlink`                              |
+| Тип чата Telegram        | Пресет по умолчанию при `/link` | Проверка прав для `/link`, `/unlink`, `clans:unlink` и `settings:*`                |
 | ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------- |
 | `private`                | `management` («Руководство»)    | `chatType === 'private' && chatId === userId` (без вызова `getChatMember`)         |
 | `group`                  | `players` («Игроки»)            | `api.getChatMember(chatId, userId)` → `status` равен `administrator` или `creator` |
@@ -166,24 +166,59 @@ Telegram-слой разделён на два независимых компо
 сервис сначала валидирует `CallbackContext` (`parseCallbackContext`: обязательны `id`, `from.id`, `message.message_id`,
 `message.chat.id`; `data` по умолчанию `''`, `message_thread_id` по умолчанию `0`, `chat.type` по умолчанию `''`), затем
 отвечает на callback через `safeAnswerCallbackQuery` (ошибка ответа логируется, не прерывая обработку). Для
-`clans:unlink` ответ отправляется после проверки прав: при отказе в правах или ошибке `getChatMember` пользователь
+`clans:unlink` и `settings:*` ответ отправляется после проверки прав и бизнес-инвариантов: при отказе в правах, ошибке
+`getChatMember`, отсутствии подписки, ошибке БД или попытке отключить последнюю категорию уведомлений пользователь
 получает персональное уведомление через `answerCallbackQuery` (`show_alert: true`), а общее inline-меню в чате не
 перезаписывается.
 
 Формат `callback_data` (`src/telegram/callbackData.ts`): части разделяются `:`, минимум 2 части (`prefix:action[:args...]`),
-пустые сегменты, неизвестные команды и невалидные аргументы игнорируются.
+строка строго не длиннее `64` байт в UTF-8 (`MAX_CALLBACK_DATA_BYTES`); пустые сегменты, превышение лимита, неизвестные
+команды и невалидные аргументы игнорируются.
 
-| `callback_data`                       | Аргументы и валидация                    | Действие (`TelegramBotService`)                                                                                |
-| ------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `menu:start`                          | без аргументов                           | `editMessageText` → главное меню                                                                               |
-| `help:main`                           | без аргументов                           | `editMessageText` → справка по командам, правам, пресетам подписки и дисклеймер Supercell Fan Content Policy   |
-| `clans:link`                          | без аргументов                           | `editMessageText` → инструкция по `/link`                                                                      |
-| `clans:list`                          | без аргументов                           | `editMessageText` → список кланов для `(chatId, messageThreadId)`                                              |
-| `clans:unlink`                        | 0 или 1 (`clanTag` через `parseClanTag`) | Проверка прав; без тега — список кнопок отключения; с тегом — транзакционное отключение                        |
-| `guides:townhalls`                    | без аргументов                           | `editMessageText` → сетка ратуш `MIN_TOWN_HALL..MAX_TOWN_HALL` (`7..18`, по 3 в ряд)                           |
-| `guides:townhall:<townHall>`          | `parseTownHall` (`7..18`)                | `editMessageText` → уникальные стратегии для выбранной ратуши                                                  |
-| `guides:strategy:<townHall>:<armyId>` | `townHall` (`7..18`), `armyId`           | `editMessageText` → список гайдов стратегии (если пусто — игнорируется)                                        |
-| `guides:guide:<townHall>:<guideId>`   | `townHall` (`7..18`), `guideId`          | Проверка совместимости гайда с `townHall` (`findById(guideId, townHall)`); `sendMessage` (2 HTML-сообщения с сохранением `message_thread_id`): `escapeHtml(title)\nescapeHtml(youtubeUrl)` и кнопки навигации |
+| `callback_data`                       | Аргументы и валидация                                       | Действие (`TelegramBotService`)                                                                                |
+| ------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `menu:start`                          | без аргументов                                              | `editMessageText` → главное меню                                                                               |
+| `help:main`                           | без аргументов                                              | `editMessageText` → справка по командам, правам, пресетам подписки и дисклеймер Supercell Fan Content Policy   |
+| `clans:link`                          | без аргументов                                              | `editMessageText` → инструкция по `/link`                                                                      |
+| `clans:list`                          | без аргументов                                              | `editMessageText` → список кланов для `(chatId, messageThreadId)`                                              |
+| `clans:unlink`                        | 0 или 1 (`clanTag` через `parseClanTag`)                    | Проверка прав; без тега — список кнопок отключения; с тегом — транзакционное отключение                        |
+| `settings:open:<clanTag>`             | `clanTag` (`parseClanTag`)                                  | Проверка прав; `editMessageText` → экран «⚙️ Настройки» подписки `(clanTag, chatId, messageThreadId)`          |
+| `settings:preset:<clanTag>:<preset>`  | `clanTag` (`parseClanTag`), `preset` (`players`/`management`/`all`) | Проверка прав; атомарное применение пресета в `clan_subscriptions` и `editMessageText` экрана настроек |
+| `settings:category:<clanTag>:<category>` | `clanTag` (`parseClanTag`), `category` (`summaries`/`reminders`/`roster`/`discipline`/`system`) | Проверка прав; атомарное переключение категории (с запретом отключения последней) и `editMessageText` |
+| `guides:townhalls`                    | без аргументов                                              | `editMessageText` → сетка ратуш `MIN_TOWN_HALL..MAX_TOWN_HALL` (`7..18`, по 3 в ряд)                           |
+| `guides:townhall:<townHall>`          | `parseTownHall` (`7..18`)                                   | `editMessageText` → уникальные стратегии для выбранной ратуши                                                  |
+| `guides:strategy:<townHall>:<armyId>` | `townHall` (`7..18`), `armyId`                              | `editMessageText` → список гайдов стратегии (если пусто — игнорируется)                                        |
+| `guides:guide:<townHall>:<guideId>`   | `townHall` (`7..18`), `guideId`                             | Проверка совместимости гайда с `townHall` (`findById(guideId, townHall)`); `sendMessage` (2 HTML-сообщения с сохранением `message_thread_id`): `escapeHtml(title)\nescapeHtml(youtubeUrl)` и кнопки навигации |
+
+### Экран «⚙️ Настройки» подписки
+
+Экран настроек управляет параметрами конкретной подписки `(clan_tag, chat_id, message_thread_id)` (форматирование —
+`src/telegram/subscriptionSettings.ts`, клавиатура — `makeSubscriptionSettingsKeyboard` в `src/telegram/keyboards.ts`,
+кнопка входа для `/link` и карточек «Моих кланов» — `makeSubscriptionSettingsButton` / `makeSubscriptionSettingsEntryKeyboard`):
+
+- **Отображаемое состояние**: название клана (если оно уже синхронизировано и отлично от служебного значения
+  `'Pending synchronization'`), тег клана и текущий статус пресета — `Пресет: Игроки`, `Пресет: Руководство`,
+  `Пресет: Всё вместе` или `Пресет: своя настройка` (если набор категорий вручную отклонён от всех трёх пресетов).
+- **Клавиатура**:
+  1. ряд быстрого выбора из 3 пресетов: `Игроки`, `Руководство`, `Всё вместе`;
+  2. 5 кнопок-переключателей категорий уведомлений со статусом `✅` (вкл) / `▫️` (выкл): «Итоги и сравнения»,
+     «Напоминания», «Кадры», «Дисциплина и аналитика», «Системные оповещения»;
+  3. расширяемая секция `extraRows` (под будущие переключатели правила зеркала и часового пояса);
+  4. кнопка возврата `⬅️ Назад` (по умолчанию ведёт на `clans:list`, может быть переопределена через `backButton`).
+- **Права доступа и защита общего меню**: открыть и менять настройки может только владелец личного чата (`private`,
+  `chatId === userId`) или администратор/создатель группы/супергруппы (`group` / `supergroup`). При отказе в правах или
+  ошибке `getChatMember` отправляется персональный `answerCallbackQuery({ show_alert: true })`, а общее сообщение в чате
+  не перезаписывается.
+- **Запрет отключения последней категории**: при попытке снять последнюю активную категорию запись в БД не меняется,
+  общее сообщение не перезаписывается, а пользователю отправляется персональный alert
+  `Оставьте хотя бы одну категорию или отключите клан`.
+- **Эффект изменений**: обновления категорий сохраняются в `clan_subscriptions` в рамках того же поколения подписки
+  (`subscription_id`), влияют только на новые доменные события и не отменяют уже поставленные в очередь уведомления.
+- **Изоляция тем форума**: все запросы чтения и обновления привязаны к `(chat_id, message_thread_id)`, поэтому настройки
+  одного клана в разных темах одной супергруппы полностью независимы.
+- **Ограничение длины `callback_data`**: максимальная длина команд `settings:*` для самого длинного валидного тега клана
+  (`#` + 15 символов) составляет `45` байт UTF-8 (`settings:category:#<15 chars>:discipline`), что строго укладывается в
+  лимит Telegram Bot API `64` байта (`MAX_CALLBACK_DATA_BYTES`).
 
 ## Каталог видео-гайдов (`resources/telegram/attack_guides.json`)
 

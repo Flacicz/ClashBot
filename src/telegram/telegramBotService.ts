@@ -1,4 +1,4 @@
-import { Bot, type BotConfig, type Context, HttpError } from 'grammy';
+import { Bot, type BotConfig, type Context, GrammyError, HttpError } from 'grammy';
 import type {
     BotCommand as GrammyBotCommand,
     Chat,
@@ -14,11 +14,17 @@ import type {
     ClansRepo,
     DomainEventsRepo,
     NotificationRepo,
+    SubscriptionRecord,
     SubscriptionRepo,
     TransactionManager,
 } from '../database/index.js';
 import { createLogger, type Logger } from '../logging/logger.js';
-import { SUBSCRIPTION_PRESETS, type SubscriptionPreset } from '../models/subscription.js';
+import {
+    getPresetCategories,
+    SUBSCRIPTION_PRESETS,
+    toggleSubscriptionCategory,
+    type SubscriptionPreset,
+} from '../models/subscription.js';
 import type { WakeableClanManager } from '../services/clanManager.js';
 import {
     type DisableSubscriptionsResult,
@@ -28,6 +34,7 @@ import {
 import type { AttackGuideCatalog } from './attackGuideCatalog.js';
 import {
     type CallbackContext,
+    type KnownCallbackData,
     parseCallbackContext,
     parseKnownCallbackData,
 } from './callbackData.js';
@@ -42,8 +49,13 @@ import {
     makeMyClansNavigationKeyboard,
     makeStartMenuKeyboard,
     makeStrategyListKeyboard,
+    makeSubscriptionSettingsKeyboard,
     makeTownHallListKeyboard,
 } from './keyboards.js';
+import {
+    formatSubscriptionSettingsText,
+    LAST_CATEGORY_ALERT_TEXT,
+} from './subscriptionSettings.js';
 import { isSupportedTelegramChatType, resolveDefaultPreset } from './validation.js';
 
 export const TELEGRAM_BOT_ALLOWED_UPDATES = [
@@ -100,6 +112,10 @@ const LINK_INSTRUCTIONS_TEXT =
     'Например:\n' +
     '/link #2PPLQ';
 const ONLY_ADMIN_TEXT = 'Только администратор группы может управлять подключениями кланов.';
+const SETTINGS_ONLY_ADMIN_TEXT = 'Только администратор группы может изменять настройки подписки.';
+const SETTINGS_ONLY_OWNER_TEXT = 'Только владелец чата может изменять настройки подписки.';
+const SETTINGS_LOAD_ERROR_TEXT = 'Не удалось загрузить настройки. Попробуйте ещё раз позже.';
+const SETTINGS_UPDATE_ERROR_TEXT = 'Не удалось обновить настройки. Попробуйте ещё раз позже.';
 const PERMISSION_CHECK_ERROR_TEXT =
     'Не удалось проверить права пользователя. Попробуйте ещё раз позже.';
 
@@ -121,6 +137,26 @@ export interface TelegramBotServiceDependencies {
 
 type GrammyAbortSignal = Parameters<Context['api']['getChatMember']>[2];
 type ClanSubscriptionCommand = Extract<BotCommand, { readonly kind: 'link' | 'unlink' }>;
+type SettingsCallbackData = Extract<
+    KnownCallbackData,
+    { readonly kind: 'settings:open' | 'settings:preset' | 'settings:category' }
+>;
+type SettingsActionOutcome =
+    | { readonly status: 'not_found' }
+    | { readonly status: 'last_category' }
+    | {
+          readonly status: 'ready';
+          readonly subscription: SubscriptionRecord;
+          readonly clanName: string | null;
+      };
+
+function isMessageNotModifiedError(error: unknown): boolean {
+    return (
+        error instanceof GrammyError &&
+        error.error_code === 400 &&
+        error.description.toLowerCase().includes('message is not modified')
+    );
+}
 
 function toGrammyAbortSignal(signal: AbortSignal | undefined): GrammyAbortSignal {
     // grammY types reference the legacy abort-controller package, while Node.js 24 native AbortSignal is runtime-compatible.
@@ -455,13 +491,20 @@ export class TelegramBotService {
                 : {}),
         };
 
-        await api.editMessageText(
-            chatId,
-            messageId,
-            text,
-            other,
-            toGrammyAbortSignal(this.activeSignal),
-        );
+        try {
+            await api.editMessageText(
+                chatId,
+                messageId,
+                text,
+                other,
+                toGrammyAbortSignal(this.activeSignal),
+            );
+        } catch (error: unknown) {
+            if (isMessageNotModifiedError(error)) {
+                return;
+            }
+            throw error;
+        }
     }
 
     private async safeAnswerCallbackQuery(
@@ -1047,6 +1090,15 @@ export class TelegramBotService {
             return;
         }
 
+        if (
+            callbackData.kind === 'settings:open' ||
+            callbackData.kind === 'settings:preset' ||
+            callbackData.kind === 'settings:category'
+        ) {
+            await this.handleSettingsCallback(api, context, callbackData);
+            return;
+        }
+
         await this.safeAnswerCallbackQuery(api, context.queryId);
 
         if (this.activeSignal?.aborted) {
@@ -1346,6 +1398,197 @@ export class TelegramBotService {
             context.messageId,
             message,
             makeStartMenuKeyboard(),
+        );
+    }
+
+    private buildSubscriptionSettingsScreen(
+        subscription: SubscriptionRecord,
+        clanName: string | null,
+    ): { readonly text: string; readonly keyboard: InlineKeyboardMarkup } {
+        return {
+            text: formatSubscriptionSettingsText({
+                clanTag: subscription.clanTag,
+                clanName,
+                categories: subscription.categories,
+            }),
+            keyboard: makeSubscriptionSettingsKeyboard(
+                subscription.clanTag,
+                subscription.categories,
+            ),
+        };
+    }
+
+    private applySettingsCallbackAction(
+        chatId: number,
+        messageThreadId: number,
+        callbackData: SettingsCallbackData,
+    ): SettingsActionOutcome {
+        if (callbackData.kind === 'settings:open') {
+            const subscription = this.subscriptionRepo.getSubscription(
+                chatId,
+                messageThreadId,
+                callbackData.clanTag,
+            );
+            if (subscription === null) {
+                return { status: 'not_found' };
+            }
+
+            const clanName = this.clansRepo.getClanNameByTag(callbackData.clanTag);
+            return { status: 'ready', subscription, clanName };
+        }
+
+        return this.transactionManager.retryInTransaction((): SettingsActionOutcome => {
+            const subscription = this.subscriptionRepo.getSubscription(
+                chatId,
+                messageThreadId,
+                callbackData.clanTag,
+            );
+            if (subscription === null) {
+                return { status: 'not_found' };
+            }
+
+            const nextCategories =
+                callbackData.kind === 'settings:preset'
+                    ? getPresetCategories(callbackData.preset)
+                    : toggleSubscriptionCategory(subscription.categories, callbackData.category);
+
+            if (nextCategories === null) {
+                return { status: 'last_category' };
+            }
+
+            const updated = this.subscriptionRepo.updateSubscriptionCategories(
+                chatId,
+                messageThreadId,
+                callbackData.clanTag,
+                nextCategories,
+            );
+            if (!updated) {
+                return { status: 'not_found' };
+            }
+
+            const clanName = this.clansRepo.getClanNameByTag(callbackData.clanTag);
+            return {
+                status: 'ready',
+                subscription: {
+                    ...subscription,
+                    categories: nextCategories,
+                },
+                clanName,
+            };
+        });
+    }
+
+    private async handleSettingsCallback(
+        api: Context['api'],
+        context: CallbackContext,
+        callbackData: SettingsCallbackData,
+    ): Promise<void> {
+        if (!isSupportedTelegramChatType(context.chatType)) {
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text: 'Этот тип Telegram-чата пока не поддерживается.',
+                show_alert: true,
+            });
+            return;
+        }
+
+        let canManage: boolean;
+        try {
+            canManage = await this.canManageCurrentChat(
+                api,
+                context.chatId,
+                context.userId,
+                context.chatType,
+            );
+        } catch (error: unknown) {
+            if (this.isCancelledError(error)) {
+                return;
+            }
+            this.logger.error(
+                { err: error, chatId: context.chatId, kind: callbackData.kind },
+                'Failed to check permissions for settings callback',
+            );
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text: PERMISSION_CHECK_ERROR_TEXT,
+                show_alert: true,
+            });
+            return;
+        }
+
+        if (this.activeSignal?.aborted) {
+            return;
+        }
+
+        if (!canManage) {
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text:
+                    context.chatType === 'private'
+                        ? SETTINGS_ONLY_OWNER_TEXT
+                        : SETTINGS_ONLY_ADMIN_TEXT,
+                show_alert: true,
+            });
+            return;
+        }
+
+        let outcome: SettingsActionOutcome;
+        try {
+            outcome = this.applySettingsCallbackAction(
+                context.chatId,
+                context.messageThreadId,
+                callbackData,
+            );
+        } catch (error: unknown) {
+            if (error instanceof DatabaseError) {
+                this.logger.error(
+                    {
+                        err: error,
+                        chatId: context.chatId,
+                        messageThreadId: context.messageThreadId,
+                        clanTag: callbackData.clanTag,
+                        kind: callbackData.kind,
+                    },
+                    'Failed to process subscription settings callback',
+                );
+                await this.safeAnswerCallbackQuery(api, context.queryId, {
+                    text:
+                        callbackData.kind === 'settings:open'
+                            ? SETTINGS_LOAD_ERROR_TEXT
+                            : SETTINGS_UPDATE_ERROR_TEXT,
+                    show_alert: true,
+                });
+                return;
+            }
+            throw error;
+        }
+
+        if (outcome.status === 'not_found') {
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text: `Этот чат не привязан к клану ${callbackData.clanTag}.`,
+                show_alert: true,
+            });
+            return;
+        }
+
+        if (outcome.status === 'last_category') {
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text: LAST_CATEGORY_ALERT_TEXT,
+                show_alert: true,
+            });
+            return;
+        }
+
+        await this.safeAnswerCallbackQuery(api, context.queryId);
+
+        if (this.activeSignal?.aborted) {
+            return;
+        }
+
+        const screen = this.buildSubscriptionSettingsScreen(outcome.subscription, outcome.clanName);
+        await this.editHtmlMessage(
+            api,
+            context.chatId,
+            context.messageId,
+            screen.text,
+            screen.keyboard,
         );
     }
 

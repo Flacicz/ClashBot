@@ -33,6 +33,12 @@ export const SUBSCRIPTION_PRESETS = {
 
 export type SubscriptionPreset = (typeof SUBSCRIPTION_PRESETS)[keyof typeof SUBSCRIPTION_PRESETS];
 
+export const ALL_SUBSCRIPTION_PRESETS: readonly SubscriptionPreset[] = [
+    SUBSCRIPTION_PRESETS.players,
+    SUBSCRIPTION_PRESETS.management,
+    SUBSCRIPTION_PRESETS.all,
+];
+
 export const SUBSCRIPTION_PRESET_CATEGORIES: Readonly<
     Record<SubscriptionPreset, SubscriptionCategories>
 > = {
@@ -78,6 +84,40 @@ export function isNotificationCategory(value: string): value is NotificationCate
         value === NOTIFICATION_CATEGORIES.discipline ||
         value === NOTIFICATION_CATEGORIES.system
     );
+}
+
+export function isSubscriptionPreset(value: string): value is SubscriptionPreset {
+    return (
+        value === SUBSCRIPTION_PRESETS.players ||
+        value === SUBSCRIPTION_PRESETS.management ||
+        value === SUBSCRIPTION_PRESETS.all
+    );
+}
+
+export function toggleSubscriptionCategory(
+    categories: SubscriptionCategories,
+    category: NotificationCategory,
+): SubscriptionCategories | null {
+    let next: SubscriptionCategories;
+    switch (category) {
+        case NOTIFICATION_CATEGORIES.summaries:
+            next = { ...categories, summaries: !categories.summaries };
+            break;
+        case NOTIFICATION_CATEGORIES.reminders:
+            next = { ...categories, reminders: !categories.reminders };
+            break;
+        case NOTIFICATION_CATEGORIES.roster:
+            next = { ...categories, roster: !categories.roster };
+            break;
+        case NOTIFICATION_CATEGORIES.discipline:
+            next = { ...categories, discipline: !categories.discipline };
+            break;
+        case NOTIFICATION_CATEGORIES.system:
+            next = { ...categories, system: !categories.system };
+            break;
+    }
+
+    return hasAnyEnabledCategory(next) ? next : null;
 }
 
 export function getPresetCategories(preset: SubscriptionPreset): SubscriptionCategories {

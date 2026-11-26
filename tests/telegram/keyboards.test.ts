@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
+import { getPresetCategories } from '../../src/models/subscription.js';
 import type { AttackGuide, AttackStrategy } from '../../src/telegram/attackGuideCatalog.js';
+import { MAX_CALLBACK_DATA_BYTES } from '../../src/telegram/callbackData.js';
 import {
     makeClanUnlinkKeyboard,
     makeGuideListKeyboard,
@@ -10,6 +12,9 @@ import {
     makeMyClansNavigationKeyboard,
     makeStartMenuKeyboard,
     makeStrategyListKeyboard,
+    makeSubscriptionSettingsButton,
+    makeSubscriptionSettingsEntryKeyboard,
+    makeSubscriptionSettingsKeyboard,
     makeTownHallListKeyboard,
 } from '../../src/telegram/keyboards.js';
 
@@ -167,5 +172,88 @@ describe('Telegram inline keyboards', () => {
                 [{ text: '⬅️ К выбору стратегий', callback_data: 'guides:townhall:11' }],
             ],
         });
+    });
+
+    it('builds subscription settings entry button and keyboard for /link and My Clans cards', () => {
+        expect(makeSubscriptionSettingsButton('#2PPLQ')).toEqual({
+            text: '⚙️ Настройки',
+            callback_data: 'settings:open:#2PPLQ',
+        });
+        expect(makeSubscriptionSettingsEntryKeyboard('#2PPLQ')).toEqual({
+            inline_keyboard: [[{ text: '⚙️ Настройки', callback_data: 'settings:open:#2PPLQ' }]],
+        });
+    });
+
+    it('builds subscription settings keyboard with 3 presets, 5 category toggles, back button, and extensible slots', () => {
+        const keyboard = makeSubscriptionSettingsKeyboard('#2PPLQ', getPresetCategories('players'));
+
+        expect(keyboard).toEqual({
+            inline_keyboard: [
+                [
+                    { text: 'Игроки', callback_data: 'settings:preset:#2PPLQ:players' },
+                    { text: 'Руководство', callback_data: 'settings:preset:#2PPLQ:management' },
+                    { text: 'Всё вместе', callback_data: 'settings:preset:#2PPLQ:all' },
+                ],
+                [
+                    {
+                        text: '✅ Итоги и сравнения',
+                        callback_data: 'settings:category:#2PPLQ:summaries',
+                    },
+                ],
+                [{ text: '✅ Напоминания', callback_data: 'settings:category:#2PPLQ:reminders' }],
+                [{ text: '✅ Кадры', callback_data: 'settings:category:#2PPLQ:roster' }],
+                [
+                    {
+                        text: '▫️ Дисциплина и аналитика',
+                        callback_data: 'settings:category:#2PPLQ:discipline',
+                    },
+                ],
+                [
+                    {
+                        text: '▫️ Системные оповещения',
+                        callback_data: 'settings:category:#2PPLQ:system',
+                    },
+                ],
+                [{ text: '⬅️ Назад', callback_data: 'clans:list' }],
+            ],
+        });
+
+        const extended = makeSubscriptionSettingsKeyboard(
+            '#PYLQGRJCUV0289P',
+            getPresetCategories('management'),
+            {
+                extraRows: [
+                    [
+                        {
+                            text: '▫️ Первая атака не по зеркалу',
+                            callback_data: 'settings:mirror:#PYLQGRJCUV0289P',
+                        },
+                    ],
+                    [
+                        {
+                            text: '🕒 Часовой пояс: UTC+3',
+                            callback_data: 'settings:tz:#PYLQGRJCUV0289P',
+                        },
+                    ],
+                ],
+                backButton: { text: '⬅️ К карточке клана', callback_data: 'clans:list' },
+            },
+        );
+
+        expect(extended.inline_keyboard).toHaveLength(9);
+        expect(extended.inline_keyboard[6]?.[0]?.text).toBe('▫️ Первая атака не по зеркалу');
+        expect(extended.inline_keyboard[7]?.[0]?.text).toBe('🕒 Часовой пояс: UTC+3');
+        expect(extended.inline_keyboard[8]?.[0]).toEqual({
+            text: '⬅️ К карточке клана',
+            callback_data: 'clans:list',
+        });
+
+        for (const row of extended.inline_keyboard) {
+            for (const button of row) {
+                expect(Buffer.byteLength(button.callback_data, 'utf8')).toBeLessThanOrEqual(
+                    MAX_CALLBACK_DATA_BYTES,
+                );
+            }
+        }
     });
 });

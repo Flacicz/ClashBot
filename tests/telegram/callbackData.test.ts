@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    ALL_NOTIFICATION_CATEGORIES,
+    ALL_SUBSCRIPTION_PRESETS,
+} from '../../src/models/subscription.js';
+import {
     buildClanUnlinkCallbackData,
     buildGuideCallbackData,
+    buildSettingsCategoryCallbackData,
+    buildSettingsOpenCallbackData,
+    buildSettingsPresetCallbackData,
     buildStrategyCallbackData,
     buildTownHallCallbackData,
     CALLBACK_COMMANDS,
+    isWithinCallbackDataLimit,
+    MAX_CALLBACK_DATA_BYTES,
     parseCallbackContext,
     parseCallbackData,
     parseKnownCallbackData,
@@ -125,9 +134,61 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             townHall: 12,
             guideId: 'th12_zap',
         });
+        expect(parseKnownCallbackData(buildSettingsOpenCallbackData('#2PPLQ'))).toEqual({
+            kind: 'settings:open',
+            clanTag: '#2PPLQ',
+        });
+        expect(parseKnownCallbackData('settings:open:2pplq')).toEqual({
+            kind: 'settings:open',
+            clanTag: '#2PPLQ',
+        });
+        for (const preset of ALL_SUBSCRIPTION_PRESETS) {
+            expect(
+                parseKnownCallbackData(buildSettingsPresetCallbackData('#2PPLQ', preset)),
+            ).toEqual({
+                kind: 'settings:preset',
+                clanTag: '#2PPLQ',
+                preset,
+            });
+        }
+        for (const category of ALL_NOTIFICATION_CATEGORIES) {
+            expect(
+                parseKnownCallbackData(buildSettingsCategoryCallbackData('#2PPLQ', category)),
+            ).toEqual({
+                kind: 'settings:category',
+                clanTag: '#2PPLQ',
+                category,
+            });
+        }
     });
 
-    it('rejects unknown commands, invalid town halls, and wrong argument counts', () => {
+    it('keeps all settings callback_data strictly within Telegram 64-byte UTF-8 limit even for max-length clan tags', () => {
+        const longestClanTag = '#PYLQGRJCUV0289P';
+        const payloads: string[] = [
+            buildSettingsOpenCallbackData(longestClanTag),
+            ...ALL_SUBSCRIPTION_PRESETS.map((preset) =>
+                buildSettingsPresetCallbackData(longestClanTag, preset),
+            ),
+            ...ALL_NOTIFICATION_CATEGORIES.map((category) =>
+                buildSettingsCategoryCallbackData(longestClanTag, category),
+            ),
+        ];
+
+        for (const payload of payloads) {
+            expect(
+                Buffer.byteLength(payload, 'utf8'),
+                `Payload "${payload}" exceeds ${String(MAX_CALLBACK_DATA_BYTES)} bytes`,
+            ).toBeLessThanOrEqual(MAX_CALLBACK_DATA_BYTES);
+            expect(isWithinCallbackDataLimit(payload)).toBe(true);
+            expect(parseKnownCallbackData(payload)).not.toBeNull();
+        }
+
+        const oversized = `guides:guide:15:${'a'.repeat(60)}`;
+        expect(isWithinCallbackDataLimit(oversized)).toBe(false);
+        expect(parseKnownCallbackData(oversized)).toBeNull();
+    });
+
+    it('rejects unknown commands, invalid town halls, invalid settings arguments, and wrong argument counts', () => {
         const invalidCallbacks = [
             'unknown:action',
             'menu:start:extra',
@@ -135,6 +196,17 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             'clans:link:extra',
             'clans:list:extra',
             'clans:unlink:#2PPLQ:extra',
+            'settings:open',
+            'settings:open:#INVALID!',
+            'settings:open:#2PPLQ:extra',
+            'settings:preset:#2PPLQ',
+            'settings:preset:#2PPLQ:unknown',
+            'settings:preset:#BAD!:players',
+            'settings:preset:#2PPLQ:players:extra',
+            'settings:category:#2PPLQ',
+            'settings:category:#2PPLQ:unknown',
+            'settings:category:#BAD!:summaries',
+            'settings:category:#2PPLQ:summaries:extra',
             'guides:townhalls:extra',
             'guides:townhall',
             'guides:townhall:6',

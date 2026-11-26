@@ -69,6 +69,10 @@ interface FakeTelegramTransport {
         payload: Record<string, unknown>,
         signal?: GrammyAbortSignal,
     ) => Promise<ApiResponse<unknown>>;
+    editMessageTextResponder?: (
+        payload: Record<string, unknown>,
+        signal?: GrammyAbortSignal,
+    ) => Promise<ApiResponse<unknown>>;
     install(service: TelegramBotService): void;
     sentMessages(): Record<string, unknown>[];
     editedMessages(): Record<string, unknown>[];
@@ -221,6 +225,12 @@ function createFakeTelegramTransport(db: Database): FakeTelegramTransport {
                 }
 
                 if (method === 'editMessageText') {
+                    if (transport.editMessageTextResponder !== undefined) {
+                        return (await transport.editMessageTextResponder(
+                            payloadRecord,
+                            signal,
+                        )) as ApiResponse<never>;
+                    }
                     return { ok: true, result: true } as ApiResponse<never>;
                 }
 
@@ -1908,6 +1918,509 @@ describe('TelegramBotService', () => {
             expect(transport.answeredCallbackQueries()).toHaveLength(5);
             expect(transport.answeredCallbackQueries()[4]).toEqual({
                 callback_query_id: 'q-admin-ok',
+            });
+        });
+
+        it('opens settings screen, applies all 3 presets, toggles categories to custom, and blocks disabling last category', async () => {
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness();
+            const chatId = 6001;
+            const userId = 6001;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.saveTelegramChat(chatId, 0, 'Leader Private');
+            subscriptionRepo.subscribeToChat(chatId, 0, '#2PPLQ', 'management');
+            const initialSubId = subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ');
+            expect(initialSubId).not.toBeNull();
+
+            // Open before clan sync: Pending synchronization placeholder is hidden, no getChatMember in private chat
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-open-unsynced',
+                    data: 'settings:open:#2PPLQ',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(transport.calls.some((call) => call.method === 'getChatMember')).toBe(false);
+            const openEdit = transport.editedMessages()[0];
+            expect(String(openEdit?.text)).toContain('Клан: #2PPLQ');
+            expect(String(openEdit?.text)).not.toContain('Pending synchronization');
+            expect(String(openEdit?.text)).toContain('Пресет: Руководство');
+            const openKeyboard = getInlineKeyboard(openEdit);
+            expect(openKeyboard).toHaveLength(7);
+            expect(openKeyboard[0]?.map((b) => b.text)).toEqual([
+                'Игроки',
+                'Руководство',
+                'Всё вместе',
+            ]);
+            expect(openKeyboard[1]?.[0]?.text).toBe('▫️ Итоги и сравнения');
+            expect(openKeyboard[4]?.[0]?.text).toBe('✅ Дисциплина и аналитика');
+            expect(openKeyboard[5]?.[0]?.text).toBe('✅ Системные оповещения');
+            expect(openKeyboard[6]?.[0]).toEqual({ text: '⬅️ Назад', callback_data: 'clans:list' });
+
+            // Sync clan name (including HTML chars) and apply all 3 presets
+            clansRepo.saveClan({
+                tag: '#2PPLQ',
+                name: 'Dark <Dragons>',
+                description: 'desc',
+                locationId: 0,
+                locationName: '',
+                chatLanguageId: 0,
+                chatLanguage: '',
+                isFamilyFriendly: true,
+            });
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-preset-players',
+                    data: 'settings:preset:#2PPLQ:players',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.categories).toEqual({
+                summaries: true,
+                reminders: true,
+                roster: true,
+                discipline: false,
+                system: false,
+            });
+            expect(String(transport.editedMessages()[1]?.text)).toContain(
+                'Клан: <b>Dark &lt;Dragons&gt;</b> (#2PPLQ)',
+            );
+            expect(String(transport.editedMessages()[1]?.text)).toContain('Пресет: Игроки');
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-preset-all',
+                    data: 'settings:preset:#2PPLQ:all',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.categories).toEqual({
+                summaries: true,
+                reminders: true,
+                roster: true,
+                discipline: true,
+                system: true,
+            });
+            expect(String(transport.editedMessages()[2]?.text)).toContain('Пресет: Всё вместе');
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-preset-management',
+                    data: 'settings:preset:#2PPLQ:management',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.categories).toEqual({
+                summaries: false,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: true,
+            });
+            expect(String(transport.editedMessages()[3]?.text)).toContain('Пресет: Руководство');
+
+            // Disable system -> only discipline remains -> custom preset status
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-toggle-system-off',
+                    data: 'settings:category:#2PPLQ:system',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.categories).toEqual({
+                summaries: false,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: false,
+            });
+            const customEdit = transport.editedMessages()[4];
+            expect(String(customEdit?.text)).toContain('Пресет: своя настройка');
+            expect(getInlineKeyboard(customEdit)[4]?.[0]?.text).toBe('✅ Дисциплина и аналитика');
+            expect(getInlineKeyboard(customEdit)[5]?.[0]?.text).toBe('▫️ Системные оповещения');
+
+            // Attempt to disable the LAST remaining category -> alert, no editMessageText, DB unchanged
+            const editsBeforeLastCategory = transport.editedMessages().length;
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-disable-last',
+                    data: 'settings:category:#2PPLQ:discipline',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(editsBeforeLastCategory);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-disable-last',
+                text: 'Оставьте хотя бы одну категорию или отключите клан',
+                show_alert: true,
+            });
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.categories).toEqual({
+                summaries: false,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: false,
+            });
+
+            // Re-enable system -> automatically recognizes preset "Руководство" again, same subscription_id
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-toggle-system-on',
+                    data: 'settings:category:#2PPLQ:system',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(String(transport.editedMessages()[5]?.text)).toContain('Пресет: Руководство');
+            expect(subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ')).toBe(initialSubId);
+        });
+
+        it('enforces group/supergroup admin and private owner permissions on settings callbacks without overwriting shared message', async () => {
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness();
+            const chatId = -6100;
+            const adminId = 801;
+            const creatorId = 802;
+            const memberId = 803;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.saveTelegramChat(chatId, 0, 'Clan Group');
+            subscriptionRepo.subscribeToChat(chatId, 0, '#2PPLQ', 'players');
+            transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
+            transport.chatMembers.set(memberKey(chatId, creatorId), 'creator');
+            transport.chatMembers.set(memberKey(chatId, memberId), 'member');
+
+            // Regular member cannot open, apply preset, or toggle category; shared message untouched
+            for (const [queryId, data] of [
+                ['q-mem-open', 'settings:open:#2PPLQ'],
+                ['q-mem-preset', 'settings:preset:#2PPLQ:all'],
+                ['q-mem-cat', 'settings:category:#2PPLQ:discipline'],
+            ] as const) {
+                await service.bot.handleUpdate(
+                    makeCallbackUpdate({
+                        queryId,
+                        data,
+                        chatId,
+                        chatType: 'group',
+                        userId: memberId,
+                    }),
+                );
+            }
+            expect(transport.editedMessages()).toHaveLength(0);
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.categories).toEqual({
+                summaries: true,
+                reminders: true,
+                roster: true,
+                discipline: false,
+                system: false,
+            });
+            expect(transport.answeredCallbackQueries()).toEqual([
+                {
+                    callback_query_id: 'q-mem-open',
+                    text: 'Только администратор группы может изменять настройки подписки.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-mem-preset',
+                    text: 'Только администратор группы может изменять настройки подписки.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-mem-cat',
+                    text: 'Только администратор группы может изменять настройки подписки.',
+                    show_alert: true,
+                },
+            ]);
+
+            // getChatMember error sends personal alert without overwriting shared message
+            transport.failGetChatMember = true;
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-perm-err',
+                    data: 'settings:preset:#2PPLQ:all',
+                    chatId,
+                    chatType: 'group',
+                    userId: adminId,
+                }),
+            );
+            transport.failGetChatMember = false;
+            expect(transport.editedMessages()).toHaveLength(0);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-perm-err',
+                text: 'Не удалось проверить права пользователя. Попробуйте ещё раз позже.',
+                show_alert: true,
+            });
+
+            // Unsupported chat type & private chat mismatch do not overwrite message
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-channel',
+                    data: 'settings:open:#2PPLQ',
+                    chatId: -6199,
+                    chatType: 'channel',
+                    userId: adminId,
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-priv-mismatch',
+                    data: 'settings:open:#2PPLQ',
+                    chatId: 7777,
+                    chatType: 'private',
+                    userId: 8888,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(0);
+            expect(transport.answeredCallbackQueries().at(-2)).toEqual({
+                callback_query_id: 'q-channel',
+                text: 'Этот тип Telegram-чата пока не поддерживается.',
+                show_alert: true,
+            });
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-priv-mismatch',
+                text: 'Только владелец чата может изменять настройки подписки.',
+                show_alert: true,
+            });
+
+            // Creator and administrator succeed
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-creator-preset',
+                    data: 'settings:preset:#2PPLQ:all',
+                    chatId,
+                    chatType: 'group',
+                    userId: creatorId,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(1);
+            expect(String(transport.editedMessages()[0]?.text)).toContain('Пресет: Всё вместе');
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-admin-toggle',
+                    data: 'settings:category:#2PPLQ:roster',
+                    chatId,
+                    chatType: 'group',
+                    userId: adminId,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(2);
+            expect(String(transport.editedMessages()[1]?.text)).toContain('Пресет: своя настройка');
+        });
+
+        it('isolates subscription settings between different forum topics of the same supergroup', async () => {
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness();
+            const chatId = -6200;
+            const adminId = 901;
+            const topicA = 11;
+            const topicB = 22;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.saveTelegramChat(chatId, topicA, 'Topic A');
+            subscriptionRepo.saveTelegramChat(chatId, topicB, 'Topic B');
+            subscriptionRepo.subscribeToChat(chatId, topicA, '#2PPLQ', 'players');
+            subscriptionRepo.subscribeToChat(chatId, topicB, '#2PPLQ', 'players');
+            transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
+
+            // Change topic A to management preset and disable system
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-topic-a-preset',
+                    data: 'settings:preset:#2PPLQ:management',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-topic-a-cat',
+                    data: 'settings:category:#2PPLQ:system',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+
+            // Topic A updated, topic B completely untouched
+            expect(subscriptionRepo.getSubscription(chatId, topicA, '#2PPLQ')?.categories).toEqual({
+                summaries: false,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: false,
+            });
+            expect(subscriptionRepo.getSubscription(chatId, topicB, '#2PPLQ')?.categories).toEqual({
+                summaries: true,
+                reminders: true,
+                roster: true,
+                discipline: false,
+                system: false,
+            });
+
+            // Opening settings in topic B shows its own players preset
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-topic-b-open',
+                    data: 'settings:open:#2PPLQ',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicB,
+                }),
+            );
+            expect(String(transport.editedMessages().at(-1)?.text)).toContain('Пресет: Игроки');
+        });
+
+        it('applies settings changes only to new events without cancelling already queued notifications and handles stale/DB/not-modified errors', async () => {
+            const {
+                service,
+                transport,
+                clansRepo,
+                subscriptionRepo,
+                domainEventsRepo,
+                notificationRepo,
+                transactionManager,
+                db,
+            } = createHarness();
+            const chatId = 6300;
+            const userId = 6300;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.saveTelegramChat(chatId, 0, 'Leader');
+            subscriptionRepo.subscribeToChat(chatId, 0, '#2PPLQ', 'players');
+            const subId = subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ');
+            expect(subId).not.toBeNull();
+            if (subId === null) {
+                throw new Error('Expected subscription_id');
+            }
+
+            // Seed already-queued domain event destination + notification for summaries before changing preset
+            domainEventsRepo.appendEvent(
+                {
+                    eventType: 'war_ended',
+                    eventId: '8901',
+                    payload: '{}',
+                    payloadVersion: 1,
+                    clanTag: '#2PPLQ',
+                },
+                [{ chatId, messageThreadId: 0, category: 'summaries', subscriptionId: subId }],
+            );
+            const [dest] = domainEventsRepo.getPendingDestinations(10);
+            expect(dest).toBeDefined();
+            if (dest === undefined) {
+                throw new Error('Expected seeded destination');
+            }
+            notificationRepo.enqueueDomainEventIfAbsent(
+                'existing war summary',
+                dest.destinationId,
+                'war_ended',
+                '8901',
+                chatId,
+                0,
+            );
+            const [notif] = notificationRepo.getPending(10);
+            expect(notif).toBeDefined();
+            if (notif === undefined) {
+                throw new Error('Expected seeded notification');
+            }
+
+            // Switch preset to management (disables summaries, enables discipline & system)
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-switch-mgmt',
+                    data: 'settings:preset:#2PPLQ:management',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+
+            // Already queued destination and notification are NOT cancelled
+            expect(rowStatus(db, 'domain_event_destinations', dest.destinationId)).toBe('pending');
+            expect(rowStatus(db, 'notifications', notif.id)).toBe('pending');
+            // Future event routing reflects the new categories
+            expect(
+                subscriptionRepo.getSubscriptionDestinationsForClan('#2PPLQ', 'summaries'),
+            ).toEqual([]);
+            expect(
+                subscriptionRepo.getSubscriptionDestinationsForClan('#2PPLQ', 'discipline'),
+            ).toEqual([{ subscriptionId: subId, chatId, messageThreadId: 0 }]);
+
+            // Clicking the already-active preset when Telegram responds "message is not modified" succeeds cleanly
+            transport.editMessageTextResponder = () =>
+                Promise.resolve({
+                    ok: false,
+                    error_code: 400,
+                    description: 'Bad Request: message is not modified',
+                });
+            await expect(
+                service.bot.handleUpdate(
+                    makeCallbackUpdate({
+                        queryId: 'q-not-modified',
+                        data: 'settings:preset:#2PPLQ:management',
+                        chatId,
+                        chatType: 'private',
+                        userId,
+                    }),
+                ),
+            ).resolves.toBeUndefined();
+            transport.editMessageTextResponder = undefined;
+
+            // Stale button for unlinked clan shows personal alert without editing
+            const editsBeforeErrors = transport.editedMessages().length;
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-unlinked',
+                    data: 'settings:open:#999888',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(editsBeforeErrors);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-unlinked',
+                text: 'Этот чат не привязан к клану #999888.',
+                show_alert: true,
+            });
+
+            // DB error during settings update shows personal alert without editing
+            const txSpy = vi
+                .spyOn(transactionManager, 'retryInTransaction')
+                .mockImplementation(() => {
+                    throw new DatabaseError('settings write failed');
+                });
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-db-err',
+                    data: 'settings:preset:#2PPLQ:all',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            txSpy.mockRestore();
+            expect(transport.editedMessages()).toHaveLength(editsBeforeErrors);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-db-err',
+                text: 'Не удалось обновить настройки. Попробуйте ещё раз позже.',
+                show_alert: true,
             });
         });
 

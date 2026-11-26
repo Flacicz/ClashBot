@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+import {
+    isNotificationCategory,
+    isSubscriptionPreset,
+    type NotificationCategory,
+    type SubscriptionPreset,
+} from '../models/subscription.js';
+import { parseClanTag } from './commands.js';
 import { parseTownHall } from './validation.js';
 
 export const MAX_CALLBACK_DATA_BYTES = 64;
@@ -10,6 +17,9 @@ export const CALLBACK_COMMANDS = {
     CLANS_LINK: 'clans:link',
     CLANS_LIST: 'clans:list',
     CLANS_UNLINK: 'clans:unlink',
+    SETTINGS_OPEN: 'settings:open',
+    SETTINGS_PRESET: 'settings:preset',
+    SETTINGS_CATEGORY: 'settings:category',
     GUIDES_TOWNHALLS: 'guides:townhalls',
     GUIDES_TOWNHALL: 'guides:townhall',
     GUIDES_STRATEGY: 'guides:strategy',
@@ -27,6 +37,17 @@ export type KnownCallbackData =
     | { readonly kind: 'clans:link' }
     | { readonly kind: 'clans:list' }
     | { readonly kind: 'clans:unlink'; readonly clanTag: string | null }
+    | { readonly kind: 'settings:open'; readonly clanTag: string }
+    | {
+          readonly kind: 'settings:preset';
+          readonly clanTag: string;
+          readonly preset: SubscriptionPreset;
+      }
+    | {
+          readonly kind: 'settings:category';
+          readonly clanTag: string;
+          readonly category: NotificationCategory;
+      }
     | { readonly kind: 'guides:townhalls' }
     | { readonly kind: 'guides:townhall'; readonly townHall: number }
     | { readonly kind: 'guides:strategy'; readonly townHall: number; readonly armyId: string }
@@ -58,8 +79,30 @@ const callbackQuerySchema = z.object({
     }),
 });
 
+export function isWithinCallbackDataLimit(data: string): boolean {
+    return Buffer.byteLength(data, 'utf8') <= MAX_CALLBACK_DATA_BYTES;
+}
+
 export function buildClanUnlinkCallbackData(clanTag: string): string {
     return `${CALLBACK_COMMANDS.CLANS_UNLINK}:${clanTag}`;
+}
+
+export function buildSettingsOpenCallbackData(clanTag: string): string {
+    return `${CALLBACK_COMMANDS.SETTINGS_OPEN}:${clanTag}`;
+}
+
+export function buildSettingsPresetCallbackData(
+    clanTag: string,
+    preset: SubscriptionPreset,
+): string {
+    return `${CALLBACK_COMMANDS.SETTINGS_PRESET}:${clanTag}:${preset}`;
+}
+
+export function buildSettingsCategoryCallbackData(
+    clanTag: string,
+    category: NotificationCategory,
+): string {
+    return `${CALLBACK_COMMANDS.SETTINGS_CATEGORY}:${clanTag}:${category}`;
 }
 
 export function buildTownHallCallbackData(townHall: number): string {
@@ -99,6 +142,10 @@ export function parseCallbackData(data: string): CallbackData | null {
 }
 
 export function parseKnownCallbackData(data: string): KnownCallbackData | null {
+    if (!isWithinCallbackDataLimit(data)) {
+        return null;
+    }
+
     const parsed = parseCallbackData(data);
     if (parsed === null) {
         return null;
@@ -123,6 +170,33 @@ export function parseKnownCallbackData(data: string): KnownCallbackData | null {
                 return { kind: 'clans:unlink', clanTag: args[0] };
             }
             return null;
+        case CALLBACK_COMMANDS.SETTINGS_OPEN: {
+            if (args.length !== 1 || args[0] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            return clanTag !== null ? { kind: 'settings:open', clanTag } : null;
+        }
+        case CALLBACK_COMMANDS.SETTINGS_PRESET: {
+            if (args.length !== 2 || args[0] === undefined || args[1] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            if (clanTag === null || !isSubscriptionPreset(args[1])) {
+                return null;
+            }
+            return { kind: 'settings:preset', clanTag, preset: args[1] };
+        }
+        case CALLBACK_COMMANDS.SETTINGS_CATEGORY: {
+            if (args.length !== 2 || args[0] === undefined || args[1] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            if (clanTag === null || !isNotificationCategory(args[1])) {
+                return null;
+            }
+            return { kind: 'settings:category', clanTag, category: args[1] };
+        }
         case CALLBACK_COMMANDS.GUIDES_TOWNHALLS:
             return args.length === 0 ? { kind: 'guides:townhalls' } : null;
         case CALLBACK_COMMANDS.GUIDES_TOWNHALL: {

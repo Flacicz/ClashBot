@@ -27,6 +27,7 @@ export type {
 } from './raid.js';
 export {
     ALL_NOTIFICATION_CATEGORIES,
+    ALL_SUBSCRIPTION_PRESETS,
     DEFAULT_NEW_SUBSCRIPTION_MIRROR_RULE_ENABLED,
     DEFAULT_TIMEZONE_OFFSET_HOURS,
     MAX_TIMEZONE_OFFSET_HOURS,
@@ -40,8 +41,10 @@ export {
     hasAnyEnabledCategory,
     isCategoryEnabled,
     isNotificationCategory,
+    isSubscriptionPreset,
     isValidTimezoneOffsetHours,
     resolvePresetForCategories,
+    toggleSubscriptionCategory,
     type NotificationCategory,
     type SubscriptionCategories,
     type SubscriptionPreset,

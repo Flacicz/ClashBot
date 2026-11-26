@@ -1,11 +1,24 @@
+import {
+    ALL_NOTIFICATION_CATEGORIES,
+    ALL_SUBSCRIPTION_PRESETS,
+    isCategoryEnabled,
+    type SubscriptionCategories,
+} from '../models/subscription.js';
 import type { AttackGuide, AttackStrategy } from './attackGuideCatalog.js';
 import {
     buildClanUnlinkCallbackData,
     buildGuideCallbackData,
+    buildSettingsCategoryCallbackData,
+    buildSettingsOpenCallbackData,
+    buildSettingsPresetCallbackData,
     buildStrategyCallbackData,
     buildTownHallCallbackData,
     CALLBACK_COMMANDS,
 } from './callbackData.js';
+import {
+    NOTIFICATION_CATEGORY_LABELS,
+    SUBSCRIPTION_PRESET_LABELS,
+} from './subscriptionSettings.js';
 import { MAX_TOWN_HALL, MIN_TOWN_HALL } from './validation.js';
 
 export interface InlineKeyboardButton {
@@ -17,9 +30,19 @@ export interface InlineKeyboardMarkup {
     readonly inline_keyboard: readonly (readonly InlineKeyboardButton[])[];
 }
 
+export interface SubscriptionSettingsKeyboardOptions {
+    readonly extraRows?: readonly (readonly InlineKeyboardButton[])[];
+    readonly backButton?: InlineKeyboardButton;
+}
+
 const MAIN_MENU_BUTTON: InlineKeyboardButton = {
     text: '🏠 В главное меню',
     callback_data: CALLBACK_COMMANDS.MENU_START,
+};
+
+const DEFAULT_SETTINGS_BACK_BUTTON: InlineKeyboardButton = {
+    text: '⬅️ Назад',
+    callback_data: CALLBACK_COMMANDS.CLANS_LIST,
 };
 
 const TOWN_HALL_BUTTONS_PER_ROW = 3;
@@ -66,6 +89,47 @@ export function makeClanUnlinkKeyboard(clanTags: readonly string[]): InlineKeybo
 
     return {
         inline_keyboard: rows,
+    };
+}
+
+export function makeSubscriptionSettingsButton(clanTag: string): InlineKeyboardButton {
+    return {
+        text: '⚙️ Настройки',
+        callback_data: buildSettingsOpenCallbackData(clanTag),
+    };
+}
+
+export function makeSubscriptionSettingsEntryKeyboard(clanTag: string): InlineKeyboardMarkup {
+    return {
+        inline_keyboard: [[makeSubscriptionSettingsButton(clanTag)]],
+    };
+}
+
+export function makeSubscriptionSettingsKeyboard(
+    clanTag: string,
+    categories: SubscriptionCategories,
+    options?: SubscriptionSettingsKeyboardOptions,
+): InlineKeyboardMarkup {
+    const presetRow: InlineKeyboardButton[] = ALL_SUBSCRIPTION_PRESETS.map((preset) => ({
+        text: SUBSCRIPTION_PRESET_LABELS[preset],
+        callback_data: buildSettingsPresetCallbackData(clanTag, preset),
+    }));
+
+    const categoryRows: InlineKeyboardButton[][] = ALL_NOTIFICATION_CATEGORIES.map((category) => {
+        const indicator = isCategoryEnabled(categories, category) ? '✅' : '▫️';
+        return [
+            {
+                text: `${indicator} ${NOTIFICATION_CATEGORY_LABELS[category]}`,
+                callback_data: buildSettingsCategoryCallbackData(clanTag, category),
+            },
+        ];
+    });
+
+    const extraRows: readonly (readonly InlineKeyboardButton[])[] = options?.extraRows ?? [];
+    const backButton = options?.backButton ?? DEFAULT_SETTINGS_BACK_BUTTON;
+
+    return {
+        inline_keyboard: [presetRow, ...categoryRows, ...extraRows, [backButton]],
     };
 }
 
