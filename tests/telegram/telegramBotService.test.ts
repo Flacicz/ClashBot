@@ -14,11 +14,15 @@ import {
     SubscriptionRepo,
     TransactionManager,
 } from '../../src/database/index.js';
-import { createLogger } from '../../src/logging/index.js';
+import { createLogger, type Logger } from '../../src/logging/index.js';
 import type { WakeableClanManager } from '../../src/services/index.js';
 import {
     AttackGuideCatalog,
+    SUPERCELL_FAN_CONTENT_DISCLAIMER,
     TELEGRAM_BOT_ALLOWED_UPDATES,
+    TELEGRAM_BOT_COMMANDS,
+    TELEGRAM_BOT_DESCRIPTION,
+    TELEGRAM_BOT_SHORT_DESCRIPTION,
     TelegramBotService,
 } from '../../src/telegram/index.js';
 import { type LoopbackServer, startLoopbackServer } from '../api/helpers/loopbackServer.js';
@@ -54,6 +58,9 @@ interface FakeTelegramTransport {
     failGetChatMember: boolean;
     failAnswerCallbackQuery: boolean;
     failSendMessage: boolean;
+    failSetMyCommands: boolean;
+    failSetMyDescription: boolean;
+    failSetMyShortDescription: boolean;
     getUpdatesResponder?: (
         payload: Record<string, unknown>,
         signal?: GrammyAbortSignal,
@@ -83,6 +90,9 @@ function createFakeTelegramTransport(db: Database): FakeTelegramTransport {
         failGetChatMember: false,
         failAnswerCallbackQuery: false,
         failSendMessage: false,
+        failSetMyCommands: false,
+        failSetMyDescription: false,
+        failSetMyShortDescription: false,
         install(service: TelegramBotService): void {
             service.bot.api.config.use(async (_prev, method, payload, signal) => {
                 // Pure transactions invariant: no Telegram API call may ever occur inside an open SQLite transaction.
@@ -102,6 +112,39 @@ function createFakeTelegramTransport(db: Database): FakeTelegramTransport {
                 }
 
                 if (method === 'deleteWebhook') {
+                    return { ok: true, result: true } as ApiResponse<never>;
+                }
+
+                if (method === 'setMyCommands') {
+                    if (transport.failSetMyCommands) {
+                        return {
+                            ok: false,
+                            error_code: 400,
+                            description: 'Bad Request: failed to set commands',
+                        };
+                    }
+                    return { ok: true, result: true } as ApiResponse<never>;
+                }
+
+                if (method === 'setMyDescription') {
+                    if (transport.failSetMyDescription) {
+                        return {
+                            ok: false,
+                            error_code: 400,
+                            description: 'Bad Request: failed to set description',
+                        };
+                    }
+                    return { ok: true, result: true } as ApiResponse<never>;
+                }
+
+                if (method === 'setMyShortDescription') {
+                    if (transport.failSetMyShortDescription) {
+                        return {
+                            ok: false,
+                            error_code: 400,
+                            description: 'Bad Request: failed to set short description',
+                        };
+                    }
                     return { ok: true, result: true } as ApiResponse<never>;
                 }
 
@@ -399,6 +442,7 @@ describe('TelegramBotService', () => {
         readonly pollingTimeoutSeconds?: number;
         readonly stopConfirmationTimeoutMs?: number;
         readonly clanManager?: WakeableClanManager;
+        readonly logger?: Logger;
     }): TestHarness {
         const db = new Database(':memory:');
         openDatabases.push(db);
@@ -410,7 +454,7 @@ describe('TelegramBotService', () => {
         const subscriptionRepo = new SubscriptionRepo(db);
         const domainEventsRepo = new DomainEventsRepo(db);
         const notificationRepo = new NotificationRepo(db);
-        const logger = createLogger({ level: 'silent' });
+        const logger = options?.logger ?? createLogger({ level: 'silent' });
         const transport = createFakeTelegramTransport(db);
 
         const service = new TelegramBotService({
@@ -455,8 +499,8 @@ describe('TelegramBotService', () => {
         }
     });
 
-    describe('commands: /start and ignored messages', () => {
-        it('sends the main menu on /start preserving forum topic message_thread_id', async () => {
+    describe('commands: /start, /help, unknown commands and ignored messages', () => {
+        it('sends the main menu on /start without disclaimer, preserving forum topic message_thread_id', async () => {
             const { service, transport } = createHarness();
 
             await service.bot.handleUpdate(
@@ -474,7 +518,10 @@ describe('TelegramBotService', () => {
             expect(sent[0]?.chat_id).toBe(1011);
             expect(sent[0]?.message_thread_id).toBe(13);
             expect(sent[0]?.parse_mode).toBe('HTML');
-            expect(String(sent[0]?.text)).toContain('Добро пожаловать');
+            const text = String(sent[0]?.text);
+            expect(text).toContain('Добро пожаловать');
+            expect(text).not.toContain('Supercell');
+            expect(text).not.toContain('fan-content-policy');
             const keyboard = getInlineKeyboard(sent[0]);
             expect(keyboard[0]?.[0]?.callback_data).toBe('guides:townhalls');
             expect(keyboard[1]?.[0]?.callback_data).toBe('clans:link');
@@ -483,17 +530,26 @@ describe('TelegramBotService', () => {
             expect(keyboard[4]?.[0]?.callback_data).toBe('help:main');
         });
 
-        it('omits message_thread_id in general chats and ignores /start with args or unknown commands', async () => {
+        it('handles /start <arg> the same as /start, omits message_thread_id in general chats, and ignores non-command messages', async () => {
             const { service, transport } = createHarness();
 
             await service.bot.handleUpdate(
                 makeMessageUpdate({ chatId: 1011, chatType: 'private', text: '/start' }),
             );
             await service.bot.handleUpdate(
-                makeMessageUpdate({ chatId: 1011, chatType: 'private', text: '/start extra' }),
+                makeMessageUpdate({
+                    chatId: 1011,
+                    chatType: 'private',
+                    text: '/start deep_link_payload',
+                }),
             );
             await service.bot.handleUpdate(
-                makeMessageUpdate({ chatId: 1011, chatType: 'private', text: '/unknown #2PPLQ' }),
+                makeMessageUpdate({
+                    chatId: -1012,
+                    chatType: 'supergroup',
+                    messageThreadId: 9,
+                    text: '/start@ClashTestBot ref123 extra',
+                }),
             );
             await service.bot.handleUpdate(
                 makeMessageUpdate({ chatId: 1011, chatType: 'private', text: 'hello world' }),
@@ -503,11 +559,118 @@ describe('TelegramBotService', () => {
             );
 
             const sent = transport.sentMessages();
-            expect(sent).toHaveLength(1);
+            expect(sent).toHaveLength(3);
             expect(sent[0]?.message_thread_id).toBeUndefined();
+            expect(sent[1]?.message_thread_id).toBeUndefined();
+            expect(sent[1]?.text).toBe(sent[0]?.text);
+            expect(getInlineKeyboard(sent[1])).toEqual(getInlineKeyboard(sent[0]));
+            expect(sent[2]?.message_thread_id).toBe(9);
+            expect(sent[2]?.text).toBe(sent[0]?.text);
         });
 
-        it('ignores /start, /link, and /unlink addressed to another bot without side effects', async () => {
+        it('handles /help with commands, permissions, presets and Supercell Fan Content Policy disclaimer', async () => {
+            const { service, transport } = createHarness();
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 20,
+                    chatId: 1011,
+                    chatType: 'private',
+                    text: '/help',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 21,
+                    chatId: -1015,
+                    chatType: 'supergroup',
+                    messageThreadId: 19,
+                    text: '/help@ClashTestBot',
+                }),
+            );
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(2);
+            expect(sent[0]?.chat_id).toBe(1011);
+            expect(sent[0]?.message_thread_id).toBeUndefined();
+            expect(sent[0]?.parse_mode).toBe('HTML');
+            expect(sent[1]?.chat_id).toBe(-1015);
+            expect(sent[1]?.message_thread_id).toBe(19);
+            expect(sent[1]?.text).toBe(sent[0]?.text);
+
+            const helpText = String(sent[0]?.text);
+            expect(helpText).toContain('Помощь');
+            expect(helpText).toContain('/start');
+            expect(helpText).toContain('/help');
+            expect(helpText).toContain('/link #ТЕГ_КЛАНА');
+            expect(helpText).toContain('/unlink #ТЕГ_КЛАНА');
+            expect(helpText).toContain('администраторы');
+            expect(helpText).toContain('«Игроки»');
+            expect(helpText).toContain('«Руководство»');
+            expect(helpText).toContain('«Всё вместе»');
+            expect(helpText).toContain(SUPERCELL_FAN_CONTENT_DISCLAIMER);
+            expect(getInlineKeyboard(sent[0])[0]?.[0]?.callback_data).toBe('menu:start');
+        });
+
+        it('replies to unknown commands in private chats and stays silent in groups, supergroups and channels', async () => {
+            const { service, transport } = createHarness();
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 30,
+                    chatId: 1011,
+                    chatType: 'private',
+                    text: '/unknown #2PPLQ',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 31,
+                    chatId: 1011,
+                    chatType: 'private',
+                    messageThreadId: 5,
+                    text: '/foo@ClashTestBot',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 32,
+                    chatId: -2001,
+                    chatType: 'group',
+                    userId: 42,
+                    text: '/unknown',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 33,
+                    chatId: -2002,
+                    chatType: 'supergroup',
+                    userId: 42,
+                    text: '/unknown@ClashTestBot',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 34,
+                    chatId: -2003,
+                    chatType: 'channel',
+                    userId: 42,
+                    text: '/unknown',
+                }),
+            );
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(2);
+            expect(sent[0]?.chat_id).toBe(1011);
+            expect(sent[0]?.message_thread_id).toBeUndefined();
+            expect(sent[0]?.text).toBe('Не знаю такой команды, см. /help');
+            expect(sent[1]?.chat_id).toBe(1011);
+            expect(sent[1]?.message_thread_id).toBe(5);
+            expect(sent[1]?.text).toBe('Не знаю такой команды, см. /help');
+        });
+
+        it('ignores /start, /help, /link, /unlink and unknown commands addressed to another bot without side effects', async () => {
             const { service, transport, subscriptionRepo } = createHarness();
             const chatId = -1001;
             const userId = 42;
@@ -540,7 +703,7 @@ describe('TelegramBotService', () => {
                     chatId,
                     chatType: 'supergroup',
                     userId,
-                    text: '/start@OtherBot',
+                    text: '/start@OtherBot payload',
                 }),
             );
             await service.bot.handleUpdate(
@@ -549,16 +712,16 @@ describe('TelegramBotService', () => {
                     chatId,
                     chatType: 'supergroup',
                     userId,
-                    text: '/link@OtherBot #2PP',
+                    text: '/help@OtherBot',
                 }),
             );
             await service.bot.handleUpdate(
                 makeMessageUpdate({
                     updateId: 4,
-                    chatId,
-                    chatType: 'supergroup',
-                    userId,
-                    text: '/link@OtherBot',
+                    chatId: 1011,
+                    chatType: 'private',
+                    userId: 1011,
+                    text: '/unknown@OtherBot',
                 }),
             );
             await service.bot.handleUpdate(
@@ -567,7 +730,7 @@ describe('TelegramBotService', () => {
                     chatId,
                     chatType: 'supergroup',
                     userId,
-                    text: '/link@OtherBot #INVALID',
+                    text: '/link@OtherBot #2PP',
                 }),
             );
             await service.bot.handleUpdate(
@@ -576,12 +739,21 @@ describe('TelegramBotService', () => {
                     chatId,
                     chatType: 'supergroup',
                     userId,
-                    text: '/unlink@OtherBot #2PPLQ',
+                    text: '/link@OtherBot',
                 }),
             );
             await service.bot.handleUpdate(
                 makeMessageUpdate({
                     updateId: 7,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    text: '/link@OtherBot #INVALID',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 8,
                     chatId,
                     chatType: 'supergroup',
                     userId,
@@ -1328,6 +1500,8 @@ describe('TelegramBotService', () => {
 
             expect(String(edited[1]?.text)).toContain('Помощь');
             expect(String(edited[1]?.text)).toContain('/link #ТЕГ_КЛАНА');
+            expect(String(edited[1]?.text)).toContain('«Игроки»');
+            expect(String(edited[1]?.text)).toContain(SUPERCELL_FAN_CONTENT_DISCLAIMER);
             expect(getInlineKeyboard(edited[1])[0]?.[0]?.callback_data).toBe('menu:start');
 
             expect(String(edited[2]?.text)).toContain('/link #2PPLQ');
@@ -1911,6 +2085,129 @@ describe('TelegramBotService', () => {
             expect(transport.calls).toHaveLength(0);
         });
 
+        it('registers setMyCommands, setMyDescription and setMyShortDescription with Fan Content Policy disclaimer on start()', async () => {
+            const { service, transport } = createHarness();
+            const controller = new AbortController();
+
+            transport.getUpdatesResponder = async (payload, signal) => {
+                if (payload.limit === 1 || controller.signal.aborted) {
+                    return { ok: true, result: [] };
+                }
+
+                return await new Promise<ApiResponse<unknown>>((_resolve, reject) => {
+                    queueMicrotask(() => {
+                        controller.abort();
+                    });
+                    signal?.addEventListener(
+                        'abort',
+                        () => {
+                            const err = new Error('Aborted');
+                            err.name = 'AbortError';
+                            reject(err);
+                        },
+                        { once: true },
+                    );
+                });
+            };
+
+            await service.start(controller.signal);
+
+            const commandsCall = transport.calls.find((call) => call.method === 'setMyCommands');
+            const descriptionCall = transport.calls.find(
+                (call) => call.method === 'setMyDescription',
+            );
+            const shortDescriptionCall = transport.calls.find(
+                (call) => call.method === 'setMyShortDescription',
+            );
+
+            expect(commandsCall?.payload.commands).toEqual(TELEGRAM_BOT_COMMANDS);
+            expect(
+                (commandsCall?.payload.commands as { command: string }[]).map((c) => c.command),
+            ).toEqual(['start', 'help', 'link', 'unlink']);
+
+            expect(descriptionCall?.payload.description).toBe(TELEGRAM_BOT_DESCRIPTION);
+            expect(String(descriptionCall?.payload.description)).toContain(
+                SUPERCELL_FAN_CONTENT_DISCLAIMER,
+            );
+            expect(TELEGRAM_BOT_DESCRIPTION.length).toBeLessThanOrEqual(512);
+
+            expect(shortDescriptionCall?.payload.short_description).toBe(
+                TELEGRAM_BOT_SHORT_DESCRIPTION,
+            );
+            expect(String(shortDescriptionCall?.payload.short_description)).toContain('Supercell');
+            expect(TELEGRAM_BOT_SHORT_DESCRIPTION.length).toBeLessThanOrEqual(120);
+        });
+
+        it('logs warnings and still starts polling when setMyCommands, setMyDescription or setMyShortDescription fail', async () => {
+            const logger = createLogger({ level: 'silent' });
+            const warnSpy = vi.spyOn(logger, 'warn');
+            const { service, transport } = createHarness({ logger });
+            const controller = new AbortController();
+
+            transport.failSetMyCommands = true;
+            transport.failSetMyDescription = true;
+            transport.failSetMyShortDescription = true;
+
+            let pollCount = 0;
+            transport.getUpdatesResponder = async (payload, signal) => {
+                if (payload.limit === 1 || controller.signal.aborted) {
+                    return { ok: true, result: [] };
+                }
+
+                pollCount += 1;
+                if (pollCount === 1) {
+                    return {
+                        ok: true,
+                        result: [
+                            makeMessageUpdate({
+                                updateId: 40,
+                                chatId: 1040,
+                                chatType: 'private',
+                                text: '/help',
+                            }),
+                        ],
+                    };
+                }
+
+                return await new Promise<ApiResponse<unknown>>((_resolve, reject) => {
+                    queueMicrotask(() => {
+                        controller.abort();
+                    });
+                    signal?.addEventListener(
+                        'abort',
+                        () => {
+                            const err = new Error('Aborted');
+                            err.name = 'AbortError';
+                            reject(err);
+                        },
+                        { once: true },
+                    );
+                });
+            };
+
+            await service.start(controller.signal);
+
+            expect(pollCount).toBe(2);
+            expect(transport.calls.filter((c) => c.method === 'setMyCommands')).toHaveLength(1);
+            expect(transport.calls.filter((c) => c.method === 'setMyDescription')).toHaveLength(1);
+            expect(
+                transport.calls.filter((c) => c.method === 'setMyShortDescription'),
+            ).toHaveLength(1);
+            expect(transport.sentMessages()).toHaveLength(1);
+            expect(String(transport.sentMessages()[0]?.text)).toContain(
+                SUPERCELL_FAN_CONTENT_DISCLAIMER,
+            );
+
+            const warnedMethods = warnSpy.mock.calls
+                .map((args) => (args[0] as { method?: string } | undefined)?.method)
+                .filter((method): method is string => method !== undefined);
+            expect(warnedMethods).toEqual([
+                'setMyCommands',
+                'setMyDescription',
+                'setMyShortDescription',
+            ]);
+        });
+
         it('polls with allowed_updates=[message, callback_query, my_chat_member], handles middleware errors without crashing and stops on AbortSignal', async () => {
             const { service, transport, subscriptionRepo } = createHarness({
                 pollingTimeoutSeconds: 2,
@@ -2053,7 +2350,12 @@ describe('TelegramBotService', () => {
             });
 
             const server = await startLoopbackServer((_req, res, recorded) => {
-                if (recorded.url.endsWith('/deleteWebhook')) {
+                if (
+                    recorded.url.endsWith('/deleteWebhook') ||
+                    recorded.url.endsWith('/setMyCommands') ||
+                    recorded.url.endsWith('/setMyDescription') ||
+                    recorded.url.endsWith('/setMyShortDescription')
+                ) {
                     res.setHeader('content-type', 'application/json');
                     res.end(JSON.stringify({ ok: true, result: true }));
                     return;

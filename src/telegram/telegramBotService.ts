@@ -1,5 +1,6 @@
 import { Bot, type BotConfig, type Context, HttpError } from 'grammy';
 import type {
+    BotCommand as GrammyBotCommand,
     Chat,
     ChatMemberUpdated,
     InlineKeyboardMarkup as GrammyInlineKeyboardMarkup,
@@ -52,18 +53,46 @@ export const TELEGRAM_BOT_ALLOWED_UPDATES = [
 export const DEFAULT_POLLING_TIMEOUT_SECONDS = 2;
 export const DEFAULT_STOP_CONFIRMATION_TIMEOUT_MS = 2_000;
 
+export const SUPERCELL_FAN_CONTENT_DISCLAIMER =
+    'ClashBot — неофициальный фанатский проект, не связанный с Supercell и не одобренный ею. ' +
+    'Подробнее: Supercell Fan Content Policy — https://supercell.com/en/fan-content-policy/';
+
+export const TELEGRAM_BOT_COMMANDS: readonly GrammyBotCommand[] = [
+    { command: 'start', description: 'Главное меню и гайды по атакам' },
+    { command: 'help', description: 'Справка по командам, правам и пресетам' },
+    { command: 'link', description: 'Подключить клан: /link #ТЕГ_КЛАНА' },
+    { command: 'unlink', description: 'Отключить клан: /unlink #ТЕГ_КЛАНА' },
+];
+
+export const TELEGRAM_BOT_DESCRIPTION =
+    'ClashBot — бот для мониторинга кланов Clash of Clans: отчёты по КВ, ЛВК и рейдам, ' +
+    'напоминания об атаках, контроль нарушений и гайды по атакам.\n\n' +
+    SUPERCELL_FAN_CONTENT_DISCLAIMER;
+
+export const TELEGRAM_BOT_SHORT_DESCRIPTION =
+    'Мониторинг кланов Clash of Clans. Неофициальный фанатский проект, не связанный с Supercell и не одобренный ею.';
+
 const GENERAL_CHAT_THREAD_ID = 0;
 
 const START_MENU_TEXT = 'Добро пожаловать! Выберите раздел:';
 const HELP_TEXT =
     '❓ Помощь\n\n' +
-    'Подключить клан:\n' +
-    '/link #ТЕГ_КЛАНА\n\n' +
-    'Отключить клан:\n' +
-    '/unlink #ТЕГ_КЛАНА\n\n' +
+    '<b>Команды:</b>\n' +
+    '/start — главное меню и гайды по атакам\n' +
+    '/help — эта справка\n' +
+    '/link #ТЕГ_КЛАНА — подключить клан к чату или теме форума\n' +
+    '/unlink #ТЕГ_КЛАНА — отключить клан\n\n' +
     'Кнопка «📋 Мои кланы» показывает подключённые кланы.\n\n' +
-    'В группе подключать и отключать кланы могут только администраторы ' +
-    'и создатель группы. Бот должен быть администратором группы.';
+    '<b>Права:</b>\n' +
+    'В личном чате управлять подписками может владелец чата. В группе и супергруппе ' +
+    'подключать и отключать кланы могут только администраторы и создатель группы; ' +
+    'бот должен быть администратором группы.\n\n' +
+    '<b>Пресеты подписки:</b>\n' +
+    '• «Игроки» (по умолчанию для групп и тем) — итоги, напоминания и кадры\n' +
+    '• «Руководство» (по умолчанию для личного чата) — дисциплина, аналитика и системные оповещения\n' +
+    '• «Всё вместе» — все категории уведомлений\n\n' +
+    SUPERCELL_FAN_CONTENT_DISCLAIMER;
+const UNKNOWN_COMMAND_TEXT = 'Не знаю такой команды, см. /help';
 const LINK_INSTRUCTIONS_TEXT =
     'Чтобы подключить клан, отправьте команду:\n\n' +
     '/link #ТЕГ_КЛАНА\n\n' +
@@ -90,7 +119,7 @@ export interface TelegramBotServiceDependencies {
 }
 
 type GrammyAbortSignal = Parameters<Context['api']['getChatMember']>[2];
-type ClanSubscriptionCommand = Exclude<BotCommand, { readonly kind: 'start' }>;
+type ClanSubscriptionCommand = Extract<BotCommand, { readonly kind: 'link' | 'unlink' }>;
 
 function toGrammyAbortSignal(signal: AbortSignal | undefined): GrammyAbortSignal {
     // grammY types reference the legacy abort-controller package, while Node.js 24 native AbortSignal is runtime-compatible.
@@ -209,6 +238,11 @@ export class TelegramBotService {
         signal?.addEventListener('abort', onAbort, { once: true });
 
         try {
+            await this.syncBotMetadata(signal);
+            if (signal?.aborted) {
+                return;
+            }
+
             await this.bot.start({
                 allowed_updates: [...TELEGRAM_BOT_ALLOWED_UPDATES],
                 timeout: this.pollingTimeoutSeconds,
@@ -246,6 +280,58 @@ export class TelegramBotService {
                 { err: error },
                 'TelegramBotService stop confirmation request did not complete cleanly',
             );
+        }
+    }
+
+    private async syncBotMetadata(signal?: AbortSignal): Promise<void> {
+        const metadataTasks: readonly {
+            readonly method: 'setMyCommands' | 'setMyDescription' | 'setMyShortDescription';
+            readonly run: () => Promise<unknown>;
+        }[] = [
+            {
+                method: 'setMyCommands',
+                run: () =>
+                    this.bot.api.setMyCommands(
+                        [...TELEGRAM_BOT_COMMANDS],
+                        undefined,
+                        toGrammyAbortSignal(signal),
+                    ),
+            },
+            {
+                method: 'setMyDescription',
+                run: () =>
+                    this.bot.api.setMyDescription(
+                        TELEGRAM_BOT_DESCRIPTION,
+                        undefined,
+                        toGrammyAbortSignal(signal),
+                    ),
+            },
+            {
+                method: 'setMyShortDescription',
+                run: () =>
+                    this.bot.api.setMyShortDescription(
+                        TELEGRAM_BOT_SHORT_DESCRIPTION,
+                        undefined,
+                        toGrammyAbortSignal(signal),
+                    ),
+            },
+        ];
+
+        for (const task of metadataTasks) {
+            if (signal?.aborted) {
+                return;
+            }
+            try {
+                await task.run();
+            } catch (error: unknown) {
+                if (signal?.aborted || this.isCancelledError(error)) {
+                    return;
+                }
+                this.logger.warn(
+                    { err: error, method: task.method },
+                    'Failed to sync Telegram bot metadata on startup',
+                );
+            }
         }
     }
 
@@ -421,6 +507,18 @@ export class TelegramBotService {
 
         if (command.kind === 'start') {
             await this.sendStartMenu(api, chatId, messageThreadId);
+            return;
+        }
+
+        if (command.kind === 'help') {
+            await this.sendHelpMessage(api, chatId, messageThreadId);
+            return;
+        }
+
+        if (command.kind === 'unknown') {
+            if (message.chat.type === 'private') {
+                await this.sendHtmlMessage(api, chatId, UNKNOWN_COMMAND_TEXT, messageThreadId);
+            }
             return;
         }
 
@@ -1010,6 +1108,20 @@ export class TelegramBotService {
             START_MENU_TEXT,
             messageThreadId,
             makeStartMenuKeyboard(),
+        );
+    }
+
+    private async sendHelpMessage(
+        api: Context['api'],
+        chatId: number,
+        messageThreadId: number,
+    ): Promise<void> {
+        await this.sendHtmlMessage(
+            api,
+            chatId,
+            HELP_TEXT,
+            messageThreadId,
+            makeHelpNavigationKeyboard(),
         );
     }
 
