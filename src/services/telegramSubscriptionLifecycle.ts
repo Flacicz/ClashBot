@@ -220,7 +220,6 @@ export class TelegramSubscriptionLifecycle implements TelegramDestinationLifecyc
                 subscription.chatId,
                 subscription.messageThreadId,
                 subscription.clanTag,
-                subscription.audience,
             );
             if (!removed) {
                 continue;

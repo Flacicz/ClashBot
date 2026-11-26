@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
     MAX_TOWN_HALL,
     MIN_TOWN_HALL,
+    isSupportedTelegramChatType,
     parseTownHall,
-    resolveAudience,
+    resolveDefaultPreset,
 } from '../../src/telegram/validation.js';
 
 describe('parseTownHall', () => {
@@ -47,19 +48,25 @@ describe('parseTownHall', () => {
     });
 });
 
-describe('resolveAudience', () => {
-    it('resolves private chat to management audience', () => {
-        expect(resolveAudience('private')).toBe('management');
+describe('resolveDefaultPreset & isSupportedTelegramChatType', () => {
+    it('resolves private chat to management preset', () => {
+        expect(resolveDefaultPreset('private')).toBe('management');
+        expect(isSupportedTelegramChatType('private')).toBe(true);
     });
 
-    it('resolves group and supergroup chats to players audience', () => {
-        expect(resolveAudience('group')).toBe('players');
-        expect(resolveAudience('supergroup')).toBe('players');
+    it('resolves group and supergroup chats to players preset', () => {
+        expect(resolveDefaultPreset('group')).toBe('players');
+        expect(resolveDefaultPreset('supergroup')).toBe('players');
+        expect(isSupportedTelegramChatType('group')).toBe(true);
+        expect(isSupportedTelegramChatType('supergroup')).toBe(true);
     });
 
     it('rejects unsupported chat types', () => {
-        expect(resolveAudience('channel')).toBeNull();
-        expect(resolveAudience('')).toBeNull();
-        expect(resolveAudience('PRIVATE')).toBeNull();
+        expect(resolveDefaultPreset('channel')).toBeNull();
+        expect(resolveDefaultPreset('')).toBeNull();
+        expect(resolveDefaultPreset('PRIVATE')).toBeNull();
+        expect(isSupportedTelegramChatType('channel')).toBe(false);
+        expect(isSupportedTelegramChatType('')).toBe(false);
+        expect(isSupportedTelegramChatType('PRIVATE')).toBe(false);
     });
 });

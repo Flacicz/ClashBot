@@ -687,12 +687,7 @@ describe('TelegramBotService', () => {
                     text: '/link #2PPLQ',
                 }),
             );
-            const subscriptionIdBefore = subscriptionRepo.getSubscriptionId(
-                chatId,
-                0,
-                '#2PPLQ',
-                'players',
-            );
+            const subscriptionIdBefore = subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ');
             expect(subscriptionIdBefore).not.toBeNull();
 
             const callsBefore = transport.calls.length;
@@ -762,8 +757,8 @@ describe('TelegramBotService', () => {
             );
 
             expect(transport.calls).toHaveLength(callsBefore);
-            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PP', 'players')).toBe(false);
-            expect(subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ', 'players')).toBe(
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PP')).toBe(false);
+            expect(subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ')).toBe(
                 subscriptionIdBefore,
             );
         });
@@ -794,7 +789,7 @@ describe('TelegramBotService', () => {
                 }),
             );
 
-            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ', 'players')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ')).toBe(true);
 
             await service.bot.handleUpdate(
                 makeMessageUpdate({
@@ -806,13 +801,13 @@ describe('TelegramBotService', () => {
                 }),
             );
 
-            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ', 'players')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ')).toBe(false);
             expect(transport.sentMessages()).toHaveLength(3);
         });
     });
 
     describe('command: /link', () => {
-        it('links a supergroup forum topic for an administrator with players audience', async () => {
+        it('links a supergroup forum topic for an administrator with players preset by default', async () => {
             const { service, transport, subscriptionRepo, clansRepo, db } = createHarness();
             const chatId = -1001;
             const userId = 42;
@@ -831,12 +826,21 @@ describe('TelegramBotService', () => {
                 }),
             );
 
-            expect(subscriptionRepo.hasSubscription(chatId, threadId, '#2PPLQ', 'players')).toBe(
-                true,
-            );
-            expect(subscriptionRepo.hasSubscription(chatId, threadId, '#2PPLQ', 'management')).toBe(
-                false,
-            );
+            expect(subscriptionRepo.hasSubscription(chatId, threadId, '#2PPLQ')).toBe(true);
+            expect(subscriptionRepo.getSubscription(chatId, threadId, '#2PPLQ')).toMatchObject({
+                clanTag: '#2PPLQ',
+                chatId,
+                messageThreadId: threadId,
+                categories: {
+                    summaries: true,
+                    reminders: true,
+                    roster: true,
+                    discipline: false,
+                    system: false,
+                },
+                mirrorRuleEnabled: false,
+                timezoneOffsetHours: 3,
+            });
             expect(clansRepo.getTrackedClans()).toEqual(['#2PPLQ']);
             expect(clansRepo.getClanNameByTag('#2PPLQ')).toBe('Pending synchronization');
 
@@ -851,10 +855,10 @@ describe('TelegramBotService', () => {
             expect(sent).toHaveLength(1);
             expect(sent[0]?.message_thread_id).toBe(threadId);
             expect(String(sent[0]?.text)).toContain('Готово! Общий чат привязан к клану #2PPLQ');
-            expect(String(sent[0]?.text)).toContain('обычные отчёты и уведомления для игроков');
+            expect(String(sent[0]?.text)).toContain('«Игроки»');
         });
 
-        it('links a private chat as management without calling getChatMember and resolves title fallbacks', async () => {
+        it('links a private chat with management preset without calling getChatMember and resolves title fallbacks', async () => {
             const { service, transport, subscriptionRepo, db } = createHarness();
 
             await service.bot.handleUpdate(
@@ -886,8 +890,18 @@ describe('TelegramBotService', () => {
             );
 
             expect(transport.calls.some((call) => call.method === 'getChatMember')).toBe(false);
-            expect(subscriptionRepo.hasSubscription(1003, 0, '#2PPLQ', 'management')).toBe(true);
-            expect(subscriptionRepo.hasSubscription(1003, 0, '#2PPLQ', 'players')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(1003, 0, '#2PPLQ')).toBe(true);
+            expect(subscriptionRepo.getSubscription(1003, 0, '#2PPLQ')).toMatchObject({
+                categories: {
+                    summaries: false,
+                    reminders: false,
+                    roster: false,
+                    discipline: true,
+                    system: true,
+                },
+                mirrorRuleEnabled: false,
+                timezoneOffsetHours: 3,
+            });
 
             const getTitle = (chatId: number): string | undefined =>
                 db.connection
@@ -903,7 +917,7 @@ describe('TelegramBotService', () => {
             const sent = transport.sentMessages();
             expect(sent).toHaveLength(3);
             expect(String(sent[0]?.text)).toContain('Личный чат');
-            expect(String(sent[0]?.text)).toContain('управленческие уведомления');
+            expect(String(sent[0]?.text)).toContain('«Руководство»');
         });
 
         it('is idempotent on repeated /link and preserves the existing subscription_id generation', async () => {
@@ -918,12 +932,7 @@ describe('TelegramBotService', () => {
                     text: '/link #2PPLQ',
                 }),
             );
-            const firstSubscriptionId = subscriptionRepo.getSubscriptionId(
-                2001,
-                0,
-                '#2PPLQ',
-                'management',
-            );
+            const firstSubscriptionId = subscriptionRepo.getSubscriptionId(2001, 0, '#2PPLQ');
             expect(firstSubscriptionId).not.toBeNull();
 
             await service.bot.handleUpdate(
@@ -935,12 +944,7 @@ describe('TelegramBotService', () => {
                     text: '/link #2PPLQ',
                 }),
             );
-            const secondSubscriptionId = subscriptionRepo.getSubscriptionId(
-                2001,
-                0,
-                '#2PPLQ',
-                'management',
-            );
+            const secondSubscriptionId = subscriptionRepo.getSubscriptionId(2001, 0, '#2PPLQ');
             expect(secondSubscriptionId).toBe(firstSubscriptionId);
         });
 
@@ -1147,10 +1151,8 @@ describe('TelegramBotService', () => {
                 }),
             );
 
-            expect(subscriptionRepo.hasSubscription(chatId, threadId, '#2PPLQ', 'players')).toBe(
-                false,
-            );
-            expect(subscriptionRepo.getClanTagsForChat(chatId, threadId, 'players')).toEqual([]);
+            expect(subscriptionRepo.hasSubscription(chatId, threadId, '#2PPLQ')).toBe(false);
+            expect(subscriptionRepo.getClanTagsForChat(chatId, threadId)).toEqual([]);
             expect(clansRepo.getTrackedClans()).toEqual([]);
             expect(clansRepo.getClanNameByTag('#2PPLQ')).toBe('Pending synchronization');
 
@@ -1182,8 +1184,8 @@ describe('TelegramBotService', () => {
                 }),
             );
 
-            expect(subscriptionRepo.hasSubscription(-1005, 0, '#2PPLQ', 'players')).toBe(false);
-            expect(subscriptionRepo.hasSubscription(-1006, 0, '#2PPLQ', 'players')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(-1005, 0, '#2PPLQ')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(-1006, 0, '#2PPLQ')).toBe(true);
             expect(clansRepo.getTrackedClans()).toEqual(['#2PPLQ']);
         });
 
@@ -1198,29 +1200,31 @@ describe('TelegramBotService', () => {
                 db,
             } = createHarness();
             const chatId = -1001;
+            const otherChatId = 5001;
             const userId = 42;
 
             clansRepo.insertMinimalClan('#2PPLQ');
             clansRepo.insertMinimalClan('#999888');
 
             const subscribe = (
+                targetChatId: number,
                 topic: number,
                 tag: string,
-                audience: 'players' | 'management',
+                preset: 'players' | 'management' | 'all',
             ): number => {
-                subscriptionRepo.saveTelegramChat(chatId, topic, 'test chat');
-                subscriptionRepo.subscribeToChat(chatId, topic, tag, audience);
-                const id = subscriptionRepo.getSubscriptionId(chatId, topic, tag, audience);
+                subscriptionRepo.saveTelegramChat(targetChatId, topic, 'test chat');
+                subscriptionRepo.subscribeToChat(targetChatId, topic, tag, preset);
+                const id = subscriptionRepo.getSubscriptionId(targetChatId, topic, tag);
                 if (id === null) {
                     throw new Error('Expected subscription_id');
                 }
                 return id;
             };
 
-            const oldSubscription = subscribe(7, '#2PPLQ', 'players');
-            const otherTopic = subscribe(8, '#2PPLQ', 'players');
-            const management = subscribe(7, '#2PPLQ', 'management');
-            const otherClan = subscribe(7, '#999888', 'players');
+            const oldSubscription = subscribe(chatId, 7, '#2PPLQ', 'all');
+            const otherTopic = subscribe(chatId, 8, '#2PPLQ', 'players');
+            const otherChat = subscribe(otherChatId, 0, '#2PPLQ', 'management');
+            const otherClan = subscribe(chatId, 7, '#999888', 'players');
 
             domainEventsRepo.appendEvent(
                 {
@@ -1234,7 +1238,7 @@ describe('TelegramBotService', () => {
                     {
                         chatId,
                         messageThreadId: 7,
-                        audience: 'players',
+                        category: 'summaries',
                         subscriptionId: oldSubscription,
                     },
                 ],
@@ -1251,15 +1255,26 @@ describe('TelegramBotService', () => {
                     {
                         chatId,
                         messageThreadId: 7,
-                        audience: 'players',
+                        category: 'summaries',
                         subscriptionId: oldSubscription,
                     },
-                    { chatId, messageThreadId: 8, audience: 'players', subscriptionId: otherTopic },
                     {
                         chatId,
                         messageThreadId: 7,
-                        audience: 'management',
-                        subscriptionId: management,
+                        category: 'discipline',
+                        subscriptionId: oldSubscription,
+                    },
+                    {
+                        chatId,
+                        messageThreadId: 8,
+                        category: 'summaries',
+                        subscriptionId: otherTopic,
+                    },
+                    {
+                        chatId: otherChatId,
+                        messageThreadId: 0,
+                        category: 'discipline',
+                        subscriptionId: otherChat,
                     },
                 ],
             );
@@ -1271,13 +1286,16 @@ describe('TelegramBotService', () => {
                     payloadVersion: 1,
                     clanTag: '#999888',
                 },
-                [{ chatId, messageThreadId: 7, audience: 'players', subscriptionId: otherClan }],
+                [{ chatId, messageThreadId: 7, category: 'roster', subscriptionId: otherClan }],
             );
 
             const destinations = domainEventsRepo.getPendingDestinations(20);
-            const findDestination = (eventId: string, subId: number): number => {
+            const findDestination = (eventId: string, subId: number, category?: string): number => {
                 const match = destinations.find(
-                    (d) => d.eventId === eventId && d.subscriptionId === subId,
+                    (d) =>
+                        d.eventId === eventId &&
+                        d.subscriptionId === subId &&
+                        (category === undefined || d.category === category),
                 );
                 if (match === undefined) {
                     throw new Error(`Destination not found for ${eventId}/${String(subId)}`);
@@ -1285,10 +1303,11 @@ describe('TelegramBotService', () => {
                 return match.destinationId;
             };
 
-            const materializedTarget = findDestination('42', oldSubscription);
-            const pendingTarget = findDestination('43', oldSubscription);
+            const materializedTarget = findDestination('42', oldSubscription, 'summaries');
+            const pendingTargetSummaries = findDestination('43', oldSubscription, 'summaries');
+            const pendingTargetDiscipline = findDestination('43', oldSubscription, 'discipline');
             const unaffectedTopic = findDestination('43', otherTopic);
-            const unaffectedAudience = findDestination('43', management);
+            const unaffectedChat = findDestination('43', otherChat);
             const unaffectedClan = findDestination('55', otherClan);
 
             expect(
@@ -1359,12 +1378,17 @@ describe('TelegramBotService', () => {
             expect(rowStatus(db, 'domain_event_destinations', materializedTarget)).toBe(
                 'materialized',
             );
-            expect(rowStatus(db, 'domain_event_destinations', pendingTarget)).toBe('cancelled');
+            expect(rowStatus(db, 'domain_event_destinations', pendingTargetSummaries)).toBe(
+                'cancelled',
+            );
+            expect(rowStatus(db, 'domain_event_destinations', pendingTargetDiscipline)).toBe(
+                'cancelled',
+            );
             expect(rowStatus(db, 'notifications', pendingNotification)).toBe('cancelled');
             expect(rowStatus(db, 'notifications', sentNotification)).toBe('sent');
             expect(rowStatus(db, 'notifications', failedNotification)).toBe('failed');
             expect(rowStatus(db, 'domain_event_destinations', unaffectedTopic)).toBe('pending');
-            expect(rowStatus(db, 'domain_event_destinations', unaffectedAudience)).toBe('pending');
+            expect(rowStatus(db, 'domain_event_destinations', unaffectedChat)).toBe('pending');
             expect(rowStatus(db, 'domain_event_destinations', unaffectedClan)).toBe('pending');
 
             // Repeated /unlink is safe and reports missing subscription
@@ -1395,15 +1419,15 @@ describe('TelegramBotService', () => {
                     text: '/link #2PPLQ',
                 }),
             );
-            const newSubscription = subscriptionRepo.getSubscriptionId(
-                chatId,
-                7,
-                '#2PPLQ',
-                'players',
-            );
+            const newSubscription = subscriptionRepo.getSubscriptionId(chatId, 7, '#2PPLQ');
             expect(newSubscription).not.toBeNull();
             expect(newSubscription).not.toBe(oldSubscription);
-            expect(rowStatus(db, 'domain_event_destinations', pendingTarget)).toBe('cancelled');
+            expect(rowStatus(db, 'domain_event_destinations', pendingTargetSummaries)).toBe(
+                'cancelled',
+            );
+            expect(rowStatus(db, 'domain_event_destinations', pendingTargetDiscipline)).toBe(
+                'cancelled',
+            );
             expect(rowStatus(db, 'notifications', pendingNotification)).toBe('cancelled');
         });
 
@@ -1581,7 +1605,7 @@ describe('TelegramBotService', () => {
             clansRepo.insertMinimalClan('#2PPLQ');
             subscriptionRepo.saveTelegramChat(chatId, 0, 'Clan group');
             subscriptionRepo.subscribeToChat(chatId, 0, '#2PPLQ', 'players');
-            const subId = subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ', 'players');
+            const subId = subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ');
             expect(subId).not.toBeNull();
             if (subId === null) {
                 throw new Error('Expected subscription_id');
@@ -1595,7 +1619,7 @@ describe('TelegramBotService', () => {
                     payloadVersion: 1,
                     clanTag: '#2PPLQ',
                 },
-                [{ chatId, messageThreadId: 0, audience: 'players', subscriptionId: subId }],
+                [{ chatId, messageThreadId: 0, category: 'summaries', subscriptionId: subId }],
             );
             domainEventsRepo.appendEvent(
                 {
@@ -1605,7 +1629,7 @@ describe('TelegramBotService', () => {
                     payloadVersion: 1,
                     clanTag: '#2PPLQ',
                 },
-                [{ chatId, messageThreadId: 0, audience: 'players', subscriptionId: subId }],
+                [{ chatId, messageThreadId: 0, category: 'summaries', subscriptionId: subId }],
             );
             const dests = domainEventsRepo.getPendingDestinations(10);
             const materializedDest = dests.find((d) => d.eventId === '701');
@@ -1692,7 +1716,7 @@ describe('TelegramBotService', () => {
                     userId: adminId,
                 }),
             );
-            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ', 'players')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ')).toBe(false);
             expect(clansRepo.getTrackedClans()).toEqual([]);
             expect(rowStatus(db, 'domain_event_destinations', pendingDest.destinationId)).toBe(
                 'cancelled',
@@ -1844,7 +1868,7 @@ describe('TelegramBotService', () => {
 
             expect(transport.editedMessages()).toHaveLength(0);
             expect(transport.sentMessages()).toHaveLength(0);
-            expect(subscriptionRepo.hasSubscription(chatId, 15, '#2PPLQ', 'players')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(chatId, 15, '#2PPLQ')).toBe(true);
             expect(transport.answeredCallbackQueries()).toEqual([
                 {
                     callback_query_id: 'q-member-1',
@@ -2278,7 +2302,7 @@ describe('TelegramBotService', () => {
             await service.start(controller.signal);
 
             expect(pollCount).toBe(3);
-            expect(subscriptionRepo.hasSubscription(6001, 0, '#2PPLQ', 'management')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(6001, 0, '#2PPLQ')).toBe(true);
             expect(service.isRunning()).toBe(false);
         });
 
@@ -2453,7 +2477,7 @@ describe('TelegramBotService', () => {
 
             await service.start(controller.signal);
 
-            expect(subscriptionRepo.hasSubscription(-1001, 0, '#2PPLQ', 'players')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(-1001, 0, '#2PPLQ')).toBe(false);
             expect(transport.sentMessages()).toHaveLength(0);
         });
     });
@@ -2476,12 +2500,7 @@ describe('TelegramBotService', () => {
             clansRepo.insertMinimalClan('#2PPLQ');
             subscriptionRepo.saveTelegramChat(oldChatId, 0, 'Old Group');
             subscriptionRepo.subscribeToChat(oldChatId, 0, '#2PPLQ', 'players');
-            const originalSubId = subscriptionRepo.getSubscriptionId(
-                oldChatId,
-                0,
-                '#2PPLQ',
-                'players',
-            );
+            const originalSubId = subscriptionRepo.getSubscriptionId(oldChatId, 0, '#2PPLQ');
             expect(originalSubId).not.toBeNull();
 
             // Seed one pending destination and one materialized destination with a pending notification
@@ -2497,7 +2516,7 @@ describe('TelegramBotService', () => {
                     {
                         chatId: oldChatId,
                         messageThreadId: 0,
-                        audience: 'players',
+                        category: 'summaries',
                         subscriptionId: originalSubId ?? 0,
                     },
                 ],
@@ -2514,7 +2533,7 @@ describe('TelegramBotService', () => {
                     {
                         chatId: oldChatId,
                         messageThreadId: 0,
-                        audience: 'players',
+                        category: 'summaries',
                         subscriptionId: originalSubId ?? 0,
                     },
                 ],
@@ -2543,10 +2562,8 @@ describe('TelegramBotService', () => {
                 },
             } as unknown as Update);
 
-            expect(subscriptionRepo.hasSubscription(oldChatId, 0, '#2PPLQ', 'players')).toBe(false);
-            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ', 'players')).toBe(
-                originalSubId,
-            );
+            expect(subscriptionRepo.hasSubscription(oldChatId, 0, '#2PPLQ')).toBe(false);
+            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ')).toBe(originalSubId);
 
             const migratedDest = domainEventsRepo.getPendingDestinations(10);
             expect(migratedDest).toHaveLength(1);
@@ -2574,9 +2591,7 @@ describe('TelegramBotService', () => {
                 },
             } as unknown as Update);
 
-            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ', 'players')).toBe(
-                originalSubId,
-            );
+            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ')).toBe(originalSubId);
             expect(notificationRepo.getPending(10)).toHaveLength(1);
         });
 
@@ -2588,12 +2603,7 @@ describe('TelegramBotService', () => {
             clansRepo.insertMinimalClan('#2PPLQ');
             subscriptionRepo.saveTelegramChat(oldChatId, 0, 'Old Group');
             subscriptionRepo.subscribeToChat(oldChatId, 0, '#2PPLQ', 'players');
-            const originalSubId = subscriptionRepo.getSubscriptionId(
-                oldChatId,
-                0,
-                '#2PPLQ',
-                'players',
-            );
+            const originalSubId = subscriptionRepo.getSubscriptionId(oldChatId, 0, '#2PPLQ');
             notificationRepo.enqueueIfAbsent('Legacy pending', 'war_ended', 'mf-1', oldChatId, 0);
 
             await service.bot.handleUpdate({
@@ -2606,9 +2616,7 @@ describe('TelegramBotService', () => {
                 },
             } as unknown as Update);
 
-            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ', 'players')).toBe(
-                originalSubId,
-            );
+            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ')).toBe(originalSubId);
             const pendingNotifs = notificationRepo.getPending(10);
             expect(pendingNotifs).toHaveLength(1);
             expect(pendingNotifs[0]?.chatId).toBe(newChatId);
@@ -2646,10 +2654,8 @@ describe('TelegramBotService', () => {
             subscriptionRepo.saveTelegramChat(-7005, 0, 'Muted Group');
             subscriptionRepo.subscribeToChat(-7005, 0, '#2PPLQ', 'players');
 
-            const sub7001Topic =
-                subscriptionRepo.getSubscriptionId(-7001, 15, '#SOLE', 'players') ?? 0;
-            const sub7003 =
-                subscriptionRepo.getSubscriptionId(7003, 0, '#2PPLQ', 'management') ?? 0;
+            const sub7001Topic = subscriptionRepo.getSubscriptionId(-7001, 15, '#SOLE') ?? 0;
+            const sub7003 = subscriptionRepo.getSubscriptionId(7003, 0, '#2PPLQ') ?? 0;
 
             // Pending destination for -7001 topic 15
             domainEventsRepo.appendEvent(
@@ -2664,7 +2670,7 @@ describe('TelegramBotService', () => {
                     {
                         chatId: -7001,
                         messageThreadId: 15,
-                        audience: 'players',
+                        category: 'summaries',
                         subscriptionId: sub7001Topic,
                     },
                 ],
@@ -2682,7 +2688,7 @@ describe('TelegramBotService', () => {
                     {
                         chatId: 7003,
                         messageThreadId: 0,
-                        audience: 'management',
+                        category: 'discipline',
                         subscriptionId: sub7003,
                     },
                 ],
@@ -2770,7 +2776,7 @@ describe('TelegramBotService', () => {
                     can_send_messages: true,
                 }),
             );
-            expect(subscriptionRepo.hasSubscription(-7002, 0, '#2PPLQ', 'players')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(-7002, 0, '#2PPLQ')).toBe(true);
 
             // Zero Telegram HTTP calls were made during my_chat_member handling
             expect(transport.calls).toHaveLength(0);

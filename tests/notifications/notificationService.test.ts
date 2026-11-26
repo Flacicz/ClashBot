@@ -701,7 +701,7 @@ describe('NotificationService & DomainEventMaterializer', () => {
         expect(getAllNotificationRows(ctx.db)).toHaveLength(16);
     });
 
-    it('enforces audience guard when materialize is called with a mismatched destination audience and covers all reminder checkpoint kinds', () => {
+    it('enforces category guard when materialize is called with a mismatched destination category and covers all reminder checkpoint kinds', () => {
         const ctx = setup();
 
         const joinedEvent: ApplicationEvent = {
@@ -720,8 +720,8 @@ describe('NotificationService & DomainEventMaterializer', () => {
             outageId: 600,
         };
 
-        expect(EventNotificationPolicy.audiencesFor(joinedEvent)).toEqual(['players']);
-        expect(EventNotificationPolicy.audiencesFor(syncFailureEvent)).toEqual(['management']);
+        expect(EventNotificationPolicy.categoriesFor(joinedEvent)).toEqual(['roster']);
+        expect(EventNotificationPolicy.categoriesFor(syncFailureEvent)).toEqual(['system']);
 
         ctx.domainEventsRepo.appendEvent(
             {
@@ -735,7 +735,7 @@ describe('NotificationService & DomainEventMaterializer', () => {
                 {
                     chatId: PLAYERS_CHAT_ID,
                     messageThreadId: PLAYERS_THREAD_ID,
-                    audience: 'players',
+                    category: 'roster',
                     subscriptionId: 1,
                 },
             ],
@@ -745,17 +745,21 @@ describe('NotificationService & DomainEventMaterializer', () => {
         if (baseDest === undefined) {
             throw new Error('Expected pending destination');
         }
-        const managementDest: PendingDomainEventDestination = {
+        const disciplineDest: PendingDomainEventDestination = {
             ...baseDest,
-            audience: 'management',
+            category: 'discipline',
         };
-        const playersDest: PendingDomainEventDestination = {
+        const rosterDest: PendingDomainEventDestination = {
             ...baseDest,
-            audience: 'players',
+            category: 'roster',
+        };
+        const systemDest: PendingDomainEventDestination = {
+            ...baseDest,
+            category: 'system',
         };
 
-        // Calling players-only events with a management destination produces 0 rows
-        ctx.notificationService.materialize(joinedEvent, managementDest);
+        // Calling roster/reminder events with a discipline destination produces 0 rows
+        ctx.notificationService.materialize(joinedEvent, disciplineDest);
         ctx.notificationService.materialize(
             {
                 type: APPLICATION_EVENT_TYPES.playerLeftClan,
@@ -764,7 +768,7 @@ describe('NotificationService & DomainEventMaterializer', () => {
                 playerName: 'Alice',
                 membershipId: 500,
             },
-            managementDest,
+            disciplineDest,
         );
         ctx.notificationService.materialize(
             {
@@ -776,7 +780,7 @@ describe('NotificationService & DomainEventMaterializer', () => {
                 newRole: 'admin',
                 snapshotId: 500,
             },
-            managementDest,
+            disciplineDest,
         );
         ctx.notificationService.materialize(
             {
@@ -787,7 +791,7 @@ describe('NotificationService & DomainEventMaterializer', () => {
                 warKind: WAR_REMINDER_WAR_KINDS.cwl,
                 kind: WAR_REMINDER_KINDS.oneHourLeft,
             },
-            managementDest,
+            disciplineDest,
         );
         ctx.notificationService.materialize(
             {
@@ -797,11 +801,11 @@ describe('NotificationService & DomainEventMaterializer', () => {
                 endTime: 1_700_000_000,
                 kind: RAID_REMINDER_KINDS.oneHourLeft,
             },
-            managementDest,
+            disciplineDest,
         );
 
-        // Calling management-only events with a players destination produces 0 rows
-        ctx.notificationService.materialize(syncFailureEvent, playersDest);
+        // Calling system-only events with a roster destination produces 0 rows
+        ctx.notificationService.materialize(syncFailureEvent, rosterDest);
         ctx.notificationService.materialize(
             {
                 type: APPLICATION_EVENT_TYPES.syncRecovery,
@@ -809,7 +813,34 @@ describe('NotificationService & DomainEventMaterializer', () => {
                 serviceName: 'ClanInfoService',
                 outageId: 600,
             },
-            playersDest,
+            rosterDest,
+        );
+
+        // Calling war/raid/cwl ended events with a system/roster destination produces 0 rows
+        ctx.notificationService.materialize(
+            {
+                type: APPLICATION_EVENT_TYPES.warEnded,
+                clanTag: CLAN_TAG,
+                warReference: { clanTag: CLAN_TAG, warId: 1, homeClanId: 1, opponentClanId: 2 },
+            },
+            systemDest,
+        );
+        ctx.notificationService.materialize(
+            {
+                type: APPLICATION_EVENT_TYPES.raidsEnded,
+                clanTag: CLAN_TAG,
+                raidReference: { raidId: 1 },
+            },
+            rosterDest,
+        );
+        ctx.notificationService.materialize(
+            {
+                type: APPLICATION_EVENT_TYPES.cwlRoundEnded,
+                clanTag: CLAN_TAG,
+                cwlSeasonId: 1,
+                warReference: { clanTag: CLAN_TAG, warId: 1, homeClanId: 1, opponentClanId: 2 },
+            },
+            systemDest,
         );
 
         expect(getAllNotificationRows(ctx.db)).toHaveLength(0);
@@ -981,14 +1012,14 @@ describe('NotificationService & DomainEventMaterializer', () => {
         };
 
         ctx.recorder.recordAll([warEnded]);
-        const managementDest = ctx.domainEventsRepo
+        const disciplineDest = ctx.domainEventsRepo
             .getPendingDestinations(20)
-            .find((dest) => dest.audience === 'management');
-        if (managementDest === undefined) {
-            throw new Error('Expected management destination');
+            .find((dest) => dest.category === 'discipline');
+        if (disciplineDest === undefined) {
+            throw new Error('Expected discipline destination');
         }
 
-        ctx.notificationService.materialize(warEnded, managementDest);
+        ctx.notificationService.materialize(warEnded, disciplineDest);
 
         const rosterRows = getAllNotificationRows(ctx.db).filter(
             (row) => row.event_type === NOTIFICATION_EVENT_TYPES.warRosterReliability,
@@ -1013,7 +1044,263 @@ describe('NotificationService & DomainEventMaterializer', () => {
 
         // Re-materialization is idempotent: no duplicate rows created for any part_index
         const totalBefore = getAllNotificationRows(ctx.db).length;
-        ctx.notificationService.materialize(warEnded, managementDest);
+        ctx.notificationService.materialize(warEnded, disciplineDest);
         expect(getAllNotificationRows(ctx.db)).toHaveLength(totalBefore);
+    });
+
+    it('routes all 16 notification types strictly by each of the 5 independent categories, supports preset all, and applies category updates only to new events', () => {
+        const ctx = setup();
+
+        // Remove default subscriptions from setup() to test each category cleanly in isolation
+        ctx.subscriptionRepo.unsubscribeFromChat(PLAYERS_CHAT_ID, PLAYERS_THREAD_ID, CLAN_TAG);
+        ctx.subscriptionRepo.unsubscribeFromChat(
+            MANAGEMENT_CHAT_ID,
+            MANAGEMENT_THREAD_ID,
+            CLAN_TAG,
+        );
+
+        const CHAT_SUMMARIES = -5001;
+        const CHAT_REMINDERS = -5002;
+        const CHAT_ROSTER = -5003;
+        const CHAT_DISCIPLINE = -5004;
+        const CHAT_SYSTEM = -5005;
+        const CHAT_ALL = -5006;
+
+        const singleCategoryChats = [
+            {
+                chatId: CHAT_SUMMARIES,
+                categories: {
+                    summaries: true,
+                    reminders: false,
+                    roster: false,
+                    discipline: false,
+                    system: false,
+                },
+            },
+            {
+                chatId: CHAT_REMINDERS,
+                categories: {
+                    summaries: false,
+                    reminders: true,
+                    roster: false,
+                    discipline: false,
+                    system: false,
+                },
+            },
+            {
+                chatId: CHAT_ROSTER,
+                categories: {
+                    summaries: false,
+                    reminders: false,
+                    roster: true,
+                    discipline: false,
+                    system: false,
+                },
+            },
+            {
+                chatId: CHAT_DISCIPLINE,
+                categories: {
+                    summaries: false,
+                    reminders: false,
+                    roster: false,
+                    discipline: true,
+                    system: false,
+                },
+            },
+            {
+                chatId: CHAT_SYSTEM,
+                categories: {
+                    summaries: false,
+                    reminders: false,
+                    roster: false,
+                    discipline: false,
+                    system: true,
+                },
+            },
+        ] as const;
+
+        for (const item of singleCategoryChats) {
+            ctx.subscriptionRepo.saveTelegramChat(item.chatId, 0, `Chat ${String(item.chatId)}`);
+            ctx.subscriptionRepo.subscribeToChat(item.chatId, 0, CLAN_TAG, {
+                categories: item.categories,
+            });
+        }
+        ctx.subscriptionRepo.saveTelegramChat(CHAT_ALL, 0, 'All Preset Chat');
+        ctx.subscriptionRepo.subscribeToChat(CHAT_ALL, 0, CLAN_TAG, 'all');
+
+        // Seed 2 regular wars, 2 raids, and 1 CWL round so all 16 notification types are produced
+        seedRegularWar(ctx.clanwarRepo, {
+            warUID: 'cat-war-prev',
+            startTime: 1_700_000_000,
+            endTime: 1_700_086_400,
+            homeStars: 4,
+            opponentStars: 4,
+            opponentTag: '#COPP0',
+            opponentName: 'Prev Opp',
+        });
+        const warRef = seedRegularWar(ctx.clanwarRepo, {
+            warUID: 'cat-war-curr',
+            startTime: 1_700_100_000,
+            endTime: 1_700_186_400,
+            homeStars: 6,
+            opponentStars: 3,
+            opponentTag: '#COPP1',
+            opponentName: 'Curr Opp',
+        });
+        seedRaid(ctx.raidRepo, {
+            startTime: 1_700_200_000,
+            endTime: 1_700_459_200,
+            totalLoot: 80_000,
+        });
+        const raidRef = seedRaid(ctx.raidRepo, {
+            startTime: 1_700_800_000,
+            endTime: 1_701_059_200,
+            totalLoot: 100_000,
+        });
+        const cwl = seedCwlSeasonAndRound(ctx.clanwarRepo, ctx.clanwarsLeagueRepo);
+
+        const allEvents: ApplicationEvent[] = [
+            {
+                type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                clanTag: CLAN_TAG,
+                playerTag: '#P1',
+                playerName: 'Alice',
+                membershipId: 701,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.playerLeftClan,
+                clanTag: CLAN_TAG,
+                playerTag: '#P2',
+                playerName: 'Bob',
+                membershipId: 702,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.playerRoleChanged,
+                clanTag: CLAN_TAG,
+                playerTag: '#P1',
+                playerName: 'Alice',
+                oldRole: 'member',
+                newRole: 'admin',
+                snapshotId: 703,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.warEnded,
+                clanTag: CLAN_TAG,
+                warReference: warRef,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.raidsEnded,
+                clanTag: CLAN_TAG,
+                raidReference: raidRef,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.cwlRoundEnded,
+                clanTag: CLAN_TAG,
+                cwlSeasonId: cwl.cwlSeasonId,
+                warReference: cwl.warReference,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.syncFailure,
+                clanTag: CLAN_TAG,
+                serviceName: 'RaidService',
+                errorMsg: 'HTTP 503',
+                attempts: 3,
+                outageId: 704,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.syncRecovery,
+                clanTag: CLAN_TAG,
+                serviceName: 'RaidService',
+                outageId: 704,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.warReminder,
+                clanTag: CLAN_TAG,
+                warId: warRef.warId,
+                endTime: 1_700_186_400,
+                warKind: WAR_REMINDER_WAR_KINDS.regular,
+                kind: WAR_REMINDER_KINDS.sixHoursLeft,
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.raidReminder,
+                clanTag: CLAN_TAG,
+                raidReference: raidRef,
+                endTime: 1_701_059_200,
+                kind: RAID_REMINDER_KINDS.twentyFourHoursLeft,
+            },
+        ];
+
+        ctx.recorder.recordAll(allEvents);
+
+        // Changing categories of CHAT_ALL BEFORE materialization must NOT affect already recorded destinations
+        ctx.subscriptionRepo.updateSubscriptionCategories(CHAT_ALL, 0, CLAN_TAG, {
+            summaries: false,
+            reminders: false,
+            roster: false,
+            discipline: false,
+            system: true,
+        });
+
+        const destinations = ctx.domainEventsRepo.getPendingDestinations(100);
+        const eventsByType = new Map<string, ApplicationEvent>(allEvents.map((e) => [e.type, e]));
+        for (const dest of destinations) {
+            const event = eventsByType.get(dest.eventType);
+            if (event !== undefined) {
+                ctx.notificationService.materialize(event, dest);
+            }
+            ctx.domainEventsRepo.markMaterialized(dest.destinationId);
+        }
+
+        const rows = getAllNotificationRows(ctx.db);
+        const typesForChat = (chatId: number): Set<string> =>
+            new Set(rows.filter((r) => r.chat_id === chatId).map((r) => r.event_type));
+
+        expect(typesForChat(CHAT_SUMMARIES)).toEqual(
+            new Set([
+                NOTIFICATION_EVENT_TYPES.warEnded,
+                NOTIFICATION_EVENT_TYPES.warComparison,
+                NOTIFICATION_EVENT_TYPES.cwlRoundEnded,
+                NOTIFICATION_EVENT_TYPES.raidsEnded,
+                NOTIFICATION_EVENT_TYPES.raidsComparison,
+            ]),
+        );
+        expect(typesForChat(CHAT_REMINDERS)).toEqual(
+            new Set([NOTIFICATION_EVENT_TYPES.warReminder, NOTIFICATION_EVENT_TYPES.raidReminder]),
+        );
+        expect(typesForChat(CHAT_ROSTER)).toEqual(
+            new Set([
+                NOTIFICATION_EVENT_TYPES.playerJoinedClan,
+                NOTIFICATION_EVENT_TYPES.playerLeftClan,
+                NOTIFICATION_EVENT_TYPES.playerRoleChanged,
+            ]),
+        );
+        expect(typesForChat(CHAT_DISCIPLINE)).toEqual(
+            new Set([
+                NOTIFICATION_EVENT_TYPES.warViolations,
+                NOTIFICATION_EVENT_TYPES.warRosterReliability,
+                NOTIFICATION_EVENT_TYPES.cwlViolations,
+                NOTIFICATION_EVENT_TYPES.raidsViolations,
+            ]),
+        );
+        expect(typesForChat(CHAT_SYSTEM)).toEqual(
+            new Set([NOTIFICATION_EVENT_TYPES.syncFailure, NOTIFICATION_EVENT_TYPES.syncRecovery]),
+        );
+        // CHAT_ALL still materialized all 16 types from already-recorded destinations despite category change
+        expect(typesForChat(CHAT_ALL)).toEqual(new Set(Object.values(NOTIFICATION_EVENT_TYPES)));
+
+        // A NEW roster event after the category update must NOT go to CHAT_ALL (only to CHAT_ROSTER)
+        ctx.recorder.recordAll([
+            {
+                type: APPLICATION_EVENT_TYPES.playerJoinedClan,
+                clanTag: CLAN_TAG,
+                playerTag: '#P3',
+                playerName: 'Charlie',
+                membershipId: 799,
+            },
+        ]);
+        const newPending = ctx.domainEventsRepo.getPendingDestinations(50);
+        expect(newPending.map((d) => ({ chatId: d.chatId, category: d.category }))).toEqual([
+            { chatId: CHAT_ROSTER, category: 'roster' },
+        ]);
     });
 });

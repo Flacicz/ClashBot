@@ -23,6 +23,7 @@ import {
     getApplicationEventKey,
 } from '../events/applicationEvents.js';
 import type { Logger } from '../logging/logger.js';
+import { NOTIFICATION_CATEGORIES, type NotificationCategory } from '../models/subscription.js';
 import {
     ClanwarComparisonFormatter,
     ClanwarEndedFormatter,
@@ -41,7 +42,6 @@ import {
     WarReminderFormatter,
 } from '../reports/index.js';
 import { getRaidReminderExpiresAt, getWarReminderExpiresAt } from '../services/reminders.js';
-import type { Audience } from '../telegram/validation.js';
 import { DEFAULT_TELEGRAM_MAX_VISIBLE_LENGTH, splitHtmlMessage } from './htmlMessageSplitter.js';
 
 export const DEFAULT_NOTIFICATION_PART_INDEX = 1;
@@ -260,7 +260,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'PlayerJoinedClanEvent',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.roster,
                 );
                 return;
             }
@@ -272,7 +272,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'PlayerLeftClanEvent',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.roster,
                 );
                 return;
             }
@@ -284,7 +284,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'PlayerRoleChangedEvent',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.roster,
                 );
                 return;
             }
@@ -296,7 +296,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'RaidsReport',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.summaries,
                 );
 
                 const comparisonMessage = this.raidsComparisonFormatter.format(event);
@@ -307,7 +307,7 @@ export class NotificationService implements DomainEventMaterializer {
                         eventId,
                         'RaidsComparisonReport',
                         comparisonMessage,
-                        'players',
+                        NOTIFICATION_CATEGORIES.summaries,
                     );
                 }
 
@@ -318,7 +318,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'RaidsViolationsReport',
                     violationsMessage,
-                    'management',
+                    NOTIFICATION_CATEGORIES.discipline,
                 );
                 return;
             }
@@ -330,7 +330,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'WarReport',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.summaries,
                 );
 
                 const violationsMessage = this.clanwarViolationsFormatter.format(event);
@@ -340,7 +340,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'WarViolationsReport',
                     violationsMessage,
-                    'management',
+                    NOTIFICATION_CATEGORIES.discipline,
                 );
 
                 const comparisonMessage = this.clanwarComparisonFormatter.format(event);
@@ -351,7 +351,7 @@ export class NotificationService implements DomainEventMaterializer {
                         eventId,
                         'WarComparisonReport',
                         comparisonMessage,
-                        'players',
+                        NOTIFICATION_CATEGORIES.summaries,
                     );
                 }
 
@@ -363,7 +363,7 @@ export class NotificationService implements DomainEventMaterializer {
                         eventId,
                         'WarRosterReport',
                         rosterMessage,
-                        'management',
+                        NOTIFICATION_CATEGORIES.discipline,
                     );
                 }
                 return;
@@ -376,7 +376,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'CwlRoundReport',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.summaries,
                 );
 
                 const violationsMessage = this.clanwarsLeagueRoundViolationsFormatter.format(event);
@@ -386,7 +386,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'CwlRoundViolationsReport',
                     violationsMessage,
-                    'management',
+                    NOTIFICATION_CATEGORIES.discipline,
                 );
                 return;
             }
@@ -398,7 +398,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'SyncFailureEvent',
                     message,
-                    'management',
+                    NOTIFICATION_CATEGORIES.system,
                 );
                 return;
             }
@@ -410,7 +410,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'SyncRecoveryEvent',
                     message,
-                    'management',
+                    NOTIFICATION_CATEGORIES.system,
                 );
                 return;
             }
@@ -423,7 +423,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'WarReminderEvent',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.reminders,
                     expiresAt,
                 );
                 return;
@@ -437,7 +437,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'RaidReminderEvent',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.reminders,
                     expiresAt,
                 );
                 return;
@@ -451,7 +451,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: PlayerJoinedClanEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'players') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.roster) {
             return;
         }
 
@@ -463,7 +463,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: PlayerLeftClanEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'players') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.roster) {
             return;
         }
 
@@ -475,7 +475,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: PlayerRoleChangedEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'players') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.roster) {
             return;
         }
 
@@ -487,7 +487,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: WarEndedEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience === 'players') {
+        if (destination.category === NOTIFICATION_CATEGORIES.summaries) {
             const message = this.clanwarEndedFormatter.format(event);
             this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.warEnded);
 
@@ -499,6 +499,10 @@ export class NotificationService implements DomainEventMaterializer {
                     NOTIFICATION_EVENT_TYPES.warComparison,
                 );
             }
+            return;
+        }
+
+        if (destination.category !== NOTIFICATION_CATEGORIES.discipline) {
             return;
         }
 
@@ -523,7 +527,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: RaidsEndedEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience === 'players') {
+        if (destination.category === NOTIFICATION_CATEGORIES.summaries) {
             const message = this.raidsEndedFormatter.format(event);
             this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.raidsEnded);
 
@@ -535,6 +539,10 @@ export class NotificationService implements DomainEventMaterializer {
                     NOTIFICATION_EVENT_TYPES.raidsComparison,
                 );
             }
+            return;
+        }
+
+        if (destination.category !== NOTIFICATION_CATEGORIES.discipline) {
             return;
         }
 
@@ -550,9 +558,13 @@ export class NotificationService implements DomainEventMaterializer {
         event: ClanwarsLeagueRoundEndedEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience === 'players') {
+        if (destination.category === NOTIFICATION_CATEGORIES.summaries) {
             const message = this.clanwarsLeagueRoundEndedFormatter.format(event);
             this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.cwlRoundEnded);
+            return;
+        }
+
+        if (destination.category !== NOTIFICATION_CATEGORIES.discipline) {
             return;
         }
 
@@ -568,7 +580,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: SyncFailureEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'management') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.system) {
             return;
         }
 
@@ -580,7 +592,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: SyncRecoveryEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'management') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.system) {
             return;
         }
 
@@ -592,7 +604,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: WarReminderEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'players') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.reminders) {
             return;
         }
 
@@ -610,7 +622,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: RaidReminderEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'players') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.reminders) {
             return;
         }
 
@@ -675,13 +687,13 @@ export class NotificationService implements DomainEventMaterializer {
         eventId: string,
         eventName: string,
         message: string,
-        audience: Audience,
+        category: NotificationCategory,
         expiresAt: number | null = null,
     ): void {
         const subscriptionRepo = requireDep(this.subscriptionRepo, 'subscriptionRepo');
         const transactionManager = requireDep(this.transactionManager, 'transactionManager');
 
-        const destinations = subscriptionRepo.getDestinationsForClan(clanTag, audience);
+        const destinations = subscriptionRepo.getDestinationsForClan(clanTag, category);
         const parts = splitHtmlMessage(message, {
             maxVisibleLength: this.maxMessageLength,
         });

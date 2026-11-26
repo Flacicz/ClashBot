@@ -549,7 +549,7 @@ describe('ClanwarLeagueService', () => {
             `${String(round2WarId)}:${WAR_REMINDER_KINDS.sixHoursLeft}`,
         ]);
         for (const reminderDest of pending.filter((d) => d.eventType === 'war_reminder')) {
-            expect(reminderDest.audience).toBe('players');
+            expect(reminderDest.category).toBe('reminders');
             expect(JSON.parse(reminderDest.payload)).toMatchObject({ war_kind: 'cwl' });
         }
     });

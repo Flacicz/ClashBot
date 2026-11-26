@@ -71,7 +71,7 @@ describe('NotificationRepo', () => {
                 {
                     chatId,
                     messageThreadId,
-                    audience: 'players',
+                    category: 'summaries',
                     subscriptionId,
                 },
             ],
@@ -378,11 +378,11 @@ describe('NotificationRepo', () => {
         subscriptionRepo.subscribeToChat(-1002, 0, '#CLAN1', 'players');
 
         const activeSubId = mustExist(
-            subscriptionRepo.getSubscriptionId(-1001, 0, '#CLAN1', 'players') ?? undefined,
+            subscriptionRepo.getSubscriptionId(-1001, 0, '#CLAN1') ?? undefined,
             'activeSubId',
         );
         const oldSubId = mustExist(
-            subscriptionRepo.getSubscriptionId(-1002, 0, '#CLAN1', 'players') ?? undefined,
+            subscriptionRepo.getSubscriptionId(-1002, 0, '#CLAN1') ?? undefined,
             'oldSubId',
         );
 
@@ -439,10 +439,10 @@ describe('NotificationRepo', () => {
         expect(repo.claimForSending(legacyStale.id, 1_700_000_000)).toBe(true);
 
         // Unlink chat -1002 and re-link it to create a new subscription generation
-        subscriptionRepo.unsubscribeFromChat(-1002, 0, '#CLAN1', 'players');
+        subscriptionRepo.unsubscribeFromChat(-1002, 0, '#CLAN1');
         subscriptionRepo.saveTelegramChat(-1002, 0, 'Cancelled Chat');
         subscriptionRepo.subscribeToChat(-1002, 0, '#CLAN1', 'players');
-        const newSubId = subscriptionRepo.getSubscriptionId(-1002, 0, '#CLAN1', 'players');
+        const newSubId = subscriptionRepo.getSubscriptionId(-1002, 0, '#CLAN1');
         expect(newSubId).not.toBeNull();
         expect(newSubId).not.toBe(oldSubId);
 

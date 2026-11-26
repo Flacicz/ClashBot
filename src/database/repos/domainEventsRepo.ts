@@ -1,5 +1,5 @@
 import { DatabaseError } from '../../common/errors.js';
-import { type Audience } from '../../telegram/validation.js';
+import { isNotificationCategory, type NotificationCategory } from '../../models/subscription.js';
 import { type DatabaseSource, getConnection, runRepoQuery } from './repoHelpers.js';
 
 export const DEFAULT_PENDING_DESTINATIONS_LIMIT = 100;
@@ -17,7 +17,7 @@ export interface DomainEventRecord {
 export interface DomainEventDestinationRecord {
     readonly chatId: number;
     readonly messageThreadId: number;
-    readonly audience: Audience;
+    readonly category: NotificationCategory;
     readonly subscriptionId: number;
 }
 
@@ -31,7 +31,7 @@ export interface PendingDomainEventDestination {
     readonly clanTag: string;
     readonly chatId: number;
     readonly messageThreadId: number;
-    readonly audience: Audience;
+    readonly category: NotificationCategory;
     readonly subscriptionId: number;
     readonly attempts: number;
 }
@@ -54,20 +54,20 @@ interface PendingDestinationRow {
     readonly clan_tag: string;
     readonly chat_id: number;
     readonly message_thread_id: number;
-    readonly audience: string;
+    readonly category: string;
     readonly subscription_id: number;
     readonly attempts: number;
 }
 
 const REPO_NAME = 'DomainEventsRepo';
 
-function parseAudience(value: string): Audience {
-    if (value === 'players' || value === 'management') {
+function parseNotificationCategory(value: string): NotificationCategory {
+    if (isNotificationCategory(value)) {
         return value;
     }
     throw new DatabaseError(
-        `[${REPO_NAME}] Unknown audience '${value}' in domain event destination`,
-        { context: { audience: value } },
+        `[${REPO_NAME}] Unknown category '${value}' in domain event destination`,
+        { context: { category: value } },
     );
 }
 
@@ -118,12 +118,14 @@ export class DomainEventsRepo {
                     return null;
                 }
 
-                const insertDestination = conn.prepare<[number, number, number, Audience, number]>(
+                const insertDestination = conn.prepare<
+                    [number, number, number, NotificationCategory, number]
+                >(
                     `INSERT INTO domain_event_destinations (
                          domain_event_id,
                          chat_id,
                          message_thread_id,
-                         audience,
+                         category,
                          subscription_id
                      )
                      VALUES (?, ?, ?, ?, ?)
@@ -131,7 +133,7 @@ export class DomainEventsRepo {
                          domain_event_id,
                          chat_id,
                          message_thread_id,
-                         audience,
+                         category,
                          subscription_id
                      ) DO NOTHING;`,
                 );
@@ -141,7 +143,7 @@ export class DomainEventsRepo {
                         inserted.id,
                         destination.chatId,
                         destination.messageThreadId,
-                        destination.audience,
+                        destination.category,
                         destination.subscriptionId,
                     );
                 }
@@ -175,7 +177,7 @@ export class DomainEventsRepo {
                                 e.clan_tag,
                                 d.chat_id,
                                 d.message_thread_id,
-                                d.audience,
+                                d.category,
                                 d.subscription_id,
                                 d.attempts
                          FROM domain_event_destinations d
@@ -201,7 +203,7 @@ export class DomainEventsRepo {
                     clanTag: row.clan_tag,
                     chatId: row.chat_id,
                     messageThreadId: row.message_thread_id,
-                    audience: parseAudience(row.audience),
+                    category: parseNotificationCategory(row.category),
                     subscriptionId: row.subscription_id,
                     attempts: row.attempts,
                 }));

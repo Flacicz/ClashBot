@@ -67,6 +67,7 @@ export {
     GENERAL_CHAT_THREAD_ID,
     SubscriptionRepo,
     type MigrateChatSubscriptionsResult,
+    type SubscribeToChatOptions,
     type SubscriptionDestination,
     type SubscriptionRecord,
     type TelegramDestination,

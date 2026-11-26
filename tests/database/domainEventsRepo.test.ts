@@ -46,7 +46,7 @@ function makeDestination(
     return {
         chatId: -1001,
         messageThreadId: 0,
-        audience: 'players',
+        category: 'summaries',
         subscriptionId: 10,
         ...overrides,
     };
@@ -85,20 +85,20 @@ describe('DomainEventsRepo', () => {
             makeDestination({
                 chatId: -1001,
                 messageThreadId: 0,
-                audience: 'players',
+                category: 'summaries',
                 subscriptionId: 1,
             }),
             makeDestination({
                 chatId: 500,
                 messageThreadId: 0,
-                audience: 'management',
+                category: 'discipline',
                 subscriptionId: 2,
             }),
             // Duplicate destination in the same call should be ignored.
             makeDestination({
                 chatId: -1001,
                 messageThreadId: 0,
-                audience: 'players',
+                category: 'summaries',
                 subscriptionId: 1,
             }),
         ]);
@@ -109,7 +109,7 @@ describe('DomainEventsRepo', () => {
             makeDestination({
                 chatId: -9999,
                 messageThreadId: 5,
-                audience: 'players',
+                category: 'summaries',
                 subscriptionId: 99,
             }),
         ]);
@@ -127,7 +127,7 @@ describe('DomainEventsRepo', () => {
             clanTag: '#CLAN1',
             chatId: -1001,
             messageThreadId: 0,
-            audience: 'players',
+            category: 'summaries',
             subscriptionId: 1,
             attempts: 0,
         });

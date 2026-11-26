@@ -20,4 +20,4 @@ export {
     type DomainEventWorkerDependencies,
     type DomainEventWorkerOptions,
 } from './domainEventWorker.js';
-export { EventNotificationPolicy, audiencesForEvent } from './eventNotificationPolicy.js';
+export { EventNotificationPolicy, categoriesForEvent } from './eventNotificationPolicy.js';

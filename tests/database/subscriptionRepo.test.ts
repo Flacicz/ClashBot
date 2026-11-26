@@ -2,13 +2,18 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DatabaseError } from '../../src/common/errors.js';
+import { DatabaseError, ValidationError } from '../../src/common/errors.js';
 import {
     Database,
     MigratorManager,
     SubscriptionRepo,
     TransactionManager,
 } from '../../src/database/index.js';
+import {
+    SUBSCRIPTION_PRESETS,
+    SUBSCRIPTION_PRESET_CATEGORIES,
+    resolvePresetForCategories,
+} from '../../src/models/subscription.js';
 
 const REAL_MIGRATIONS_PATH = path.resolve(import.meta.dirname, '../../migrations');
 
@@ -81,7 +86,7 @@ describe('SubscriptionRepo', () => {
         expect(telegramChatExists(db, -100123456, 0)).toBe(true);
     });
 
-    it('manages subscriptions by audience, thread and clan with idempotent subscribeToChat', () => {
+    it('manages subscriptions by preset, categories, thread and clan with idempotent subscribeToChat', () => {
         const { db, repo } = setup();
         seedClan(db, '#CLAN1');
         seedClan(db, '#CLAN2');
@@ -89,44 +94,143 @@ describe('SubscriptionRepo', () => {
         repo.saveTelegramChat(-1001, 0, 'Group General');
         repo.saveTelegramChat(-1001, 77, 'Group Topic');
         repo.saveTelegramChat(555, 0, 'Leader PM');
+        repo.saveTelegramChat(-1009, 0, 'All-in-one Group');
 
-        repo.subscribeToChat(-1001, 0, '#CLAN1', 'players');
-        const firstSubId = repo.getSubscriptionId(-1001, 0, '#CLAN1', 'players');
+        repo.subscribeToChat(-1001, 0, '#CLAN1', SUBSCRIPTION_PRESETS.players);
+        const firstSubId = repo.getSubscriptionId(-1001, 0, '#CLAN1');
         expect(firstSubId).not.toBeNull();
 
-        // Repeated subscribeToChat is idempotent and preserves subscription_id.
-        repo.subscribeToChat(-1001, 0, '#CLAN1', 'players');
-        expect(repo.getSubscriptionId(-1001, 0, '#CLAN1', 'players')).toBe(firstSubId);
+        // Repeated subscribeToChat is idempotent and preserves subscription_id and existing categories.
+        repo.subscribeToChat(-1001, 0, '#CLAN1', SUBSCRIPTION_PRESETS.management);
+        expect(repo.getSubscriptionId(-1001, 0, '#CLAN1')).toBe(firstSubId);
+        expect(repo.getSubscription(-1001, 0, '#CLAN1')).toEqual({
+            subscriptionId: firstSubId,
+            clanTag: '#CLAN1',
+            chatId: -1001,
+            messageThreadId: 0,
+            categories: SUBSCRIPTION_PRESET_CATEGORIES.players,
+            mirrorRuleEnabled: false,
+            timezoneOffsetHours: 3,
+        });
 
-        repo.subscribeToChat(-1001, 77, '#CLAN1', 'players');
-        repo.subscribeToChat(555, 0, '#CLAN1', 'management');
-        repo.subscribeToChat(-1001, 0, '#CLAN2', 'players');
+        repo.subscribeToChat(-1001, 77, '#CLAN1', SUBSCRIPTION_PRESETS.players);
+        repo.subscribeToChat(555, 0, '#CLAN1', SUBSCRIPTION_PRESETS.management);
+        repo.subscribeToChat(-1009, 0, '#CLAN1', SUBSCRIPTION_PRESETS.all);
+        repo.subscribeToChat(-1001, 0, '#CLAN2', SUBSCRIPTION_PRESETS.players);
 
-        expect(repo.hasSubscription(-1001, 0, '#CLAN1', 'players')).toBe(true);
-        expect(repo.hasSubscription(-1001, 0, '#CLAN1', 'management')).toBe(false);
+        expect(repo.hasSubscription(-1001, 0, '#CLAN1')).toBe(true);
+        expect(repo.hasSubscription(-1001, 0, '#UNKNOWN')).toBe(false);
         expect(repo.hasSubscriptionsForChat(-1001, 0)).toBe(true);
         expect(repo.hasSubscriptionsForChat(99999, 0)).toBe(false);
         expect(repo.hasSubscriptionsForClan('#CLAN1')).toBe(true);
         expect(repo.hasSubscriptionsForClan('#UNKNOWN')).toBe(false);
 
-        expect(repo.getDestinationsForClan('#CLAN1', 'players')).toEqual([
+        expect(repo.getDestinationsForClan('#CLAN1', 'summaries')).toEqual([
             { chatId: -1001, messageThreadId: 0 },
             { chatId: -1001, messageThreadId: 77 },
+            { chatId: -1009, messageThreadId: 0 },
         ]);
-        expect(repo.getDestinationsForClan('#CLAN1', 'management')).toEqual([
+        expect(repo.getDestinationsForClan('#CLAN1', 'discipline')).toEqual([
             { chatId: 555, messageThreadId: 0 },
+            { chatId: -1009, messageThreadId: 0 },
+        ]);
+        expect(repo.getDestinationsForClan('#CLAN1', 'system')).toEqual([
+            { chatId: 555, messageThreadId: 0 },
+            { chatId: -1009, messageThreadId: 0 },
         ]);
 
-        const subDestinations = repo.getSubscriptionDestinationsForClan('#CLAN1', 'players');
-        expect(subDestinations).toHaveLength(2);
+        const subDestinations = repo.getSubscriptionDestinationsForClan('#CLAN1', 'roster');
+        expect(subDestinations).toHaveLength(3);
         expect(subDestinations[0]).toEqual({
             subscriptionId: firstSubId,
             chatId: -1001,
             messageThreadId: 0,
         });
 
-        expect(repo.getClanTagsForChat(-1001, 0, 'players')).toEqual(['#CLAN1', '#CLAN2']);
-        expect(repo.getClanTagsForChat(-1001, 0, 'management')).toEqual([]);
+        expect(repo.getClanTagsForChat(-1001, 0)).toEqual(['#CLAN1', '#CLAN2']);
+        expect(repo.getClanTagsForChat(555, 0)).toEqual(['#CLAN1']);
+        expect(repo.getSubscriptionById(firstSubId ?? -1)?.clanTag).toBe('#CLAN1');
+        expect(repo.getSubscriptionById(999_999)).toBeNull();
+    });
+
+    it('enforces non-empty categories invariant and timezone bounds on create and update', () => {
+        const { db, repo } = setup();
+        seedClan(db, '#CLAN1');
+        repo.saveTelegramChat(-1001, 0, 'Group');
+
+        const emptyCategories = {
+            summaries: false,
+            reminders: false,
+            roster: false,
+            discipline: false,
+            system: false,
+        };
+
+        expect(() => {
+            repo.subscribeToChat(-1001, 0, '#CLAN1', { categories: emptyCategories });
+        }).toThrow(ValidationError);
+
+        expect(() => {
+            repo.subscribeToChat(-1001, 0, '#CLAN1', {
+                preset: SUBSCRIPTION_PRESETS.players,
+                timezoneOffsetHours: -13,
+            });
+        }).toThrow(ValidationError);
+
+        expect(() => {
+            repo.subscribeToChat(-1001, 0, '#CLAN1', {
+                preset: SUBSCRIPTION_PRESETS.players,
+                timezoneOffsetHours: 15,
+            });
+        }).toThrow(ValidationError);
+
+        expect(() => {
+            repo.subscribeToChat(-1001, 0, '#CLAN1', {
+                preset: SUBSCRIPTION_PRESETS.players,
+                timezoneOffsetHours: 3.5,
+            });
+        }).toThrow(ValidationError);
+
+        // Create valid subscription and update settings
+        repo.subscribeToChat(-1001, 0, '#CLAN1', SUBSCRIPTION_PRESETS.players);
+
+        expect(() => {
+            repo.updateSubscriptionCategories(-1001, 0, '#CLAN1', emptyCategories);
+        }).toThrow(ValidationError);
+
+        const customCategories = {
+            summaries: true,
+            reminders: false,
+            roster: false,
+            discipline: true,
+            system: false,
+        };
+        expect(resolvePresetForCategories(customCategories)).toBeNull();
+        expect(repo.updateSubscriptionCategories(-1001, 0, '#CLAN1', customCategories)).toBe(true);
+        expect(repo.updateSubscriptionMirrorRule(-1001, 0, '#CLAN1', true)).toBe(true);
+        expect(repo.updateSubscriptionTimezone(-1001, 0, '#CLAN1', -12)).toBe(true);
+        expect(repo.updateSubscriptionTimezone(-1001, 0, '#CLAN1', 14)).toBe(true);
+
+        expect(() => {
+            repo.updateSubscriptionTimezone(-1001, 0, '#CLAN1', 15);
+        }).toThrow(ValidationError);
+
+        expect(repo.getSubscription(-1001, 0, '#CLAN1')).toMatchObject({
+            categories: customCategories,
+            mirrorRuleEnabled: true,
+            timezoneOffsetHours: 14,
+        });
+
+        // Schema-level CHECK constraint also rejects 0 enabled categories directly in SQLite
+        expect(() => {
+            db.connection
+                .prepare(
+                    `UPDATE clan_subscriptions
+                     SET notify_summaries = 0, notify_reminders = 0, notify_roster = 0, notify_discipline = 0, notify_system = 0
+                     WHERE chat_id = -1001;`,
+                )
+                .run();
+        }).toThrow();
     });
 
     it('creates a new subscription_id generation on re-subscribe after unsubscribe', () => {
@@ -134,17 +238,17 @@ describe('SubscriptionRepo', () => {
         seedClan(db, '#CLAN1');
         repo.saveTelegramChat(100, 0, 'Private Chat');
 
-        repo.subscribeToChat(100, 0, '#CLAN1', 'management');
-        const gen1 = repo.getSubscriptionId(100, 0, '#CLAN1', 'management');
+        repo.subscribeToChat(100, 0, '#CLAN1', SUBSCRIPTION_PRESETS.management);
+        const gen1 = repo.getSubscriptionId(100, 0, '#CLAN1');
         expect(gen1).not.toBeNull();
 
-        expect(repo.unsubscribeFromChat(100, 0, '#CLAN1', 'management')).toBe(true);
-        expect(repo.getSubscriptionId(100, 0, '#CLAN1', 'management')).toBeNull();
+        expect(repo.unsubscribeFromChat(100, 0, '#CLAN1')).toBe(true);
+        expect(repo.getSubscriptionId(100, 0, '#CLAN1')).toBeNull();
 
         // Re-link requires recreating the destination since last subscription removed it.
         repo.saveTelegramChat(100, 0, 'Private Chat');
-        repo.subscribeToChat(100, 0, '#CLAN1', 'management');
-        const gen2 = repo.getSubscriptionId(100, 0, '#CLAN1', 'management');
+        repo.subscribeToChat(100, 0, '#CLAN1', SUBSCRIPTION_PRESETS.management);
+        const gen2 = repo.getSubscriptionId(100, 0, '#CLAN1');
 
         expect(gen2).not.toBeNull();
         expect(gen2).toBeGreaterThan(gen1 ?? 0);
@@ -161,17 +265,17 @@ describe('SubscriptionRepo', () => {
         repo.saveTelegramChat(-200, 0, 'Shared Group');
         repo.saveTelegramChat(300, 0, 'Leader PM');
 
-        repo.subscribeToChat(-200, 0, '#CLAN1', 'players');
-        repo.subscribeToChat(-200, 0, '#CLAN2', 'players');
-        repo.subscribeToChat(300, 0, '#CLAN1', 'management');
+        repo.subscribeToChat(-200, 0, '#CLAN1', SUBSCRIPTION_PRESETS.players);
+        repo.subscribeToChat(-200, 0, '#CLAN2', SUBSCRIPTION_PRESETS.players);
+        repo.subscribeToChat(300, 0, '#CLAN1', SUBSCRIPTION_PRESETS.management);
 
         // Unsubscribing #CLAN1 from -200 leaves -200 with #CLAN2 and #CLAN1 with 300.
-        expect(repo.unsubscribeFromChat(-200, 0, '#CLAN1', 'players')).toBe(true);
+        expect(repo.unsubscribeFromChat(-200, 0, '#CLAN1')).toBe(true);
         expect(telegramChatExists(db, -200, 0)).toBe(true);
         expect(getTrackingEnabled(db, '#CLAN1')).toBe(1);
 
         // Unsubscribing #CLAN1 from 300 is the last subscription for BOTH 300 and #CLAN1.
-        expect(repo.unsubscribeFromChat(300, 0, '#CLAN1', 'management')).toBe(true);
+        expect(repo.unsubscribeFromChat(300, 0, '#CLAN1')).toBe(true);
         expect(telegramChatExists(db, 300, 0)).toBe(false);
         expect(getTrackingEnabled(db, '#CLAN1')).toBe(0);
 
@@ -184,7 +288,7 @@ describe('SubscriptionRepo', () => {
         expect(player).toEqual({ name: 'Alice', clan_tag: '#CLAN1' });
 
         // Second unsubscribe on already-removed subscription is a safe no-op.
-        expect(repo.unsubscribeFromChat(300, 0, '#CLAN1', 'management')).toBe(false);
+        expect(repo.unsubscribeFromChat(300, 0, '#CLAN1')).toBe(false);
     });
 
     it('throws DatabaseError on foreign key violations when subscribing to missing clan or destination', () => {
@@ -192,29 +296,39 @@ describe('SubscriptionRepo', () => {
         seedClan(db, '#CLAN1');
 
         expect(() => {
-            repo.subscribeToChat(999, 0, '#CLAN1', 'players');
+            repo.subscribeToChat(999, 0, '#CLAN1', SUBSCRIPTION_PRESETS.players);
         }).toThrow(DatabaseError);
 
         repo.saveTelegramChat(999, 0, 'Existing Chat');
         expect(() => {
-            repo.subscribeToChat(999, 0, '#MISSING', 'players');
+            repo.subscribeToChat(999, 0, '#MISSING', SUBSCRIPTION_PRESETS.players);
         }).toThrow(DatabaseError);
     });
 
-    it('loads subscriptions by destination or chat and atomically migrates chat_id preserving subscription_id and deduplicating overlaps', () => {
+    it('loads subscriptions by destination or chat and atomically migrates chat_id preserving subscription_id, settings, and deduplicating overlaps', () => {
         const { db, repo } = setup();
         seedClan(db, '#CLAN1');
         seedClan(db, '#CLAN2');
 
         repo.saveTelegramChat(-500, 0, 'Legacy Group');
         repo.saveTelegramChat(-500, 12, 'Legacy Topic');
-        repo.subscribeToChat(-500, 0, '#CLAN1', 'players');
-        repo.subscribeToChat(-500, 0, '#CLAN2', 'players');
-        repo.subscribeToChat(-500, 12, '#CLAN1', 'players');
+        repo.subscribeToChat(-500, 0, '#CLAN1', {
+            categories: {
+                summaries: true,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: true,
+            },
+            mirrorRuleEnabled: true,
+            timezoneOffsetHours: 5,
+        });
+        repo.subscribeToChat(-500, 0, '#CLAN2', SUBSCRIPTION_PRESETS.players);
+        repo.subscribeToChat(-500, 12, '#CLAN1', SUBSCRIPTION_PRESETS.all);
 
-        const sub1 = repo.getSubscriptionId(-500, 0, '#CLAN1', 'players');
-        const sub2 = repo.getSubscriptionId(-500, 0, '#CLAN2', 'players');
-        const sub3 = repo.getSubscriptionId(-500, 12, '#CLAN1', 'players');
+        const sub1 = repo.getSubscriptionId(-500, 0, '#CLAN1');
+        const sub2 = repo.getSubscriptionId(-500, 0, '#CLAN2');
+        const sub3 = repo.getSubscriptionId(-500, 12, '#CLAN1');
         expect(sub1).not.toBeNull();
         expect(sub2).not.toBeNull();
         expect(sub3).not.toBeNull();
@@ -231,8 +345,8 @@ describe('SubscriptionRepo', () => {
 
         // Pre-seed overlapping subscription for #CLAN2 in target supergroup -1005000001
         repo.saveTelegramChat(-1005000001, 0, 'Target Supergroup');
-        repo.subscribeToChat(-1005000001, 0, '#CLAN2', 'players');
-        const targetSub2 = repo.getSubscriptionId(-1005000001, 0, '#CLAN2', 'players');
+        repo.subscribeToChat(-1005000001, 0, '#CLAN2', SUBSCRIPTION_PRESETS.management);
+        const targetSub2 = repo.getSubscriptionId(-1005000001, 0, '#CLAN2');
 
         const result = repo.migrateChat(-500, -1005000001);
         expect(result).toEqual({
@@ -246,10 +360,24 @@ describe('SubscriptionRepo', () => {
         expect(telegramChatExists(db, -1005000001, 0)).toBe(true);
         expect(telegramChatExists(db, -1005000001, 12)).toBe(true);
 
-        // Migrated subscriptions keep their original subscription_id; target overlap keeps its own
-        expect(repo.getSubscriptionId(-1005000001, 0, '#CLAN1', 'players')).toBe(sub1);
-        expect(repo.getSubscriptionId(-1005000001, 0, '#CLAN2', 'players')).toBe(targetSub2);
-        expect(repo.getSubscriptionId(-1005000001, 12, '#CLAN1', 'players')).toBe(sub3);
+        // Migrated subscriptions keep their original subscription_id and custom settings; target overlap keeps its own
+        expect(repo.getSubscription(-1005000001, 0, '#CLAN1')).toEqual({
+            subscriptionId: sub1,
+            clanTag: '#CLAN1',
+            chatId: -1005000001,
+            messageThreadId: 0,
+            categories: {
+                summaries: true,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: true,
+            },
+            mirrorRuleEnabled: true,
+            timezoneOffsetHours: 5,
+        });
+        expect(repo.getSubscriptionId(-1005000001, 0, '#CLAN2')).toBe(targetSub2);
+        expect(repo.getSubscriptionId(-1005000001, 12, '#CLAN1')).toBe(sub3);
         expect(repo.getSubscriptionsForChat(-500)).toEqual([]);
 
         // Existing target title is preserved when newTitle is omitted; missing thread copies old title

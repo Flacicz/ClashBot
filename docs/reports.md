@@ -9,7 +9,7 @@
 - термины предметной области — [`GLOSSARY.md`](../GLOSSARY.md);
 - общая архитектура циклов и транзакций — [`docs/architecture.md`](architecture.md);
 - DDL таблиц `domain_events`, `domain_event_destinations`, `notifications`, `sync_outages` — [`docs/database.md`](database.md);
-- правила выбора аудитории по типу чата и работа `TelegramGateway` — [`docs/telegram.md`](telegram.md).
+- правила выбора пресета подписки по типу чата и работа `TelegramGateway` — [`docs/telegram.md`](telegram.md).
 
 ## Границы слоя и сквозной поток
 
@@ -19,10 +19,10 @@
    `DomainEventRecorder.recordAll` (`src/domainEvents/domainEventRecorder.ts`). Исключение — `SyncFailureEvent` и
    `SyncRecoveryEvent`, которые в отдельной транзакции после цикла записывает `ClanManager` через `SyncOutageRepo`.
    Поле `SyncResult.events` хранит сгенерированные события только для логов/совместимости — повторной отправки из него нет.
-2. `DomainEventRecorder` сериализует каждое событие (`DomainEventPayloadSerializer`), определяет допустимые аудитории через
-   `EventNotificationPolicy.audiencesFor` и фиксирует снимок активных подписок (`subscription_id`, `chat_id`,
-   `message_thread_id`, `audience`) — **получателей события** на момент события. Подписки, созданные позже, старые
-   доменные события не получают.
+2. `DomainEventRecorder` сериализует каждое событие (`DomainEventPayloadSerializer`), определяет целевые категории через
+   `EventNotificationPolicy.categoriesFor` и фиксирует снимок активных подписок (`subscription_id`, `chat_id`,
+   `message_thread_id`, `category`) — **получателей события** на момент события. Подписки, созданные позже, и изменения
+   категорий после фиксации события на уже записанные `domain_event_destinations` не влияют.
 3. После commit `DomainEventWorker` загружает `pending`-получателей и в одной транзакции условно захватывает получателя
    через `DomainEventsRepo.markMaterialized` (`WHERE status = 'pending'`, `changes === 1`), десериализует payload
    (`DomainEventPayloadDeserializer`) и вызывает `NotificationService.materialize`. При ошибке вся транзакция откатывается;
@@ -68,28 +68,39 @@ Legacy-метод `NotificationService.handle` сохраняется для о�
   и то же Telegram-назначение, в этот чат доставляются два независимых набора отчётов и напоминаний — от лица клана `A`
   и от лица клана `B`.
 
-## Матрица доставки и соответствие `notifications.event_type`
+## Матрица доставки по категориям и соответствие `notifications.event_type`
 
-`EventNotificationPolicy` (`src/domainEvents/eventNotificationPolicy.ts`) задаёт аудиторию доменного события на этапе
-записи получателей. Один получатель события может материализоваться в несколько уведомлений с разными
-`notifications.event_type` (`NOTIFICATION_EVENT_TYPES` в `src/notifications/notificationService.ts`). Всего 10 типов
-`ApplicationEvent` отображаются в 16 типов уведомлений:
+`EventNotificationPolicy` (`src/domainEvents/eventNotificationPolicy.ts`) отображает доменное событие в целевые
+**категории уведомлений** (`NotificationCategory` в `src/models/subscription.ts`) на этапе записи получателей. Одна
+подписка может иметь любую непустую комбинацию из 5 категорий (минимум 1 включённая категория), а один получатель
+события может материализоваться в несколько уведомлений с разными `notifications.event_type` (`NOTIFICATION_EVENT_TYPES`
+в `src/notifications/notificationService.ts`). Всего 10 типов `ApplicationEvent` отображаются в 16 типов уведомлений:
 
-| Доменное событие         | Аудитория `players` (`notifications.event_type` / форматтер)                                                                      | Аудитория `management` (`notifications.event_type` / форматтер)                                        |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `PlayerJoinedClanEvent`  | `PlayerJoinedClanEvent` / `PlayerJoinedFormatter`                                                                                 | —                                                                                                      |
-| `PlayerLeftClanEvent`    | `PlayerLeftClanEvent` / `PlayerLeftFormatter`                                                                                     | —                                                                                                      |
-| `PlayerRoleChangedEvent` | `PlayerRoleChangedEvent` / `PlayerRoleChangedFormatter`                                                                           | —                                                                                                      |
-| `war_ended`              | `war_ended` / `ClanwarEndedFormatter`<br>`war_comparison` / `ClanwarComparisonFormatter` (если есть ≥ 1 предыдущая обычная война) | `war_violations` / `ClanwarViolationsFormatter`<br>`war_roster_reliability` / `ClanwarRosterFormatter` |
-| `cwl_round_ended`        | `cwl_round_ended` / `ClanwarsLeagueRoundEndedFormatter`                                                                           | `cwl_violations` / `ClanwarsLeagueRoundViolationsFormatter`                                            |
-| `raids_ended`            | `raids_ended` / `RaidsEndedFormatter`<br>`raids_comparison` / `RaidsComparisonFormatter` (если есть ≥ 1 предыдущий рейд)          | `raids_violations` / `RaidsViolationsFormatter`                                                        |
-| `war_reminder`           | `war_reminder` / `WarReminderFormatter`                                                                                           | —                                                                                                      |
-| `raid_reminder`          | `raid_reminder` / `RaidReminderFormatter`                                                                                         | —                                                                                                      |
-| `SyncFailureEvent`       | —                                                                                                                                 | `SyncFailureEvent` / `SystemAlertReportFormatter.formatFailureAlert`                                   |
-| `SyncRecoveryEvent`      | —                                                                                                                                 | `SyncRecoveryEvent` / `SystemAlertReportFormatter.formatRecoveryAlert`                                 |
+| Категория (`category`) | Название категории | Доменное событие | `notifications.event_type` / форматтер |
+| --- | --- | --- | --- |
+| `summaries` | Итоги и сравнения | `war_ended` | `war_ended` / `ClanwarEndedFormatter`<br>`war_comparison` / `ClanwarComparisonFormatter` (если есть ≥ 1 предыдущая обычная война) |
+| `summaries` | Итоги и сравнения | `cwl_round_ended` | `cwl_round_ended` / `ClanwarsLeagueRoundEndedFormatter` |
+| `summaries` | Итоги и сравнения | `raids_ended` | `raids_ended` / `RaidsEndedFormatter`<br>`raids_comparison` / `RaidsComparisonFormatter` (если есть ≥ 1 предыдущий рейд) |
+| `reminders` | Напоминания | `war_reminder` | `war_reminder` / `WarReminderFormatter` |
+| `reminders` | Напоминания | `raid_reminder` | `raid_reminder` / `RaidReminderFormatter` |
+| `roster` | Кадры | `PlayerJoinedClanEvent` | `PlayerJoinedClanEvent` / `PlayerJoinedFormatter` |
+| `roster` | Кадры | `PlayerLeftClanEvent` | `PlayerLeftClanEvent` / `PlayerLeftFormatter` |
+| `roster` | Кадры | `PlayerRoleChangedEvent` | `PlayerRoleChangedEvent` / `PlayerRoleChangedFormatter` |
+| `discipline` | Дисциплина и аналитика | `war_ended` | `war_violations` / `ClanwarViolationsFormatter`<br>`war_roster_reliability` / `ClanwarRosterFormatter` |
+| `discipline` | Дисциплина и аналитика | `cwl_round_ended` | `cwl_violations` / `ClanwarsLeagueRoundViolationsFormatter` |
+| `discipline` | Дисциплина и аналитика | `raids_ended` | `raids_violations` / `RaidsViolationsFormatter` |
+| `system` | Системные оповещения | `SyncFailureEvent` | `SyncFailureEvent` / `SystemAlertReportFormatter.formatFailureAlert` |
+| `system` | Системные оповещения | `SyncRecoveryEvent` | `SyncRecoveryEvent` / `SystemAlertReportFormatter.formatRecoveryAlert` |
 
-Инвариант двойной проверки аудитории: `NotificationService.materialize` повторно проверяет `destination.audience` для
-событий, ограниченных одной аудиторией (`players` или `management`), и при несоответствии не создаёт строку в `notifications`.
+Пресеты подписки (`SUBSCRIPTION_PRESET_CATEGORIES` в `src/models/subscription.ts`):
+
+- **«Игроки»** (`players`, по умолчанию для `group`, `supergroup` и форумных тем): `summaries` + `reminders` + `roster`;
+- **«Руководство»** (`management`, по умолчанию для `private`): `discipline` + `system`;
+- **«Всё вместе»** (`all`): все 5 категорий (`summaries` + `reminders` + `roster` + `discipline` + `system`).
+
+Инвариант двойной проверки категории: `NotificationService.materialize` повторно проверяет `destination.category` для
+каждого типа доменного события и при несоответствии не создаёт строку в `notifications`. Изменение категорий подписки
+влияет только на новые события — уже зафиксированные `domain_event_destinations` не пересчитываются.
 
 ## Форматтеры, аналитика и контрольные точки
 
@@ -129,7 +140,7 @@ order_num ASC`) с нормализованными позициями (`ROW_NUM
 
 ### Напоминания (`src/services/reminders.ts`)
 
-Напоминания предназначены только для аудитории `players`. На каждом цикле синхронизации активной войны, раунда ЛВК
+Напоминания относятся к категории `reminders` («Напоминания»). На каждом цикле синхронизации активной войны, раунда ЛВК
 (`state !== 'warEnded'`) или рейда (`state !== 'ended'`) в окне `startTime <= nowEpochSeconds < endTime` функции
 `selectWarReminders` / `selectRaidReminders` (и обёртки `getActiveWarReminderKinds` / `getActiveRaidReminderKinds`)
 определяют открытые контрольные точки (`nowEpochSeconds >= threshold`):
@@ -245,7 +256,7 @@ order_num ASC`) с нормализованными позициями (`ROW_NUM
 ### Идемпотентность, порядок частей и семантика доставки
 
 1. `DomainEventsRepo.appendEvent` дедуплицирует событие по `(clan_tag, event_type, event_id)` и получателей по
-   `(domain_event_id, chat_id, message_thread_id, audience, subscription_id)`.
+   `(domain_event_id, chat_id, message_thread_id, category, subscription_id)`.
 2. `NotificationRepo.enqueueDomainEventIfAbsent` дедуплицирует строки outbox по
    `(domain_event_destination_id, event_type, event_id, part_index)` для каждой части `1..N` (`part_count = N`). Повторная
    материализация одного получателя не создаёт дубли ни для одной части.

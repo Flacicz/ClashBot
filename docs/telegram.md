@@ -1,7 +1,7 @@
 # Telegram-интеграция (grammY)
 
 Единственный источник истины по входящему Telegram-слою (`src/telegram/`), каталогу гайдов
-(`resources/telegram/attack_guides.json`), правилу «тип чата → аудитория», проверке прав администратора чата и
+(`resources/telegram/attack_guides.json`), правилу «тип чата → пресет подписки по умолчанию», проверке прав администратора чата и
 транспортному адаптеру `TelegramGateway` (`src/notifications/telegramGateway.ts`).
 
 Смежные документы:
@@ -82,24 +82,25 @@ Telegram-слой разделён на два независимых компо
 - проверяется шаблон `/^[0289PYLQGRJCUV]{3,15}$/` (длина 3–15 символов из алфавита CoC);
 - результат возвращается и хранится в каноническом виде `#TAG` в верхнем регистре.
 
-## Правило «тип чата → аудитория» и права администратора чата
+## Правило «тип чата → пресет подписки по умолчанию» и права администратора чата
 
-Функция `resolveAudience(chatType)` (`src/telegram/validation.ts`) и проверка `canManageCurrentChat` определяют, какую
-аудиторию и кто может подключать/отключать:
+Функции `resolveDefaultPreset(chatType)` и `isSupportedTelegramChatType(chatType)` (`src/telegram/validation.ts`), а также
+проверка `canManageCurrentChat` определяют пресет по умолчанию при первом `/link` и права управления подписками:
 
-| Тип чата Telegram        | Аудитория                  | Проверка прав для `/link`, `/unlink` и `clans:unlink`                              |
-| ------------------------ | -------------------------- | ---------------------------------------------------------------------------------- |
-| `private`                | `management`               | `chatType === 'private' && chatId === userId` (без вызова `getChatMember`)         |
-| `group`                  | `players`                  | `api.getChatMember(chatId, userId)` → `status` равен `administrator` или `creator` |
-| `supergroup`             | `players`                  | `api.getChatMember(chatId, userId)` → `status` равен `administrator` или `creator` |
-| Прочие (`channel` и др.) | `null` (не поддерживается) | Отклоняется сообщением о неподдерживаемом типе чата                                |
+| Тип чата Telegram        | Пресет по умолчанию при `/link` | Проверка прав для `/link`, `/unlink` и `clans:unlink`                              |
+| ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------- |
+| `private`                | `management` («Руководство»)    | `chatType === 'private' && chatId === userId` (без вызова `getChatMember`)         |
+| `group`                  | `players` («Игроки»)            | `api.getChatMember(chatId, userId)` → `status` равен `administrator` или `creator` |
+| `supergroup`             | `players` («Игроки»)            | `api.getChatMember(chatId, userId)` → `status` равен `administrator` или `creator` |
+| Прочие (`channel` и др.) | `null` (не поддерживается)      | Отклоняется сообщением о неподдерживаемом типе чата                                |
 
 Инварианты:
 
 - в группе/супергруппе бот должен иметь права, достаточные для вызова `getChatMember`; обычный `member` получает отказ, а
   ошибка API при проверке прав прерывает команду с сообщением о временной ошибке;
-- правило «тип чата → аудитория» задаёт только поведение интерфейса бота; на уровне БД (`clan_subscriptions`) аудитория
-  является отдельным полем подписки (две аудитории на одно Telegram-назначение возможны только при ручной записи в SQLite).
+- на уровне БД (`clan_subscriptions`) существует ровно одна подписка на пару `(clan_tag, chat_id, message_thread_id)` с
+  5 независимыми булевыми категориями уведомлений (минимум 1 включённая категория), флагом правила «первая атака не по
+  зеркалу» (по умолчанию `0` для новых подписок) и смещением часового пояса (`UTC+3` по умолчанию).
 
 ## Форумные темы (`message_thread_id`)
 
@@ -107,7 +108,7 @@ Telegram-слой разделён на два независимых компо
   или личного чата подставляется `GENERAL_CHAT_THREAD_ID = 0`.
 - В Telegram Bot API поле `message_thread_id` передаётся только при `messageThreadId > 0`; для `0` оно опускается (как в
   `TelegramBotService.sendHtmlMessage`, так и в `GrammyTelegramGateway.sendMessage`).
-- Подписки изолированы по тройке `(chat_id, message_thread_id, audience)`: разные темы одной супергруппы подключаются и
+- Подписки изолированы по паре `(chat_id, message_thread_id)`: разные темы одной супергруппы подключаются и
   отображаются в «Моих кланах» независимо.
 
 ## Управление подписками через `/link` и `/unlink`
@@ -117,12 +118,12 @@ Telegram-слой разделён на два независимых компо
      `tracking_enabled = 1`;
   2. `SubscriptionRepo.saveTelegramChat(chatId, messageThreadId, title)` — заголовок выбирается по приоритету
      `chat.title` → `first_name last_name` → `first_name` → `username` → `'Telegram-чат'`;
-  3. `SubscriptionRepo.subscribeToChat` (`INSERT OR IGNORE`). Повторный `/link` идемпотентен и сохраняет текущее
-     поколение подписки (`subscription_id`).
+  3. `SubscriptionRepo.subscribeToChat(chatId, messageThreadId, clanTag, defaultPreset)` (`INSERT OR IGNORE`). Повторный
+     `/link` идемпотентен и сохраняет текущее поколение подписки (`subscription_id`) и её настройки.
   После успешного коммита транзакции (строго вне транзакции) `TelegramBotService` вызывает `clanManager.notify()`, чтобы
   `ClanManager` немедленно запустил первичную синхронизацию нового отслеживаемого клана без ожидания 15-минутного интервала.
 - **`/unlink #TAG`** (и кнопка отключения в меню) в одной транзакции:
-  1. получает `subscription_id` для `(chatId, messageThreadId, clanTag, audience)` (если подписки нет — ничего не меняет);
+  1. получает `subscription_id` для `(chatId, messageThreadId, clanTag)` (если подписки нет — ничего не меняет);
   2. вызывает `DomainEventsRepo.cancelForSubscription(subscriptionId)` — отменяет `pending`-получателей события и
      связанные `pending`-уведомления этого поколения подписки ([`docs/reports.md`](reports.md#отмена-по-поколению-подписки-unlink));
   3. удаляет подписку; если в Telegram-назначении больше нет подписок — удаляет строку `telegram_chats`; если у клана не
@@ -177,7 +178,7 @@ Telegram-слой разделён на два независимых компо
 | `menu:start`                          | без аргументов                           | `editMessageText` → главное меню                                                                               |
 | `help:main`                           | без аргументов                           | `editMessageText` → справка по командам, правам, пресетам подписки и дисклеймер Supercell Fan Content Policy   |
 | `clans:link`                          | без аргументов                           | `editMessageText` → инструкция по `/link`                                                                      |
-| `clans:list`                          | без аргументов                           | `editMessageText` → список кланов для `(chatId, messageThreadId, audience)`                                    |
+| `clans:list`                          | без аргументов                           | `editMessageText` → список кланов для `(chatId, messageThreadId)`                                              |
 | `clans:unlink`                        | 0 или 1 (`clanTag` через `parseClanTag`) | Проверка прав; без тега — список кнопок отключения; с тегом — транзакционное отключение                        |
 | `guides:townhalls`                    | без аргументов                           | `editMessageText` → сетка ратуш `MIN_TOWN_HALL..MAX_TOWN_HALL` (`7..18`, по 3 в ряд)                           |
 | `guides:townhall:<townHall>`          | `parseTownHall` (`7..18`)                | `editMessageText` → уникальные стратегии для выбранной ратуши                                                  |

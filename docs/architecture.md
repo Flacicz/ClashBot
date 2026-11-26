@@ -178,7 +178,7 @@ NotificationWorker
 - **Семантика доставки `at-least-once`**: при падении процесса или сбое БД после успешного `sendMessage`, но до `markAsSent`, запись остаётся в `'sending'` и после восстановления (при рестарте или по истечении `claimTtlSeconds`) будет поставлена в `'pending'` и отправлена повторно (если подписка всё ещё активна). Отмена подписки через `/unlink` отменяет `pending`-записи по `subscription_id` и не допускает нового захвата или новой попытки повтора; уже захваченный (`'sending'`) HTTP-запрос считается in-flight и может завершиться.
 
 Детальные контракты слоёв вынесены в SSOT-документы:
-- схема SQLite, миграции `001`–`015`, `PRAGMA` и контракты репозиториев → [`docs/database.md`](database.md);
+- схема SQLite, миграции `001`–`016`, `PRAGMA` и контракты репозиториев → [`docs/database.md`](database.md);
 - каталог `ApplicationEvent`, payload, матрица доставки по аудиториям, контрольные точки, форматтеры и дедупликация → [`docs/reports.md`](reports.md);
 - входящий бот `TelegramBotService`, команды `/start`, `/link`, `/unlink`, права, форумные темы и `TelegramGateway` → [`docs/telegram.md`](telegram.md).
 

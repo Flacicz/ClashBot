@@ -183,16 +183,19 @@ describe('Drop-in compatibility with C++-generated v012 SQLite database', () => 
         });
 
         try {
-            // 1. Verify schema_migrations preserved all 12 C++ migrations and applied 013-015 cleanly
+            // 1. Verify schema_migrations preserved all 12 C++ migrations and applied 013-016 cleanly
             const appliedMigrations = app.db.connection
                 .prepare('SELECT version FROM schema_migrations ORDER BY version ASC;')
                 .all() as { version: string }[];
-            expect(appliedMigrations).toHaveLength(15);
+            expect(appliedMigrations).toHaveLength(16);
             expect(appliedMigrations[0]?.version).toBe('001_initial_schema.sql');
             expect(appliedMigrations[11]?.version).toBe('012_legacy_notification_idempotency.sql');
             expect(appliedMigrations[12]?.version).toBe('013_notification_claim_status.sql');
             expect(appliedMigrations[13]?.version).toBe('014_history_completeness.sql');
             expect(appliedMigrations[14]?.version).toBe('015_notification_expiry.sql');
+            expect(appliedMigrations[15]?.version).toBe(
+                '016_subscription_presets_and_categories.sql',
+            );
 
             const notificationColumns = app.db.connection.pragma(
                 'table_info(notifications)',
@@ -241,11 +244,51 @@ describe('Drop-in compatibility with C++-generated v012 SQLite database', () => 
             expect(raidStats.totalLoot).toBe(450000);
             expect(raidRepo.getBestRaidMembers({ raidId: 1 })).toHaveLength(2);
 
+            const migratedSubs = subscriptionRepo.getSubscriptionsForChat(-10010);
+            expect(migratedSubs).toEqual([
+                {
+                    subscriptionId: 1,
+                    clanTag: '#2PP',
+                    chatId: -10010,
+                    messageThreadId: 0,
+                    categories: {
+                        summaries: true,
+                        reminders: true,
+                        roster: true,
+                        discipline: false,
+                        system: false,
+                    },
+                    mirrorRuleEnabled: true,
+                    timezoneOffsetHours: 3,
+                },
+                {
+                    subscriptionId: 2,
+                    clanTag: '#2PP',
+                    chatId: -10010,
+                    messageThreadId: 42,
+                    categories: {
+                        summaries: false,
+                        reminders: false,
+                        roster: false,
+                        discipline: true,
+                        system: true,
+                    },
+                    mirrorRuleEnabled: true,
+                    timezoneOffsetHours: 3,
+                },
+            ]);
+
             expect(
-                subscriptionRepo.getSubscriptionDestinationsForClan('#2PP', 'players'),
+                subscriptionRepo.getSubscriptionDestinationsForClan('#2PP', 'summaries'),
             ).toHaveLength(1);
             expect(
-                subscriptionRepo.getSubscriptionDestinationsForClan('#2PP', 'management'),
+                subscriptionRepo.getSubscriptionDestinationsForClan('#2PP', 'roster'),
+            ).toHaveLength(1);
+            expect(
+                subscriptionRepo.getSubscriptionDestinationsForClan('#2PP', 'discipline'),
+            ).toHaveLength(1);
+            expect(
+                subscriptionRepo.getSubscriptionDestinationsForClan('#2PP', 'system'),
             ).toHaveLength(1);
 
             // 3. Verify initial fixture notification & outage state before workers run

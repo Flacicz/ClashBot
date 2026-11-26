@@ -18,6 +18,7 @@ import type {
     TransactionManager,
 } from '../database/index.js';
 import { createLogger, type Logger } from '../logging/logger.js';
+import { SUBSCRIPTION_PRESETS, type SubscriptionPreset } from '../models/subscription.js';
 import type { WakeableClanManager } from '../services/clanManager.js';
 import {
     type DisableSubscriptionsResult,
@@ -43,7 +44,7 @@ import {
     makeStrategyListKeyboard,
     makeTownHallListKeyboard,
 } from './keyboards.js';
-import { type Audience, resolveAudience } from './validation.js';
+import { isSupportedTelegramChatType, resolveDefaultPreset } from './validation.js';
 
 export const TELEGRAM_BOT_ALLOWED_UPDATES = [
     'message',
@@ -735,7 +736,6 @@ export class TelegramBotService {
                     subscription.chatId,
                     subscription.messageThreadId,
                     subscription.clanTag,
-                    subscription.audience,
                 );
                 if (!removed) {
                     continue;
@@ -775,10 +775,9 @@ export class TelegramBotService {
         chatId: number,
         userId: number,
         chatType: string,
-        audience: Audience,
     ): Promise<boolean> {
-        if (audience === 'management') {
-            return chatType === 'private' && chatId === userId;
+        if (chatType === 'private') {
+            return chatId === userId;
         }
 
         if (chatType !== 'group' && chatType !== 'supergroup') {
@@ -798,34 +797,28 @@ export class TelegramBotService {
         messageThreadId: number,
         title: string,
         clanTag: string,
-        audience: Audience,
+        preset: SubscriptionPreset,
     ): void {
         this.transactionManager.retryInTransaction(() => {
             this.clansRepo.insertMinimalClan(clanTag);
             this.subscriptionRepo.saveTelegramChat(chatId, messageThreadId, title);
-            this.subscriptionRepo.subscribeToChat(chatId, messageThreadId, clanTag, audience);
+            this.subscriptionRepo.subscribeToChat(chatId, messageThreadId, clanTag, preset);
         });
     }
 
-    private unlinkClanFromChat(
-        chatId: number,
-        messageThreadId: number,
-        clanTag: string,
-        audience: Audience,
-    ): boolean {
+    private unlinkClanFromChat(chatId: number, messageThreadId: number, clanTag: string): boolean {
         return this.transactionManager.retryInTransaction(() => {
             const subscriptionId = this.subscriptionRepo.getSubscriptionId(
                 chatId,
                 messageThreadId,
                 clanTag,
-                audience,
             );
             if (subscriptionId === null) {
                 return false;
             }
 
             this.domainEventsRepo.cancelForSubscription(subscriptionId);
-            this.subscriptionRepo.unsubscribeFromChat(chatId, messageThreadId, clanTag, audience);
+            this.subscriptionRepo.unsubscribeFromChat(chatId, messageThreadId, clanTag);
 
             if (!this.subscriptionRepo.hasSubscriptionsForChat(chatId, messageThreadId)) {
                 this.subscriptionRepo.deleteTelegramChat(chatId, messageThreadId);
@@ -847,8 +840,8 @@ export class TelegramBotService {
         chat: Chat,
         command: ClanSubscriptionCommand,
     ): Promise<void> {
-        const audience = resolveAudience(chat.type);
-        if (audience === null) {
+        const defaultPreset = resolveDefaultPreset(chat.type);
+        if (defaultPreset === null) {
             await this.sendHtmlMessage(
                 api,
                 chatId,
@@ -880,7 +873,7 @@ export class TelegramBotService {
 
         let canManage: boolean;
         try {
-            canManage = await this.canManageCurrentChat(api, chatId, userId, chat.type, audience);
+            canManage = await this.canManageCurrentChat(api, chatId, userId, chat.type);
         } catch (error: unknown) {
             if (this.isCancelledError(error)) {
                 return;
@@ -903,7 +896,7 @@ export class TelegramBotService {
         const { clanTag } = command;
 
         try {
-            this.linkClanToChat(chatId, messageThreadId, title, clanTag, audience);
+            this.linkClanToChat(chatId, messageThreadId, title, clanTag, defaultPreset);
         } catch (error: unknown) {
             if (error instanceof DatabaseError) {
                 this.logger.error({ err: error, chatId, clanTag }, 'Failed to link clan to chat');
@@ -921,15 +914,17 @@ export class TelegramBotService {
         this.clanManager?.notify();
 
         const destination = chat.type === 'private' ? 'Личный чат' : 'Общий чат';
+        const presetLabel =
+            defaultPreset === SUBSCRIPTION_PRESETS.management ? '«Руководство»' : '«Игроки»';
         const details =
-            audience === 'management'
-                ? 'управленческие уведомления: нарушения, ростер и другие отчёты для руководства'
-                : 'обычные отчёты и уведомления для игроков';
+            defaultPreset === SUBSCRIPTION_PRESETS.management
+                ? 'дисциплину, аналитику и системные оповещения'
+                : 'итоги, сравнения, напоминания и кадровые события';
 
         await this.sendHtmlMessage(
             api,
             chatId,
-            `Готово! ${destination} привязан к клану ${clanTag}.\n\n${destination} будет получать ${details}.`,
+            `Готово! ${destination} привязан к клану ${clanTag}.\n\nПресет уведомлений: ${presetLabel} (${details}).`,
             messageThreadId,
         );
     }
@@ -942,8 +937,7 @@ export class TelegramBotService {
         chat: Chat,
         command: ClanSubscriptionCommand,
     ): Promise<void> {
-        const audience = resolveAudience(chat.type);
-        if (audience === null) {
+        if (!isSupportedTelegramChatType(chat.type)) {
             await this.sendHtmlMessage(
                 api,
                 chatId,
@@ -975,7 +969,7 @@ export class TelegramBotService {
 
         let canManage: boolean;
         try {
-            canManage = await this.canManageCurrentChat(api, chatId, userId, chat.type, audience);
+            canManage = await this.canManageCurrentChat(api, chatId, userId, chat.type);
         } catch (error: unknown) {
             if (this.isCancelledError(error)) {
                 return;
@@ -997,7 +991,7 @@ export class TelegramBotService {
         const { clanTag } = command;
         let unlinked: boolean;
         try {
-            unlinked = this.unlinkClanFromChat(chatId, messageThreadId, clanTag, audience);
+            unlinked = this.unlinkClanFromChat(chatId, messageThreadId, clanTag);
         } catch (error: unknown) {
             if (error instanceof DatabaseError) {
                 this.logger.error(
@@ -1165,8 +1159,7 @@ export class TelegramBotService {
         api: Context['api'],
         context: CallbackContext,
     ): Promise<void> {
-        const audience = resolveAudience(context.chatType);
-        if (audience === null) {
+        if (!isSupportedTelegramChatType(context.chatType)) {
             await this.editHtmlMessage(
                 api,
                 context.chatId,
@@ -1182,7 +1175,6 @@ export class TelegramBotService {
             clanTags = this.subscriptionRepo.getClanTagsForChat(
                 context.chatId,
                 context.messageThreadId,
-                audience,
             );
         } catch (error: unknown) {
             if (error instanceof DatabaseError) {
@@ -1221,8 +1213,7 @@ export class TelegramBotService {
         context: CallbackContext,
         rawClanTag: string | null,
     ): Promise<void> {
-        const audience = resolveAudience(context.chatType);
-        if (audience === null) {
+        if (!isSupportedTelegramChatType(context.chatType)) {
             await this.safeAnswerCallbackQuery(api, context.queryId);
             if (this.activeSignal?.aborted) {
                 return;
@@ -1244,7 +1235,6 @@ export class TelegramBotService {
                 context.chatId,
                 context.userId,
                 context.chatType,
-                audience,
             );
         } catch (error: unknown) {
             if (this.isCancelledError(error)) {
@@ -1285,7 +1275,6 @@ export class TelegramBotService {
                 clanTags = this.subscriptionRepo.getClanTagsForChat(
                     context.chatId,
                     context.messageThreadId,
-                    audience,
                 );
             } catch (error: unknown) {
                 if (error instanceof DatabaseError) {
@@ -1328,12 +1317,7 @@ export class TelegramBotService {
 
         let unlinked: boolean;
         try {
-            unlinked = this.unlinkClanFromChat(
-                context.chatId,
-                context.messageThreadId,
-                clanTag,
-                audience,
-            );
+            unlinked = this.unlinkClanFromChat(context.chatId, context.messageThreadId, clanTag);
         } catch (error: unknown) {
             if (error instanceof DatabaseError) {
                 this.logger.error(

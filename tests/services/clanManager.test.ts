@@ -82,7 +82,7 @@ interface DestinationRow {
     readonly domain_event_id: number;
     readonly chat_id: number;
     readonly message_thread_id: number;
-    readonly audience: string;
+    readonly category: string;
     readonly status: string;
 }
 
@@ -178,7 +178,7 @@ describe('ClanManager', () => {
         const getDestinations = (): DestinationRow[] =>
             db.connection
                 .prepare<[], DestinationRow>(
-                    'SELECT id, domain_event_id, chat_id, message_thread_id, audience, status FROM domain_event_destinations ORDER BY id ASC;',
+                    'SELECT id, domain_event_id, chat_id, message_thread_id, category, status FROM domain_event_destinations ORDER BY id ASC;',
                 )
                 .all();
 
@@ -423,13 +423,13 @@ describe('ClanManager', () => {
             outage_id: firstOutage?.id,
         });
 
-        // Only management audience receives SyncFailureEvent, not players
+        // Only subscriptions with 'system' category (management preset) receive SyncFailureEvent, not players preset
         const destinationsAfterCycle1 = ctx.getDestinations();
         expect(destinationsAfterCycle1).toHaveLength(1);
         expect(destinationsAfterCycle1[0]).toMatchObject({
             chat_id: 2001,
             message_thread_id: 0,
-            audience: 'management',
+            category: 'system',
             status: 'pending',
         });
 

@@ -19,6 +19,7 @@ export {
 export {
     LEGACY_REBUILD_MIGRATION_VERSION,
     MigratorManager,
+    SUBSCRIPTION_PRESETS_MIGRATION_VERSION,
     type MigratorManagerOptions,
 } from './migratorManager.js';
 export {
@@ -101,6 +102,7 @@ export {
     type PendingNotification,
     type SqlBindValue,
     type SqlRow,
+    type SubscribeToChatOptions,
     type SubscriptionDestination,
     type SubscriptionRecord,
     type SyncOutageState,
