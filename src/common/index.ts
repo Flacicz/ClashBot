@@ -3,6 +3,7 @@ export {
     escapeHtml,
     formatRemainingTimePhrase,
     formatUnixToMoscowDateTime,
+    pluralizeRu,
     removeTrailingNewlines,
 } from './formatUtils.js';
 export {

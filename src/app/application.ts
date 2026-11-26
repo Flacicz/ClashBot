@@ -221,6 +221,7 @@ export async function createApplication(
                 notificationRepo,
                 transactionManager: transactions,
                 destinationLifecycle,
+                cocApiClient,
                 clanManager,
                 logger,
             });

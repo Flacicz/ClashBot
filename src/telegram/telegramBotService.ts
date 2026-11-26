@@ -8,6 +8,8 @@ import type {
     Update,
 } from 'grammy/types';
 
+import { isCocApiError } from '../api/errors.js';
+import type { ClashOfClansApi, CompleteClanData } from '../api/models.js';
 import { DatabaseError, isAbortError } from '../common/errors.js';
 import { escapeHtml } from '../common/formatUtils.js';
 import type {
@@ -21,7 +23,6 @@ import type {
 import { createLogger, type Logger } from '../logging/logger.js';
 import {
     getPresetCategories,
-    SUBSCRIPTION_PRESETS,
     toggleSubscriptionCategory,
     type SubscriptionPreset,
 } from '../models/subscription.js';
@@ -49,9 +50,17 @@ import {
     makeMyClansNavigationKeyboard,
     makeStartMenuKeyboard,
     makeStrategyListKeyboard,
+    makeSubscriptionSettingsEntryKeyboard,
     makeSubscriptionSettingsKeyboard,
     makeTownHallListKeyboard,
 } from './keyboards.js';
+import {
+    formatAlreadyLinkedText,
+    formatClanNotFoundText,
+    formatLinkedClanText,
+    LINK_INVALID_ARGUMENTS_TEXT,
+    LINK_INVALID_TAG_TEXT,
+} from './linkOnboarding.js';
 import {
     formatSubscriptionSettingsText,
     LAST_CATEGORY_ALERT_TEXT,
@@ -119,6 +128,8 @@ const SETTINGS_UPDATE_ERROR_TEXT = 'Не удалось обновить нас�
 const PERMISSION_CHECK_ERROR_TEXT =
     'Не удалось проверить права пользователя. Попробуйте ещё раз позже.';
 
+export type ClanLookupApiClient = Pick<ClashOfClansApi, 'getCompleteClanData'>;
+
 export interface TelegramBotServiceDependencies {
     readonly telegramToken: string;
     readonly attackGuideCatalog: AttackGuideCatalog;
@@ -128,6 +139,7 @@ export interface TelegramBotServiceDependencies {
     readonly notificationRepo?: NotificationRepo;
     readonly transactionManager: TransactionManager;
     readonly destinationLifecycle?: TelegramDestinationLifecycle;
+    readonly cocApiClient?: ClanLookupApiClient;
     readonly clanManager?: WakeableClanManager;
     readonly logger?: Logger;
     readonly botConfig?: BotConfig<Context>;
@@ -148,6 +160,21 @@ type SettingsActionOutcome =
           readonly status: 'ready';
           readonly subscription: SubscriptionRecord;
           readonly clanName: string | null;
+      };
+type ClanLookupOutcome =
+    | { readonly status: 'found'; readonly data: CompleteClanData }
+    | { readonly status: 'not_found' }
+    | { readonly status: 'unavailable' }
+    | { readonly status: 'aborted' };
+type LinkClanOutcome =
+    | {
+          readonly status: 'already_linked';
+          readonly subscription: SubscriptionRecord;
+          readonly clanName: string;
+      }
+    | {
+          readonly status: 'linked_new_clan' | 'linked_existing_clan';
+          readonly clanName: string;
       };
 
 function isMessageNotModifiedError(error: unknown): boolean {
@@ -207,6 +234,7 @@ export class TelegramBotService {
     private readonly domainEventsRepo: DomainEventsRepo;
     private readonly transactionManager: TransactionManager;
     private readonly destinationLifecycle?: TelegramDestinationLifecycle;
+    private readonly cocApiClient?: ClanLookupApiClient;
     private readonly clanManager?: WakeableClanManager;
     private readonly logger: Logger;
     private readonly pollingTimeoutSeconds: number;
@@ -229,6 +257,9 @@ export class TelegramBotService {
                 domainEventsRepo: deps.domainEventsRepo,
                 notificationRepo: deps.notificationRepo,
             });
+        }
+        if (deps.cocApiClient !== undefined) {
+            this.cocApiClient = deps.cocApiClient;
         }
         if (deps.clanManager !== undefined) {
             this.clanManager = deps.clanManager;
@@ -835,17 +866,76 @@ export class TelegramBotService {
         return member.status === 'administrator' || member.status === 'creator';
     }
 
+    private async lookupClanForLink(clanTag: string): Promise<ClanLookupOutcome> {
+        if (this.cocApiClient === undefined) {
+            return { status: 'unavailable' };
+        }
+
+        try {
+            const data = await this.cocApiClient.getCompleteClanData(clanTag, this.activeSignal);
+            if (this.activeSignal?.aborted) {
+                return { status: 'aborted' };
+            }
+            if (data === null) {
+                return { status: 'not_found' };
+            }
+            return { status: 'found', data };
+        } catch (error: unknown) {
+            if (this.isCancelledError(error)) {
+                return { status: 'aborted' };
+            }
+            if (isCocApiError(error) && (error.kind === 'not_found' || error.statusCode === 404)) {
+                return { status: 'not_found' };
+            }
+
+            this.logger.warn(
+                { err: error, clanTag },
+                'CoC API lookup failed during /link; falling back to deferred synchronization',
+            );
+            return { status: 'unavailable' };
+        }
+    }
+
     private linkClanToChat(
         chatId: number,
         messageThreadId: number,
         title: string,
         clanTag: string,
         preset: SubscriptionPreset,
-    ): void {
-        this.transactionManager.retryInTransaction(() => {
-            this.clansRepo.insertMinimalClan(clanTag);
+        clanData: CompleteClanData | null,
+    ): LinkClanOutcome {
+        return this.transactionManager.retryInTransaction((): LinkClanOutcome => {
+            const existing = this.subscriptionRepo.getSubscription(
+                chatId,
+                messageThreadId,
+                clanTag,
+            );
+            if (existing !== null) {
+                return {
+                    status: 'already_linked',
+                    subscription: existing,
+                    clanName: this.clansRepo.getClanNameByTag(clanTag),
+                };
+            }
+
+            const alreadyTrackedByOtherChats =
+                this.subscriptionRepo.hasSubscriptionsForClan(clanTag);
+
+            if (clanData !== null) {
+                this.clansRepo.saveClan({ ...clanData.clan, tag: clanTag });
+                this.clansRepo.enableTracking(clanTag);
+                this.clansRepo.saveClanSnapshot({ ...clanData.clanSnapshot, clanTag });
+            } else {
+                this.clansRepo.insertMinimalClan(clanTag);
+            }
+
             this.subscriptionRepo.saveTelegramChat(chatId, messageThreadId, title);
             this.subscriptionRepo.subscribeToChat(chatId, messageThreadId, clanTag, preset);
+
+            return {
+                status: alreadyTrackedByOtherChats ? 'linked_existing_clan' : 'linked_new_clan',
+                clanName: this.clansRepo.getClanNameByTag(clanTag),
+            };
         });
     }
 
@@ -895,22 +985,12 @@ export class TelegramBotService {
         }
 
         if (command.status === 'invalid_arguments') {
-            await this.sendHtmlMessage(
-                api,
-                chatId,
-                'Использование: /link #ТЕГ_КЛАНА\nНапример: /link #2PPLQ',
-                messageThreadId,
-            );
+            await this.sendHtmlMessage(api, chatId, LINK_INVALID_ARGUMENTS_TEXT, messageThreadId);
             return;
         }
 
         if (command.status === 'invalid_clan_tag') {
-            await this.sendHtmlMessage(
-                api,
-                chatId,
-                'Некорректный тег клана. Используйте формат #TAG или TAG.',
-                messageThreadId,
-            );
+            await this.sendHtmlMessage(api, chatId, LINK_INVALID_TAG_TEXT, messageThreadId);
             return;
         }
 
@@ -938,8 +1018,78 @@ export class TelegramBotService {
         const title = resolveChatTitle(chat);
         const { clanTag } = command;
 
+        let existingSubscription: SubscriptionRecord | null;
+        let existingClanName: string | null = null;
         try {
-            this.linkClanToChat(chatId, messageThreadId, title, clanTag, defaultPreset);
+            existingSubscription = this.subscriptionRepo.getSubscription(
+                chatId,
+                messageThreadId,
+                clanTag,
+            );
+            if (existingSubscription !== null) {
+                existingClanName = this.clansRepo.getClanNameByTag(clanTag);
+            }
+        } catch (error: unknown) {
+            if (error instanceof DatabaseError) {
+                this.logger.error(
+                    { err: error, chatId, clanTag },
+                    'Failed to check existing subscription for /link',
+                );
+                await this.sendHtmlMessage(
+                    api,
+                    chatId,
+                    'Не удалось сохранить привязку. Попробуйте ещё раз позже.',
+                    messageThreadId,
+                );
+                return;
+            }
+            throw error;
+        }
+
+        if (existingSubscription !== null) {
+            await this.sendHtmlMessage(
+                api,
+                chatId,
+                formatAlreadyLinkedText({
+                    clanTag,
+                    clanName: existingClanName,
+                    categories: existingSubscription.categories,
+                    chatType: chat.type,
+                    messageThreadId,
+                }),
+                messageThreadId,
+                makeSubscriptionSettingsEntryKeyboard(clanTag),
+            );
+            return;
+        }
+
+        const lookup = await this.lookupClanForLink(clanTag);
+        if (lookup.status === 'aborted' || this.activeSignal?.aborted) {
+            return;
+        }
+
+        if (lookup.status === 'not_found') {
+            await this.sendHtmlMessage(
+                api,
+                chatId,
+                formatClanNotFoundText(clanTag),
+                messageThreadId,
+            );
+            return;
+        }
+
+        const clanData = lookup.status === 'found' ? lookup.data : null;
+
+        let linkOutcome: LinkClanOutcome;
+        try {
+            linkOutcome = this.linkClanToChat(
+                chatId,
+                messageThreadId,
+                title,
+                clanTag,
+                defaultPreset,
+                clanData,
+            );
         } catch (error: unknown) {
             if (error instanceof DatabaseError) {
                 this.logger.error({ err: error, chatId, clanTag }, 'Failed to link clan to chat');
@@ -954,21 +1104,47 @@ export class TelegramBotService {
             throw error;
         }
 
+        if (linkOutcome.status === 'already_linked') {
+            await this.sendHtmlMessage(
+                api,
+                chatId,
+                formatAlreadyLinkedText({
+                    clanTag,
+                    clanName: linkOutcome.clanName,
+                    categories: linkOutcome.subscription.categories,
+                    chatType: chat.type,
+                    messageThreadId,
+                }),
+                messageThreadId,
+                makeSubscriptionSettingsEntryKeyboard(clanTag),
+            );
+            return;
+        }
+
         this.clanManager?.notify();
 
-        const destination = chat.type === 'private' ? 'Личный чат' : 'Общий чат';
-        const presetLabel =
-            defaultPreset === SUBSCRIPTION_PRESETS.management ? '«Руководство»' : '«Игроки»';
-        const details =
-            defaultPreset === SUBSCRIPTION_PRESETS.management
-                ? 'дисциплину, аналитику и системные оповещения'
-                : 'итоги, сравнения, напоминания и кадровые события';
+        const responseText = formatLinkedClanText({
+            clanTag,
+            clanName: linkOutcome.clanName,
+            ...(clanData !== null
+                ? {
+                      membersCount: clanData.clanSnapshot.membersCount,
+                      isWarLogPublic: clanData.clanSnapshot.isWarLogPublic,
+                  }
+                : {}),
+            preset: defaultPreset,
+            alreadyTrackedByOtherChats: linkOutcome.status === 'linked_existing_clan',
+            syncDeferred: lookup.status === 'unavailable',
+            chatType: chat.type,
+            messageThreadId,
+        });
 
         await this.sendHtmlMessage(
             api,
             chatId,
-            `Готово! ${destination} привязан к клану ${clanTag}.\n\nПресет уведомлений: ${presetLabel} (${details}).`,
+            responseText,
             messageThreadId,
+            makeSubscriptionSettingsEntryKeyboard(clanTag),
         );
     }
 

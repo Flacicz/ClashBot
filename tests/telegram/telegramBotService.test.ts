@@ -4,6 +4,8 @@ import type { Context } from 'grammy';
 import type { ApiResponse, ChatMember, Update, UserFromGetMe } from 'grammy/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { CocApiError } from '../../src/api/errors.js';
+import type { CompleteClanData } from '../../src/api/models.js';
 import { DatabaseError } from '../../src/common/errors.js';
 import {
     ClansRepo,
@@ -14,10 +16,14 @@ import {
     SubscriptionRepo,
     TransactionManager,
 } from '../../src/database/index.js';
+import { DomainEventPayloadSerializer, DomainEventRecorder } from '../../src/domainEvents/index.js';
 import { createLogger, type Logger } from '../../src/logging/index.js';
-import type { WakeableClanManager } from '../../src/services/index.js';
+import { ClanInfoService, type WakeableClanManager } from '../../src/services/index.js';
 import {
     AttackGuideCatalog,
+    type ClanLookupApiClient,
+    DEFERRED_SYNC_HINT_TEXT,
+    PRIVATE_WAR_LOG_WARNING_TEXT,
     SUPERCELL_FAN_CONTENT_DISCLAIMER,
     TELEGRAM_BOT_ALLOWED_UPDATES,
     TELEGRAM_BOT_COMMANDS,
@@ -432,6 +438,86 @@ function getInlineKeyboard(payload: Record<string, unknown> | undefined): readon
     return replyMarkup.inline_keyboard;
 }
 
+function makeCompleteClanData(overrides?: {
+    readonly tag?: string;
+    readonly name?: string;
+    readonly membersCount?: number;
+    readonly isWarLogPublic?: boolean;
+}): CompleteClanData {
+    const tag = overrides?.tag ?? '#2PPLQ';
+    const name = overrides?.name ?? 'Dark Dragons';
+    const membersCount = overrides?.membersCount ?? 45;
+    const isWarLogPublic = overrides?.isWarLogPublic ?? true;
+
+    return {
+        clan: {
+            tag,
+            name,
+            description: 'Active war clan',
+            locationId: 32000193,
+            locationName: 'Russia',
+            chatLanguageId: 75000011,
+            chatLanguage: 'Russian',
+            isFamilyFriendly: false,
+        },
+        clanSnapshot: {
+            clanTag: tag,
+            type: 'inviteOnly',
+            membersCount,
+            clanLevel: 18,
+            clanPoints: 45_000,
+            clanBuilderBasePoints: 30_000,
+            clanCapitalPoints: 4_200,
+            capitalHallLevel: 10,
+            capitalLeagueId: 85000018,
+            requiredTrophies: 2_000,
+            requiredBuilderBaseTrophies: 1_000,
+            requiredTownhallLevel: 13,
+            warFrequency: 'always',
+            isWarLogPublic,
+            warWinStreak: 7,
+            warWins: 210,
+            warTies: 5,
+            warLosses: 50,
+            warLeagueId: 48000013,
+        },
+        players: [
+            { tag: '#PLAYER1', name: 'Chief One', clanTag: tag },
+            { tag: '#PLAYER2', name: 'Chief Two', clanTag: tag },
+        ],
+        playerSnapshots: [
+            {
+                playerTag: '#PLAYER1',
+                clanTag: tag,
+                role: 'leader',
+                townHallLevel: 16,
+                expLevel: 230,
+                clanRank: 1,
+                leagueId: 29000022,
+                builderBaseLeagueId: 44000010,
+                trophies: 5_400,
+                builderBaseTrophies: 4_000,
+                donations: 1_500,
+                donationsReceived: 800,
+            },
+            {
+                playerTag: '#PLAYER2',
+                clanTag: tag,
+                role: 'member',
+                townHallLevel: 15,
+                expLevel: 210,
+                clanRank: 2,
+                leagueId: 29000021,
+                builderBaseLeagueId: 44000010,
+                trophies: 5_000,
+                builderBaseTrophies: 3_500,
+                donations: 600,
+                donationsReceived: 700,
+            },
+        ],
+    };
+}
+
 interface TestHarness {
     readonly db: Database;
     readonly clansRepo: ClansRepo;
@@ -451,6 +537,7 @@ describe('TelegramBotService', () => {
         readonly skipBotInfo?: boolean;
         readonly pollingTimeoutSeconds?: number;
         readonly stopConfirmationTimeoutMs?: number;
+        readonly cocApiClient?: ClanLookupApiClient;
         readonly clanManager?: WakeableClanManager;
         readonly logger?: Logger;
     }): TestHarness {
@@ -476,6 +563,7 @@ describe('TelegramBotService', () => {
             notificationRepo,
             transactionManager,
             logger,
+            ...(options?.cocApiClient !== undefined ? { cocApiClient: options.cocApiClient } : {}),
             ...(options?.clanManager !== undefined ? { clanManager: options.clanManager } : {}),
             ...(options?.pollingTimeoutSeconds !== undefined
                 ? { pollingTimeoutSeconds: options.pollingTimeoutSeconds }
@@ -817,7 +905,7 @@ describe('TelegramBotService', () => {
     });
 
     describe('command: /link', () => {
-        it('links a supergroup forum topic for an administrator with players preset by default', async () => {
+        it('links a supergroup forum topic for an administrator with players preset by default (fallback without CoC API client)', async () => {
             const { service, transport, subscriptionRepo, clansRepo, db } = createHarness();
             const chatId = -1001;
             const userId = 42;
@@ -864,8 +952,12 @@ describe('TelegramBotService', () => {
             const sent = transport.sentMessages();
             expect(sent).toHaveLength(1);
             expect(sent[0]?.message_thread_id).toBe(threadId);
-            expect(String(sent[0]?.text)).toContain('Готово! Общий чат привязан к клану #2PPLQ');
+            expect(String(sent[0]?.text)).toContain('Подключён клан #2PPLQ.');
+            expect(String(sent[0]?.text)).toContain(DEFERRED_SYNC_HINT_TEXT);
             expect(String(sent[0]?.text)).toContain('«Игроки»');
+            expect(getInlineKeyboard(sent[0])).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#2PPLQ' }],
+            ]);
         });
 
         it('links a private chat with management preset without calling getChatMember and resolves title fallbacks', async () => {
@@ -926,12 +1018,294 @@ describe('TelegramBotService', () => {
 
             const sent = transport.sentMessages();
             expect(sent).toHaveLength(3);
-            expect(String(sent[0]?.text)).toContain('Личный чат');
+            expect(String(sent[0]?.text)).toContain('Подключён клан #2PPLQ.');
             expect(String(sent[0]?.text)).toContain('«Руководство»');
+            expect(String(sent[1]?.text)).toContain('Клан уже отслеживается в других чатах');
+            expect(String(sent[1]?.text)).toContain('этот личный чат подключён');
+            expect(getInlineKeyboard(sent[0])).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#2PPLQ' }],
+            ]);
         });
 
-        it('is idempotent on repeated /link and preserves the existing subscription_id generation', async () => {
-            const { service, subscriptionRepo } = createHarness();
+        it('fetches clan from CoC API strictly outside SQLite transaction on /link, saves clan metadata and snapshot, replies with name, member count, preset and settings button, and preserves initial sync semantics', async () => {
+            const observedInTransaction: boolean[] = [];
+            const clanData = makeCompleteClanData({
+                tag: '#2PPLQ',
+                name: 'Dark <Dragons>',
+                membersCount: 42,
+                isWarLogPublic: true,
+            });
+            const getCompleteClanData = vi.fn<ClanLookupApiClient['getCompleteClanData']>();
+            const notify = vi.fn();
+
+            const {
+                service,
+                transport,
+                clansRepo,
+                subscriptionRepo,
+                domainEventsRepo,
+                transactionManager,
+                db,
+            } = createHarness({
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
+            getCompleteClanData.mockImplementation(async () => {
+                observedInTransaction.push(db.connection.inTransaction);
+                return await Promise.resolve(clanData);
+            });
+
+            const chatId = -1001;
+            const userId = 42;
+            transport.chatMembers.set(memberKey(chatId, userId), 'administrator');
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 1,
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Clan chat',
+                    userId,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            expect(getCompleteClanData).toHaveBeenCalledTimes(1);
+            expect(getCompleteClanData).toHaveBeenCalledWith('#2PPLQ', undefined);
+            expect(observedInTransaction).toEqual([false]);
+            expect(notify).toHaveBeenCalledTimes(1);
+
+            expect(clansRepo.getTrackedClans()).toEqual(['#2PPLQ']);
+            expect(clansRepo.getClanNameByTag('#2PPLQ')).toBe('Dark <Dragons>');
+            const snapshotRow = db.connection
+                .prepare<[string], { members_count: number; is_war_log_public: number }>(
+                    'SELECT members_count, is_war_log_public FROM clan_snapshots WHERE clan_tag = ? ORDER BY id DESC LIMIT 1;',
+                )
+                .get('#2PPLQ');
+            expect(snapshotRow).toEqual({ members_count: 42, is_war_log_public: 1 });
+            expect(clansRepo.getActiveMemberships('#2PPLQ')).toEqual([]);
+            expect(clansRepo.getLatestPlayerSnapshots('#2PPLQ')).toEqual([]);
+
+            // First background ClanInfoService sync must still treat this clan as initial sync (no spurious join events)
+            const recorder = new DomainEventRecorder(
+                new DomainEventPayloadSerializer(),
+                subscriptionRepo,
+                domainEventsRepo,
+            );
+            const clanInfoService = new ClanInfoService(
+                clansRepo,
+                { getCompleteClanData: vi.fn().mockResolvedValue(clanData) },
+                transactionManager,
+                recorder,
+            );
+            const syncResult = await clanInfoService.updateData('#2PPLQ');
+            expect(syncResult.successFlag).toBe(true);
+            expect(syncResult.events).toEqual([]);
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(1);
+            const text = String(sent[0]?.text);
+            expect(text).toContain(
+                'Подключён клан <b>Dark &lt;Dragons&gt;</b> (#2PPLQ), 42 участника.',
+            );
+            expect(text).toContain('Пресет по умолчанию: «Игроки»');
+            expect(text).not.toContain('🔒');
+            expect(text).not.toContain('⏳');
+            expect(getInlineKeyboard(sent[0])).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#2PPLQ' }],
+            ]);
+
+            // Clicking the settings entry button opens settings screen with the synchronized clan name immediately
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    updateId: 2,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    data: 'settings:open:#2PPLQ',
+                }),
+            );
+            const edited = transport.editedMessages();
+            expect(edited).toHaveLength(1);
+            expect(String(edited[0]?.text)).toContain('Клан: <b>Dark &lt;Dragons&gt;</b> (#2PPLQ)');
+        });
+
+        it('includes the exact private war log warning when isWarLogPublic is false', async () => {
+            const getCompleteClanData = vi.fn().mockResolvedValue(
+                makeCompleteClanData({
+                    tag: '#2PPLQ',
+                    name: 'Secret Clan',
+                    membersCount: 30,
+                    isWarLogPublic: false,
+                }),
+            );
+
+            const { service, transport, db } = createHarness({
+                cocApiClient: { getCompleteClanData },
+            });
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            const snapshotRow = db.connection
+                .prepare<[string], { is_war_log_public: number }>(
+                    'SELECT is_war_log_public FROM clan_snapshots WHERE clan_tag = ? ORDER BY id DESC LIMIT 1;',
+                )
+                .get('#2PPLQ');
+            expect(snapshotRow).toEqual({ is_war_log_public: 0 });
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(1);
+            const text = String(sent[0]?.text);
+            expect(text).toContain('Подключён клан <b>Secret Clan</b> (#2PPLQ), 30 участников.');
+            expect(text).toContain('Пресет по умолчанию: «Руководство»');
+            expect(text).toContain(PRIVATE_WAR_LOG_WARNING_TEXT);
+            expect(getInlineKeyboard(sent[0])).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#2PPLQ' }],
+            ]);
+        });
+
+        it('rejects /link on CoC API 404 without creating clan, chat, subscription, or notifying ClanManager', async () => {
+            const getCompleteClanData = vi
+                .fn()
+                .mockResolvedValueOnce(null)
+                .mockRejectedValueOnce(
+                    new CocApiError('HTTP 404', {
+                        kind: 'not_found',
+                        statusCode: 404,
+                        endpoint: '/clans/%23999888',
+                    }),
+                );
+            const notify = vi.fn();
+
+            const { service, transport, clansRepo, subscriptionRepo, db } = createHarness({
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 1,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 2,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #999888',
+                }),
+            );
+
+            expect(getCompleteClanData).toHaveBeenCalledTimes(2);
+            expect(notify).not.toHaveBeenCalled();
+            expect(clansRepo.getTrackedClans()).toEqual([]);
+            expect(subscriptionRepo.getClanTagsForChat(2001, 0)).toEqual([]);
+            const clansCount = db.connection
+                .prepare<[], { count: number }>('SELECT COUNT(*) AS count FROM clans;')
+                .get()?.count;
+            const chatsCount = db.connection
+                .prepare<[], { count: number }>('SELECT COUNT(*) AS count FROM telegram_chats;')
+                .get()?.count;
+            expect(clansCount).toBe(0);
+            expect(chatsCount).toBe(0);
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(2);
+            expect(String(sent[0]?.text)).toContain('Клан #2PPLQ не найден');
+            expect(sent[0]?.reply_markup).toBeUndefined();
+            expect(String(sent[1]?.text)).toContain('Клан #999888 не найден');
+            expect(sent[1]?.reply_markup).toBeUndefined();
+        });
+
+        it('falls back to deferred synchronization on CoC API timeout, 5xx, and network errors', async () => {
+            const getCompleteClanData = vi
+                .fn()
+                .mockRejectedValueOnce(
+                    new CocApiError('Request timed out', {
+                        kind: 'timeout',
+                        endpoint: '/clans/%232PPLQ',
+                    }),
+                )
+                .mockRejectedValueOnce(
+                    new CocApiError('HTTP 503', {
+                        kind: 'server_error',
+                        statusCode: 503,
+                        endpoint: '/clans/%23999888',
+                    }),
+                )
+                .mockRejectedValueOnce(
+                    new CocApiError('ECONNRESET', {
+                        kind: 'network',
+                        endpoint: '/clans/%23888222',
+                    }),
+                );
+            const notify = vi.fn();
+
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness({
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
+
+            for (const [index, tag] of ['#2PPLQ', '#999888', '#888222'].entries()) {
+                await service.bot.handleUpdate(
+                    makeMessageUpdate({
+                        updateId: index + 1,
+                        chatId: 2001,
+                        chatType: 'private',
+                        userId: 2001,
+                        text: `/link ${tag}`,
+                    }),
+                );
+            }
+
+            expect(getCompleteClanData).toHaveBeenCalledTimes(3);
+            expect(notify).toHaveBeenCalledTimes(3);
+            expect(clansRepo.getTrackedClans()).toEqual(['#2PPLQ', '#999888', '#888222']);
+            expect(subscriptionRepo.getClanTagsForChat(2001, 0)).toEqual([
+                '#2PPLQ',
+                '#999888',
+                '#888222',
+            ]);
+            expect(clansRepo.getClanNameByTag('#2PPLQ')).toBe('Pending synchronization');
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(3);
+            for (const [index, tag] of ['#2PPLQ', '#999888', '#888222'].entries()) {
+                expect(String(sent[index]?.text)).toContain(`Подключён клан ${tag}.`);
+                expect(String(sent[index]?.text)).toContain(DEFERRED_SYNC_HINT_TEXT);
+                expect(String(sent[index]?.text)).toContain('«Руководство»');
+                expect(getInlineKeyboard(sent[index])).toEqual([
+                    [{ text: '⚙️ Настройки', callback_data: `settings:open:${tag}` }],
+                ]);
+            }
+        });
+
+        it('is idempotent on repeated /link, preserves subscription_id and custom categories, skips CoC API and ClanManager wake, and replies with already-linked status', async () => {
+            const getCompleteClanData = vi.fn().mockResolvedValue(
+                makeCompleteClanData({
+                    tag: '#2PPLQ',
+                    name: 'Dark Dragons',
+                    membersCount: 45,
+                }),
+            );
+            const notify = vi.fn();
+
+            const { service, transport, subscriptionRepo } = createHarness({
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
 
             await service.bot.handleUpdate(
                 makeMessageUpdate({
@@ -945,6 +1319,15 @@ describe('TelegramBotService', () => {
             const firstSubscriptionId = subscriptionRepo.getSubscriptionId(2001, 0, '#2PPLQ');
             expect(firstSubscriptionId).not.toBeNull();
 
+            // Customize categories before repeated /link to prove settings are preserved
+            subscriptionRepo.updateSubscriptionCategories(2001, 0, '#2PPLQ', {
+                summaries: true,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: false,
+            });
+
             await service.bot.handleUpdate(
                 makeMessageUpdate({
                     updateId: 2,
@@ -954,8 +1337,164 @@ describe('TelegramBotService', () => {
                     text: '/link #2PPLQ',
                 }),
             );
-            const secondSubscriptionId = subscriptionRepo.getSubscriptionId(2001, 0, '#2PPLQ');
-            expect(secondSubscriptionId).toBe(firstSubscriptionId);
+            const secondSubscription = subscriptionRepo.getSubscription(2001, 0, '#2PPLQ');
+            expect(secondSubscription?.subscriptionId).toBe(firstSubscriptionId);
+            expect(secondSubscription?.categories).toEqual({
+                summaries: true,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: false,
+            });
+            expect(getCompleteClanData).toHaveBeenCalledTimes(1);
+            expect(notify).toHaveBeenCalledTimes(1);
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(2);
+            expect(String(sent[1]?.text)).toContain('Клан <b>Dark Dragons</b> (#2PPLQ)');
+            expect(String(sent[1]?.text)).toContain('уже подключён в этом личном чате');
+            expect(String(sent[1]?.text)).toContain('Текущий пресет: своя настройка.');
+            expect(getInlineKeyboard(sent[1])).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#2PPLQ' }],
+            ]);
+        });
+
+        it('distinguishes linking a clan already tracked by another chat and reports fresh metadata plus war log warning', async () => {
+            const getCompleteClanData = vi.fn().mockResolvedValue(
+                makeCompleteClanData({
+                    tag: '#2PPLQ',
+                    name: 'Shared Clan',
+                    membersCount: 48,
+                    isWarLogPublic: false,
+                }),
+            );
+
+            const { service, transport, subscriptionRepo } = createHarness({
+                cocApiClient: { getCompleteClanData },
+            });
+            transport.chatMembers.set(memberKey(-1001, 42), 'administrator');
+
+            // First chat links the clan
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 1,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            // Second chat (supergroup topic) links the same already-tracked clan
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 2,
+                    chatId: -1001,
+                    chatType: 'supergroup',
+                    title: 'Clan forum',
+                    userId: 42,
+                    messageThreadId: 15,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            expect(getCompleteClanData).toHaveBeenCalledTimes(2);
+            expect(subscriptionRepo.hasSubscription(2001, 0, '#2PPLQ')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(-1001, 15, '#2PPLQ')).toBe(true);
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(2);
+            expect(String(sent[0]?.text)).not.toContain('уже отслеживается');
+            expect(String(sent[1]?.text)).toContain(
+                'Подключён клан <b>Shared Clan</b> (#2PPLQ), 48 участников.',
+            );
+            expect(String(sent[1]?.text)).toContain(
+                'Клан уже отслеживается в других чатах — эта тема подключена к его обновлениям.',
+            );
+            expect(String(sent[1]?.text)).toContain('Пресет по умолчанию: «Игроки»');
+            expect(String(sent[1]?.text)).toContain(PRIVATE_WAR_LOG_WARNING_TEXT);
+            expect(getInlineKeyboard(sent[1])).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#2PPLQ' }],
+            ]);
+        });
+
+        it('re-enables tracking and refreshes clan metadata when re-linking a previously unlinked clan via CoC API', async () => {
+            const getCompleteClanData = vi.fn().mockResolvedValue(
+                makeCompleteClanData({
+                    tag: '#2PPLQ',
+                    name: 'Renamed Clan',
+                    membersCount: 35,
+                    isWarLogPublic: true,
+                }),
+            );
+
+            const { service, clansRepo, subscriptionRepo } = createHarness({
+                cocApiClient: { getCompleteClanData },
+            });
+
+            // Simulate a previously synced and then unlinked clan (tracking_enabled = 0)
+            clansRepo.insertMinimalClan('#2PPLQ');
+            clansRepo.disableTracking('#2PPLQ');
+            expect(clansRepo.getTrackedClans()).toEqual([]);
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            expect(clansRepo.getTrackedClans()).toEqual(['#2PPLQ']);
+            expect(clansRepo.getClanNameByTag('#2PPLQ')).toBe('Renamed Clan');
+            expect(subscriptionRepo.hasSubscription(2001, 0, '#2PPLQ')).toBe(true);
+        });
+
+        it('handles concurrent /link race cleanly as already_linked without changing subscription_id', async () => {
+            let resolveLookup!: (value: CompleteClanData | null) => void;
+            const lookupPromise = new Promise<CompleteClanData | null>((resolve) => {
+                resolveLookup = resolve;
+            });
+            const getCompleteClanData = vi.fn().mockReturnValue(lookupPromise);
+
+            const { service, transport, subscriptionRepo } = createHarness({
+                cocApiClient: { getCompleteClanData },
+            });
+
+            const first = service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 1,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+            const second = service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 2,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            resolveLookup(
+                makeCompleteClanData({
+                    tag: '#2PPLQ',
+                    name: 'Race Clan',
+                    membersCount: 25,
+                }),
+            );
+            await Promise.all([first, second]);
+
+            expect(subscriptionRepo.getSubscriptionId(2001, 0, '#2PPLQ')).not.toBeNull();
+            const texts = transport.sentMessages().map((m) => String(m.text));
+            expect(texts).toHaveLength(2);
+            expect(texts.some((t) => t.includes('Подключён клан <b>Race Clan</b>'))).toBe(true);
+            expect(texts.some((t) => t.includes('уже подключён'))).toBe(true);
         });
 
         it('notifies ClanManager strictly after /link transaction commits and skips notification on rejected or failed /link', async () => {
@@ -1027,8 +1566,11 @@ describe('TelegramBotService', () => {
             expect(observedTrackedOnNotify).toEqual([['#2PPLQ']]);
         });
 
-        it('rejects /link from non-administrator, private chat mismatch, unsupported chat types, invalid args and invalid tags', async () => {
-            const { service, transport, clansRepo } = createHarness();
+        it('rejects /link from non-administrator, private chat mismatch, unsupported chat types, invalid args and invalid tags without calling CoC API', async () => {
+            const getCompleteClanData = vi.fn();
+            const { service, transport, clansRepo } = createHarness({
+                cocApiClient: { getCompleteClanData },
+            });
             transport.chatMembers.set(memberKey(-1002, 43), 'member');
 
             await service.bot.handleUpdate(
@@ -1076,6 +1618,7 @@ describe('TelegramBotService', () => {
                 }),
             );
 
+            expect(getCompleteClanData).not.toHaveBeenCalled();
             expect(clansRepo.getTrackedClans()).toEqual([]);
             const sent = transport.sentMessages();
             expect(sent).toHaveLength(5);
@@ -1086,6 +1629,7 @@ describe('TelegramBotService', () => {
             expect(String(sent[3]?.text)).toContain('Использование: /link #ТЕГ_КЛАНА');
             expect(sent[3]?.message_thread_id).toBe(5);
             expect(String(sent[4]?.text)).toContain('Некорректный тег клана');
+            expect(String(sent[4]?.text)).toContain('Например: /link #2PPLQ');
             expect(sent[4]?.message_thread_id).toBe(5);
         });
 

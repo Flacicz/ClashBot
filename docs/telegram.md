@@ -22,8 +22,10 @@ Telegram-слой разделён на два независимых компо
 2. `GrammyTelegramGateway` / `TelegramGateway` (`src/notifications/telegramGateway.ts`) — исходящий транспорт для
    `NotificationWorker`: отправляет HTML-сообщения через `sendMessage` и классифицирует ошибки Bot API.
 
-Бот не выполняет произвольных аналитических запросов по команде пользователя: игровые данные поступают только от фоновой
-синхронизации с Clash of Clans API ([`docs/architecture.md`](architecture.md)).
+Бот не выполняет произвольных аналитических запросов по команде пользователя: игровые данные войн, ЛВК и рейдов поступают
+только от фоновой синхронизации с Clash of Clans API ([`docs/architecture.md`](architecture.md)). Единственное
+исключение — команда `/link #TAG`, которая выполняет один запрос `GET /clans/{tag}` строго вне SQLite-транзакции для
+проверки существования клана и отображения статуса онбординга.
 
 ## Конфигурация и long polling
 
@@ -113,15 +115,36 @@ Telegram-слой разделён на два независимых компо
 
 ## Управление подписками через `/link` и `/unlink`
 
-- **`/link #TAG`** в одной транзакции (`TransactionManager.retryInTransaction`):
-  1. `ClansRepo.insertMinimalClan` — создаёт запись клана с именем `'Pending synchronization'` (если её ещё нет) и включает
-     `tracking_enabled = 1`;
-  2. `SubscriptionRepo.saveTelegramChat(chatId, messageThreadId, title)` — заголовок выбирается по приоритету
-     `chat.title` → `first_name last_name` → `first_name` → `username` → `'Telegram-чат'`;
-  3. `SubscriptionRepo.subscribeToChat(chatId, messageThreadId, clanTag, defaultPreset)` (`INSERT OR IGNORE`). Повторный
-     `/link` идемпотентен и сохраняет текущее поколение подписки (`subscription_id`) и её настройки.
-  После успешного коммита транзакции (строго вне транзакции) `TelegramBotService` вызывает `clanManager.notify()`, чтобы
-  `ClanManager` немедленно запустил первичную синхронизацию нового отслеживаемого клана без ожидания 15-минутного интервала.
+- **`/link #TAG`** (тексты и статусы онбординга — `src/telegram/linkOnboarding.ts`):
+  1. проверяет тип чата (`resolveDefaultPreset`), формат аргументов/тега (при неверном теге отвечает подсказкой с
+     допустимым алфавитом и примером `/link #2PPLQ`) и права пользователя (`canManageCurrentChat`);
+  2. проверяет, не привязан ли клан уже к текущему назначению `(chat_id, message_thread_id)`: если подписка уже
+     существует, отвечает статусом «уже подключён» с текущим пресетом и кнопкой `⚙️ Настройки` — идемпотентно, без
+     запроса к CoC API, без смены `subscription_id` и без перезаписи настроек;
+  3. для нового подключения выполняет **один** запрос `GET /clans/{tag}` к CoC API (`cocApiClient.getCompleteClanData`)
+     **строго вне SQLite-транзакции**:
+     - `404` (клан не найден) → отказ «Клан `#TAG` не найден» с подсказкой примера; запись клана и подписка не
+       создаются, `ClanManager` не пробуждается;
+     - успех (`200`) → в одной транзакции (`TransactionManager.retryInTransaction`) сохраняются карточка клана
+       (`ClansRepo.saveClan` + `ClansRepo.enableTracking`) и стартовый снимок `clan_snapshots`
+       (`ClansRepo.saveClanSnapshot`, без записи `players`/`player_snapshots`/`clan_memberships`, чтобы первый фоновый
+       синк `ClanInfoService` корректно считался первичным), обновляется `telegram_chats` и создаётся подписка с
+       пресетом по умолчанию (`SubscriptionRepo.subscribeToChat`). Ответ содержит:
+       - «Подключён клан **Имя** (`#TAG`), N участников»;
+       - пометку, если клан уже отслеживается другими чатами;
+       - указание активного пресета по умолчанию (`«Игроки»` или `«Руководство»`);
+       - при закрытом журнале войн (`isWarLogPublic = false`) — предупреждение:
+         `🔒 Журнал войн клана закрыт — обычные КВ недоступны через CoC API. ЛВК и рейды отслеживаются. Откройте журнал в настройках клана в игре.`;
+       - inline-кнопку `⚙️ Настройки` (`makeSubscriptionSettingsEntryKeyboard` → `settings:open:#TAG`);
+     - недоступность CoC API (таймаут, `5xx`, сетевая ошибка и т. п.) → мягкий fallback: в транзакции выполняется
+       `ClansRepo.insertMinimalClan` (имя `'Pending synchronization'` для нового клана или сохранение известного имени с
+       `tracking_enabled = 1`), сохраняются `telegram_chats` и подписка; ответ содержит пометку
+       `⏳ данные появятся после первой синхронизации`, активный пресет и кнопку `⚙️ Настройки`.
+  4. заголовок `telegram_chats` выбирается по приоритету `chat.title` → `first_name last_name` → `first_name` →
+     `username` → `'Telegram-чат'`. При конкурентной гонке двух `/link` транзакция повторно проверяет наличие подписки
+     и отвечает идемпотентным статусом «уже подключён» без смены `subscription_id`.
+  5. после успешного коммита новой подписки (строго вне транзакции) `TelegramBotService` вызывает `clanManager.notify()`,
+     чтобы `ClanManager` немедленно запустил первичную синхронизацию без ожидания 15-минутного интервала.
 - **`/unlink #TAG`** (и кнопка отключения в меню) в одной транзакции:
   1. получает `subscription_id` для `(chatId, messageThreadId, clanTag)` (если подписки нет — ничего не меняет);
   2. вызывает `DomainEventsRepo.cancelForSubscription(subscriptionId)` — отменяет `pending`-получателей события и

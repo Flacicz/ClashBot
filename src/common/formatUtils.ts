@@ -56,7 +56,7 @@ export function formatUnixToMoscowDateTime(timestampSeconds: number): string {
     return `${day}.${month}.${year} ${hours}:${minutes}`;
 }
 
-function pluralizeRu(value: number, one: string, few: string, many: string): string {
+export function pluralizeRu(value: number, one: string, few: string, many: string): string {
     const abs = Math.abs(Math.trunc(value));
     const mod100 = abs % 100;
     const mod10 = abs % 10;

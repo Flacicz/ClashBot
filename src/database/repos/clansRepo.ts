@@ -39,6 +39,16 @@ export class ClansRepo extends BaseRepository {
         this.execute(sql, 'insert minimal clan', `clan_tag = ${tag}`, tag);
     }
 
+    enableTracking(tag: string): void {
+        const sql = `
+            UPDATE clans
+            SET tracking_enabled = 1
+            WHERE tag = ?;
+        `;
+
+        this.execute(sql, 'enable tracking', `clan_tag = ${tag}`, tag);
+    }
+
     disableTracking(tag: string): void {
         const sql = `
             UPDATE clans
