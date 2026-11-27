@@ -7,10 +7,10 @@
 Перед созданием веток или запуском воркеров выполни в основном workspace:
 
 ```powershell
-git fetch origin main; if ($LASTEXITCODE -eq 0) { git checkout main }; if ($LASTEXITCODE -eq 0) { git merge --ff-only origin/main }; if ($LASTEXITCODE -eq 0) { git status -sb }
+git fetch --prune origin; if ($LASTEXITCODE -eq 0) { git checkout main }; if ($LASTEXITCODE -eq 0) { git merge --ff-only origin/main }; if ($LASTEXITCODE -eq 0) { git worktree prune }; if ($LASTEXITCODE -eq 0) { git status -sb }
 ```
 
-**Критерий готовности:** текущая ветка — `main`, коммит совпадает с `origin/main`, рабочее дерево чистое.
+**Критерий готовности:** текущая ветка — `main`, коммит совпадает с `origin/main`, рабочее дерево чистое, устаревшие `origin/*` ссылки и мёртвые worktree очищены.
 
 ## Выбор режима веток
 
@@ -24,6 +24,7 @@ git fetch origin main; if ($LASTEXITCODE -eq 0) { git checkout main }; if ($LAST
 4. После вердикта `APPROVE`:
    - если `<wave-branch>` успела продвинуться, пока шёл тикет, кодер подтягивает базу через `git fetch origin <wave-branch>` и `git merge origin/<wave-branch>` (без `--force`), разрешает конфликты, перепрогоняет проверки и проходит повторное ревью;
    - координатор вливает одобренную ветку тикета в `<wave-branch>` через `git merge --squash <ticket-branch>` и один коммит Conventional Commits с номером тикета (например, `fix(outbox): claim notifications with sending status (#3)`), прогоняет проверки на `<wave-branch>` и пушит её (`git push origin <wave-branch>`);
+   - сразу после успешного вливания и пуша `<wave-branch>` отработавшую ветку тикета можно удалить (`git push origin --delete <ticket-branch>`, `git branch -D <ticket-branch>`), а также удалить техническую ветку воркера `swarm-<name>-*`;
    - следующий зависимый тикет (включая следующую SQL-миграцию) стартует сразу от обновлённой `origin/<wave-branch>` без ожидания промежуточного merge в `main`.
 5. По завершении волны координатор открывает **один** PR `<wave-branch> → main`:
    - перечисляет каждый закрываемый тикет отдельной строкой `Closes #<n>`;
@@ -52,7 +53,20 @@ git fetch origin main; if ($LASTEXITCODE -eq 0) { git checkout main }; if ($LAST
   2. `docs/deployment.md` и `README.md` — упоминания числа применённых миграций и последнего префикса;
   3. тесты мигратора и обратной совместимости (`tests/database/migratorManager.test.ts`, `tests/app/cppV012Compatibility.test.ts`), доказав работу на чистой БД и на upgrade уже мигрированной БД (включая backfill существующих строк).
 
+## Очистка после слияния PR и волны
+
+Чтобы папка `<appData>/antigravity/worktrees/` и список веток не разрастались после закрытых волн и PR:
+
+1. Переключись на `main`, подтяни изменения и очисти удалённые ссылки:
+   ```powershell
+   git fetch --prune origin; if ($LASTEXITCODE -eq 0) { git checkout main }; if ($LASTEXITCODE -eq 0) { git merge --ff-only origin/main }; if ($LASTEXITCODE -eq 0) { git worktree prune }
+   ```
+2. Проверь `<appData>/worktrees/`: убедись, что не осталось осиротевших директорий от завершённых воркеров (без `.git` и отсутствующих в `git worktree list`), и удали их через `cmd /c "rmdir /s /q <path>"`.
+3. Удали локальные ветки уже слитых волн/тикетов и технические `swarm-*` (`git branch -D ...`) — только после подтверждения, что изменения уже в `origin/main` и нет открытого PR; `main` не трогать.
+4. Удали на `origin` оставшиеся ветки тикетов закрытой волны (`git push origin --delete <ticket-branch>`), если они не были удалены на шаге 4 вливания в `<wave-branch>`.
+
 ## Среда Windows и worktree
 
 - В Windows PowerShell 5.1 оператор `&&` не поддерживается: соединяй зависимые команды через `; if ($LASTEXITCODE -eq 0) { ... }` или запускай отдельными строками.
 - В свежем `workspace: "share"` при отсутствии `node_modules` сначала выполни `pnpm install --frozen-lockfile`.
+- Для удаления директорий с `node_modules` (включая осиротевшие worktree) используй `cmd /c "rmdir /s /q <path>"`, а не `Remove-Item -Recurse` в PowerShell 5.1 — так корректно снимаются junction-ссылки `pnpm` без обхода store.
