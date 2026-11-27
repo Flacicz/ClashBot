@@ -76,7 +76,7 @@ git diff --check
 - успешно выполнены проверки из раздела «Команды»;
 - для изменений схемы проверены как чистая, так и уже мигрированная БД, и синхронно обновлён Docker smoke-тест в `.github/workflows/docker-publish.yml` (см. `docs/agents/git-workflow.md`);
 - обновлены затронутые документы в `docs/`, `GLOSSARY.md` и `README.md`, если изменились поведение, схема, события или доставка;
-- в описании PR и финальном отчёте указаны: что изменено, какие команды прогнаны (и что не запускалось), ключевые решения и инварианты, какие сценарии доказаны тестами и какие риски остались.
+- описание PR и финальный отчёт техлиду перед **Squash and merge** написаны на продуктовом уровне — коротко и понятно, без перечисления файлов, имён методов и лишних деталей реализации (формат см. в `docs/agents/git-workflow.md`); технические детали проверок и инвариантов в PR при необходимости выносятся в свёрнутый блок `<details>`.
 
 ## Что решает только человек
 
@@ -115,7 +115,7 @@ Single-context layout (`GLOSSARY.md` at repo root, `docs/adr/` for ADRs). See `d
 
 ### Git & PR workflow
 
-Pre-flight `main` sync, wave integration PRs (`<wave-branch> → main`), updating `BEHIND`/`CONFLICTING` PRs without `--force`, SQL migration smoke-test checklist, and Windows PowerShell/worktree setup. See `docs/agents/git-workflow.md`.
+Pre-flight `main` sync, wave integration PRs (`<wave-branch> → main`), product-level PR/handoff summary format, updating `BEHIND`/`CONFLICTING` PRs without `--force`, SQL migration smoke-test checklist, and Windows PowerShell/worktree setup. See `docs/agents/git-workflow.md`.
 
 ### Swarm orchestration
 
