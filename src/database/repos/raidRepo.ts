@@ -5,6 +5,7 @@ import type {
     CompletedRaidSummary,
     PlayerRaidSnapshot,
     RaidComparisonStats,
+    RaidMemberAttackState,
     RaidMemberStats,
     RaidReference,
     RaidSlacker,
@@ -206,6 +207,53 @@ export class RaidRepo extends BaseRepository {
             'load raid slackers',
             `raid_id = ${String(reference.raidId)}`,
             (row): RaidSlacker => ({
+                playerTag: getString(row, 'tag'),
+                playerName: getString(row, 'name'),
+                attacksCount: getNumber(row, 'attacks_done'),
+                bonusAttacks: getNumber(row, 'bonus_attacks'),
+            }),
+            reference.raidId,
+        );
+    }
+
+    getRaidEligibleMemberAttackStates(reference: RaidReference): RaidMemberAttackState[] {
+        // Matches the exact #47 eligible cohort: clan members present at raid start_time
+        // who have not left before end_time. Late joiners and leavers are excluded.
+        const sql = `
+            WITH target_raid AS (
+                SELECT id, clan_tag, start_time, end_time
+                FROM clan_raids
+                WHERE id = ?
+            ),
+            eligible_members AS (
+                SELECT DISTINCT cm.player_tag
+                FROM target_raid AS r
+                JOIN clan_memberships AS cm
+                    ON cm.clan_tag = r.clan_tag
+                   AND cm.joined_at <= r.start_time
+                   AND (cm.left_at IS NULL OR cm.left_at >= r.end_time)
+            )
+            SELECT
+                p.tag,
+                p.name,
+                COALESCE(s.attacks_count, 0) AS attacks_done,
+                COALESCE(s.bonus_attacks, 0) AS bonus_attacks
+            FROM target_raid AS r
+            JOIN eligible_members AS em
+                ON 1 = 1
+            JOIN players AS p
+                ON p.tag = em.player_tag
+            LEFT JOIN player_raid_snapshots AS s
+                ON s.player_tag = em.player_tag
+               AND s.raid_id = r.id
+            ORDER BY attacks_done ASC, p.name ASC, p.tag ASC;
+        `;
+
+        return this.query(
+            sql,
+            'load raid eligible member attack states',
+            `raid_id = ${String(reference.raidId)}`,
+            (row): RaidMemberAttackState => ({
                 playerTag: getString(row, 'tag'),
                 playerName: getString(row, 'name'),
                 attacksCount: getNumber(row, 'attacks_done'),

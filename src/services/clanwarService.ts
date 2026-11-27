@@ -13,7 +13,7 @@ import {
     type ApplicationEvent,
 } from '../events/applicationEvents.js';
 import type { Logger } from '../logging/logger.js';
-import { selectWarReminders } from './reminders.js';
+import { buildWarReminderAttackSnapshot, selectWarReminders } from './reminders.js';
 import { createSyncError, createSyncSuccess, type SyncResult } from './syncResult.js';
 import type { SyncService } from './syncService.js';
 
@@ -78,6 +78,7 @@ function generateEvents(
     clanTag: string,
     clanwar: Clanwar,
     warReference: ClanwarReference,
+    clanwarRepo: ClanwarRepo,
     nowEpochSeconds: number,
 ): GeneratedWarEvents {
     const events: ApplicationEvent[] = [];
@@ -98,6 +99,16 @@ function generateEvents(
         }
 
         if (selection.activeKind !== null) {
+            const isCountdown = selection.activeKind !== WAR_REMINDER_KINDS.started;
+            const attackSnapshot = isCountdown
+                ? buildWarReminderAttackSnapshot(
+                      clanwarRepo.getWarMemberAttackCounts(warReference),
+                      clanwar.attacksPerMember,
+                      nowEpochSeconds,
+                      selection.activeKind === WAR_REMINDER_KINDS.oneHourLeft,
+                  )
+                : undefined;
+
             events.push({
                 type: APPLICATION_EVENT_TYPES.warReminder,
                 clanTag,
@@ -105,9 +116,8 @@ function generateEvents(
                 endTime: clanwar.endTime,
                 warKind: WAR_REMINDER_WAR_KINDS.regular,
                 kind: selection.activeKind,
-                ...(selection.activeKind !== WAR_REMINDER_KINDS.started
-                    ? { remainingSeconds: selection.remainingSeconds }
-                    : {}),
+                ...(isCountdown ? { remainingSeconds: selection.remainingSeconds } : {}),
+                ...(attackSnapshot !== undefined ? { attackSnapshot } : {}),
             });
         }
     }
@@ -205,6 +215,7 @@ export class ClanwarService implements SyncService {
                     clanTag,
                     clanwar,
                     warReference,
+                    this.clanwarRepo,
                     nowEpochSeconds,
                 );
 

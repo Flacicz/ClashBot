@@ -273,4 +273,72 @@ describe('DomainEventPayloadSerializer', () => {
             remaining_seconds: 13500,
         });
     });
+
+    it('serializes optional attackSnapshot into attack_snapshot while preserving event_id and payload version 1', () => {
+        const serializer = new DomainEventPayloadSerializer();
+
+        const warEarlyRecord = serializer.serialize({
+            type: 'war_reminder',
+            clanTag: CLAN_TAG,
+            warId: 61,
+            endTime: 1704067200,
+            warKind: 'regular',
+            kind: 'six_hours_left',
+            remainingSeconds: 21600,
+            attackSnapshot: {
+                snapshotAt: 1704045600,
+                totalParticipants: 30,
+                pendingParticipantsCount: 12,
+            },
+        });
+        expect(warEarlyRecord.payloadVersion).toBe(1);
+        expect(warEarlyRecord.eventId).toBe('61:six_hours_left');
+        expect(JSON.parse(warEarlyRecord.payload)).toEqual({
+            war_id: 61,
+            end_time: 1704067200,
+            war_kind: 'regular',
+            reminder_kind: 'six_hours_left',
+            remaining_seconds: 21600,
+            attack_snapshot: {
+                snapshot_at: 1704045600,
+                total_participants: 30,
+                pending_participants_count: 12,
+            },
+        });
+
+        const raidFinalRecord = serializer.serialize({
+            type: 'raid_reminder',
+            clanTag: CLAN_TAG,
+            raidReference: { raidId: 71 },
+            endTime: 1704067200,
+            kind: 'one_hour_left',
+            remainingSeconds: 3600,
+            attackSnapshot: {
+                snapshotAt: 1704063600,
+                totalParticipants: 35,
+                pendingParticipantsCount: 2,
+                pendingPlayers: [
+                    { playerTag: '#P1', playerName: 'Alice', attacksUsed: 0, maxAttacks: 5 },
+                    { playerTag: '#P2', playerName: 'Bob', attacksUsed: 3, maxAttacks: 6 },
+                ],
+            },
+        });
+        expect(raidFinalRecord.payloadVersion).toBe(1);
+        expect(raidFinalRecord.eventId).toBe('71:one_hour_left');
+        expect(JSON.parse(raidFinalRecord.payload)).toEqual({
+            raid_reference: { raid_id: 71 },
+            end_time: 1704067200,
+            reminder_kind: 'one_hour_left',
+            remaining_seconds: 3600,
+            attack_snapshot: {
+                snapshot_at: 1704063600,
+                total_participants: 35,
+                pending_participants_count: 2,
+                pending_players: [
+                    { player_tag: '#P1', player_name: 'Alice', attacks_used: 0, max_attacks: 5 },
+                    { player_tag: '#P2', player_name: 'Bob', attacks_used: 3, max_attacks: 6 },
+                ],
+            },
+        });
+    });
 });

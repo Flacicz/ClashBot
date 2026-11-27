@@ -104,6 +104,20 @@ export interface SyncRecoveryEvent {
     readonly outageId: number;
 }
 
+export interface ReminderPendingPlayer {
+    readonly playerTag: string;
+    readonly playerName: string;
+    readonly attacksUsed: number;
+    readonly maxAttacks: number;
+}
+
+export interface ReminderAttackSnapshot {
+    readonly snapshotAt: number;
+    readonly totalParticipants: number;
+    readonly pendingParticipantsCount: number;
+    readonly pendingPlayers?: readonly ReminderPendingPlayer[];
+}
+
 export interface WarReminderEvent {
     readonly type: typeof APPLICATION_EVENT_TYPES.warReminder;
     readonly clanTag: string;
@@ -112,6 +126,7 @@ export interface WarReminderEvent {
     readonly warKind: WarReminderWarKind;
     readonly kind: WarReminderKind;
     readonly remainingSeconds?: number;
+    readonly attackSnapshot?: ReminderAttackSnapshot;
 }
 
 export interface RaidReminderEvent {
@@ -121,6 +136,7 @@ export interface RaidReminderEvent {
     readonly endTime: number;
     readonly kind: RaidReminderKind;
     readonly remainingSeconds?: number;
+    readonly attackSnapshot?: ReminderAttackSnapshot;
 }
 
 export type ApplicationEvent =

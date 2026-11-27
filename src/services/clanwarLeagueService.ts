@@ -13,7 +13,7 @@ import {
     type ApplicationEvent,
 } from '../events/applicationEvents.js';
 import type { Logger } from '../logging/logger.js';
-import { selectWarReminders } from './reminders.js';
+import { buildWarReminderAttackSnapshot, selectWarReminders } from './reminders.js';
 import { createSyncError, createSyncSuccess, type SyncResult } from './syncResult.js';
 import type { SyncService } from './syncService.js';
 
@@ -46,6 +46,7 @@ function generateRoundEvents(
     cwlSeasonId: number,
     war: Clanwar,
     warReference: ClanwarReference,
+    clanwarRepo: ClanwarRepo,
     nowEpochSeconds: number,
 ): GeneratedRoundEvents {
     const events: ApplicationEvent[] = [];
@@ -66,6 +67,16 @@ function generateRoundEvents(
         }
 
         if (selection.activeKind !== null) {
+            const isCountdown = selection.activeKind !== WAR_REMINDER_KINDS.started;
+            const attackSnapshot = isCountdown
+                ? buildWarReminderAttackSnapshot(
+                      clanwarRepo.getWarMemberAttackCounts(warReference),
+                      war.attacksPerMember,
+                      nowEpochSeconds,
+                      selection.activeKind === WAR_REMINDER_KINDS.oneHourLeft,
+                  )
+                : undefined;
+
             events.push({
                 type: APPLICATION_EVENT_TYPES.warReminder,
                 clanTag,
@@ -73,9 +84,8 @@ function generateRoundEvents(
                 endTime: war.endTime,
                 warKind: WAR_REMINDER_WAR_KINDS.cwl,
                 kind: selection.activeKind,
-                ...(selection.activeKind !== WAR_REMINDER_KINDS.started
-                    ? { remainingSeconds: selection.remainingSeconds }
-                    : {}),
+                ...(isCountdown ? { remainingSeconds: selection.remainingSeconds } : {}),
+                ...(attackSnapshot !== undefined ? { attackSnapshot } : {}),
             });
         }
     }
@@ -191,6 +201,7 @@ export class ClanwarLeagueService implements SyncService {
                         cwlSeasonId,
                         warToSave,
                         warReference,
+                        this.clanwarRepo,
                         nowEpochSeconds,
                     );
                     events.push(...roundResult.events);

@@ -51,8 +51,8 @@ Legacy-метод `NotificationService.handle` сохраняется для о�
 | `war_ended`                              | `String(warReference.warId)`               | `war_reference: { clan_tag, war_id, home_clan_id, opponent_clan_id }`                  | `ClanwarService` при `state === 'warEnded'`                        |
 | `cwl_round_ended`                        | `String(warReference.warId)`               | `cwl_season_id`, `war_reference: { clan_tag, war_id, home_clan_id, opponent_clan_id }` | `ClanwarLeagueService` для каждого раунда с `state === 'warEnded'` |
 | `raids_ended`                            | `String(raidReference.raidId)`             | `raid_reference: { raid_id }`                                                          | `RaidService` при `state === 'ended'`                              |
-| `war_reminder`                           | `${warId}:${kind}`                         | `war_id`, `end_time`, `war_kind` (`regular` \| `cwl`), `reminder_kind`, опц. `remaining_seconds` | `ClanwarService` / `ClanwarLeagueService`                          |
-| `raid_reminder`                          | `${raidId}:${kind}`                        | `raid_reference: { raid_id }`, `end_time`, `reminder_kind`, опц. `remaining_seconds`             | `RaidService`                                                      |
+| `war_reminder`                           | `${warId}:${kind}`                         | `war_id`, `end_time`, `war_kind` (`regular` \| `cwl`), `reminder_kind`, опц. `remaining_seconds`, опц. `attack_snapshot` (`snapshot_at`, `total_participants`, `pending_participants_count`, опц. `pending_players`) | `ClanwarService` / `ClanwarLeagueService`                          |
+| `raid_reminder`                          | `${raidId}:${kind}`                        | `raid_reference: { raid_id }`, `end_time`, `reminder_kind`, опц. `remaining_seconds`, опц. `attack_snapshot` (`snapshot_at`, `total_participants`, `pending_participants_count`, опц. `pending_players`)             | `RaidService`                                                      |
 | `SyncFailureEvent`                       | `String(outageId)`                         | `service_name`, `error_message`, `attempts`, `outage_id`                               | `ClanManager` после исчерпания попыток синхронизации               |
 | `SyncRecoveryEvent`                      | `String(outageId)`                         | `service_name`, `outage_id`                                                            | `ClanManager` при первом успехе после открытого сбоя               |
 
@@ -154,16 +154,16 @@ order_num ASC`) с нормализованными позициями (`ROW_NUM
 `selectWarReminders` / `selectRaidReminders` (и обёртки `getActiveWarReminderKinds` / `getActiveRaidReminderKinds`)
 определяют открытые контрольные точки (`nowEpochSeconds >= threshold`):
 
-| Событие                             | `kind`                   | Порог (`threshold`) | Особенности                                                                               |
-| ----------------------------------- | ------------------------ | ------------------- | ----------------------------------------------------------------------------------------- |
-| `war_reminder` (`regular` \| `cwl`) | `started`                | `startTime`         | Разные тексты для обычной войны и раунда ЛВК; grace-период `1 ч` после `startTime`        |
-| `war_reminder` (`regular` \| `cwl`) | `six_hours_left`         | `endTime - 6h`      | Показывает фактический остаток времени; дедупликация по стабильному ключу `warId:kind`    |
-| `war_reminder` (`regular` \| `cwl`) | `one_hour_left`          | `endTime - 1h`      | Показывает фактический остаток времени; дедупликация по стабильному ключу `warId:kind`    |
-| `raid_reminder`                     | `started`                | `startTime`         | Grace-период `1 ч` после `startTime`                                                      |
-| `raid_reminder`                     | `forty_eight_hours_left` | `endTime - 48h`     | Показывает фактический остаток времени; дедупликация по стабильному ключу `raidId:kind`   |
-| `raid_reminder`                     | `twenty_four_hours_left` | `endTime - 24h`     | Показывает фактический остаток времени; дедупликация по стабильному ключу `raidId:kind`   |
-| `raid_reminder`                     | `six_hours_left`         | `endTime - 6h`      | Показывает фактический остаток времени; дедупликация по стабильному ключу `raidId:kind`   |
-| `raid_reminder`                     | `one_hour_left`          | `endTime - 1h`      | Показывает фактический остаток времени; дедупликация по стабильному ключу `raidId:kind`   |
+| Событие                             | `kind`                   | Порог (`threshold`) | Особенности                                                                                             |
+| ----------------------------------- | ------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------- |
+| `war_reminder` (`regular` \| `cwl`) | `started`                | `startTime`         | Разные тексты для обычной войны и раунда ЛВК; grace-период `1 ч` после `startTime`; без счётчика и списка |
+| `war_reminder` (`regular` \| `cwl`) | `six_hours_left`         | `endTime - 6h`      | Фактический остаток времени + счётчик не отбившихся и подсказка `/war` (`/cwl`); ключ `warId:kind`      |
+| `war_reminder` (`regular` \| `cwl`) | `one_hour_left`          | `endTime - 1h`      | Фактический остаток времени + компактный список ников не отбившихся; ключ `warId:kind`                  |
+| `raid_reminder`                     | `started`                | `startTime`         | Grace-период `1 ч` после `startTime`; без счётчика и списка                                             |
+| `raid_reminder`                     | `forty_eight_hours_left` | `endTime - 48h`     | Фактический остаток времени + счётчик не отбившихся и подсказка `/raid`; ключ `raidId:kind`             |
+| `raid_reminder`                     | `twenty_four_hours_left` | `endTime - 24h`     | Фактический остаток времени + счётчик не отбившихся и подсказка `/raid`; ключ `raidId:kind`             |
+| `raid_reminder`                     | `six_hours_left`         | `endTime - 6h`      | Фактический остаток времени + счётчик не отбившихся и подсказка `/raid`; ключ `raidId:kind`             |
+| `raid_reminder`                     | `one_hour_left`          | `endTime - 1h`      | Фактический остаток времени + компактный список ников не отбившихся; ключ `raidId:kind`                 |
 
 Правила выбора окна, пропусков и текста:
 
@@ -185,6 +185,31 @@ order_num ASC`) с нормализованными позициями (`ROW_NUM
   `formatRemainingTimePhrase` (`src/common/formatUtils.ts`) с корректным склонением (`остался 1 час`,
   `осталось 3 часа 45 минут`, `осталась 21 минута`, `осталось менее минуты` для `< 60` с); при отсутствии
   `remaining_seconds` в историческом payload используется номинальное значение контрольной точки.
+- **Счётчики и списки «Ещё не атаковали» (`attack_snapshot`)**: для всех отсчётных напоминаний (`kind !== 'started'`)
+  сервис в той же SQLite-транзакции фиксирует в опциональном поле `attack_snapshot` payload v1 снимок на момент
+  генерации события (`snapshot_at`, `total_participants`, `pending_participants_count`, а для `one_hour_left` также
+  `pending_players`: `player_tag`, `player_name`, `attacks_used`, `max_attacks`). Исторические payload без
+  `attack_snapshot` сохраняют полную обратную совместимость при десериализации и форматировании (выводятся без
+  счётчика, списка и строки `по данным на ...`).
+  - **Когорта**: для КВ и ЛВК — состав текущей войны/раунда (`war_members`); для рейда — участники, состоявшие в клане
+    на старте уикенда и не покинувшие его до окончания (`joined_at <= start_time AND (left_at IS NULL OR left_at >= end_time)`,
+    та же когорта, что в отчёте нарушений и сравнении рейдов; лимит `5 + bonus_attacks`). Вступившие после старта и
+    вышедшие до окончания в счётчик и список рейда не попадают; при пустой когорте `attack_snapshot` не добавляется.
+  - **Поведение по контрольным точкам**:
+    - `started` — без счётчика, списка и строки актуальности;
+    - ранние отсчётные напоминания (`six_hours_left` для КВ/ЛВК; `forty_eight_hours_left`, `twenty_four_hours_left`,
+      `six_hours_left` для рейда) — счётчик и подсказка команды (`Ещё не атаковали: 12 из 30 — список: /war`, для ЛВК
+      — `/cwl`, для рейда — `/raid`);
+    - последнее напоминание (`one_hour_left`) — компактный список ников через `src/common/compactPlayerList.ts`: для
+      обычной КВ — `Без атак (N): …` и `1 из 2 (M): …`, для ЛВК — `Ещё не атаковали (N): …`, для рейда — `Без атак (N): …`
+      и `Не все атаки (M): Ник 3/6, …`; при совпадении ников добавляется `(#TAG)`, все ники и теги проходят через
+      `escapeHtml`;
+    - если все участники когорты уже отбились (`pending_participants_count === 0`), отсчётное напоминание всё равно
+      отправляется со строкой `✅ Все атаки использованы` (без призыва добивать атаки).
+  - **Актуальность, тон и разбиение**: тон нейтральный («Ещё не атаковали»), без слова «нарушение». В конце отсчётного
+    напоминания со снимком выводится строка `по данным на HH:MM (UTC+N)` в часовом поясе подписки
+    (`timezone_offset_hours`). Длинные списки автоматически разбиваются на HTML-безопасные части через
+    `htmlMessageSplitter` при материализации в `NotificationService`.
 - **Срок актуальности (`expires_at`) в outbox**: при материализации `war_reminder` и `raid_reminder` (и в legacy-пути
   `NotificationService.handle`) для каждой записи вычисляется `expires_at` (`getWarReminderExpiresAt` /
   `getRaidReminderExpiresAt` в `src/services/reminders.ts`), равный порогу следующей контрольной точки того же события

@@ -1358,6 +1358,35 @@ export class ClanwarRepo {
         };
     }
 
+    getWarMemberAttackCounts(reference: ClanwarReference): ActiveWarMemberAttackCount[] {
+        try {
+            const memberRows = this.connection
+                .prepare<
+                    [number, number],
+                    {
+                        player_tag: string;
+                        player_name: string;
+                        map_position: number;
+                        attacks_used: number;
+                    }
+                >(GET_ACTIVE_WAR_HOME_MEMBER_ATTACK_COUNTS_SQL)
+                .all(reference.warId, reference.homeClanId);
+
+            return memberRows.map((member) => ({
+                playerTag: member.player_tag,
+                playerName: member.player_name,
+                mapPosition: member.map_position,
+                attacksUsed: member.attacks_used,
+            }));
+        } catch (error: unknown) {
+            throw toDatabaseError(
+                error,
+                `[ClanwarRepo] Failed to load home war member attack counts (war_id = ${String(reference.warId)}, war_clan_id = ${String(reference.homeClanId)})`,
+                { warId: reference.warId, warClanId: reference.homeClanId },
+            );
+        }
+    }
+
     getActiveWar(
         clanTag: string,
         warType: WarType,

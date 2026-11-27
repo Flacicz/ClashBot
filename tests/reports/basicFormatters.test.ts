@@ -402,6 +402,201 @@ describe('WarReminderFormatter (golden parity)', () => {
         const unknown = WarReminderFormatter.format({ ...baseRegular, endTime: -10 }, -5);
         expect(unknown).toContain('🕒 Окончание: <b>неизвестно</b>');
     });
+
+    it('matches golden snapshots for regular war and CWL attack counters, compact lists, all-used, duplicate nicks, HTML escaping, and custom timezones', () => {
+        const sixHoursSnapshotAt = baseRegular.endTime - 6 * 3600;
+        const oneHourSnapshotAt = baseRegular.endTime - 3600;
+
+        // started never displays counter or list even if attackSnapshot is somehow present
+        expectMatchesGolden(
+            WarReminderFormatter.format({
+                ...baseRegular,
+                kind: WAR_REMINDER_KINDS.started,
+                attackSnapshot: {
+                    snapshotAt: baseRegular.endTime - 24 * 3600,
+                    totalParticipants: 30,
+                    pendingParticipantsCount: 30,
+                },
+            }),
+            'warReminder',
+            'regular-started',
+        );
+        expectMatchesGolden(
+            WarReminderFormatter.format({
+                ...baseCwl,
+                kind: WAR_REMINDER_KINDS.started,
+                attackSnapshot: {
+                    snapshotAt: baseCwl.endTime - 24 * 3600,
+                    totalParticipants: 15,
+                    pendingParticipantsCount: 15,
+                },
+            }),
+            'warReminder',
+            'cwl-started',
+        );
+
+        const regularSixHours = WarReminderFormatter.format({
+            ...baseRegular,
+            kind: WAR_REMINDER_KINDS.sixHoursLeft,
+            attackSnapshot: {
+                snapshotAt: sixHoursSnapshotAt,
+                totalParticipants: 30,
+                pendingParticipantsCount: 12,
+            },
+        });
+        expectMatchesGolden(regularSixHours, 'warReminder', 'regular-six-hours-left-with-counter');
+
+        const regularSixHoursAllUsed = WarReminderFormatter.format({
+            ...baseRegular,
+            kind: WAR_REMINDER_KINDS.sixHoursLeft,
+            attackSnapshot: {
+                snapshotAt: sixHoursSnapshotAt,
+                totalParticipants: 30,
+                pendingParticipantsCount: 0,
+            },
+        });
+        expectMatchesGolden(
+            regularSixHoursAllUsed,
+            'warReminder',
+            'regular-six-hours-left-all-used',
+        );
+
+        const regularOneHour = WarReminderFormatter.format({
+            ...baseRegular,
+            kind: WAR_REMINDER_KINDS.oneHourLeft,
+            attackSnapshot: {
+                snapshotAt: oneHourSnapshotAt,
+                totalParticipants: 15,
+                pendingParticipantsCount: 3,
+                pendingPlayers: [
+                    { playerTag: '#P1', playerName: 'Alice', attacksUsed: 0, maxAttacks: 2 },
+                    { playerTag: '#P2', playerName: 'Bob', attacksUsed: 0, maxAttacks: 2 },
+                    { playerTag: '#P3', playerName: 'Charlie', attacksUsed: 1, maxAttacks: 2 },
+                ],
+            },
+        });
+        expectMatchesGolden(regularOneHour, 'warReminder', 'regular-one-hour-left-with-list');
+
+        const regularOneHourDuplicatesHtml = WarReminderFormatter.format({
+            ...baseRegular,
+            kind: WAR_REMINDER_KINDS.oneHourLeft,
+            attackSnapshot: {
+                snapshotAt: oneHourSnapshotAt,
+                totalParticipants: 15,
+                pendingParticipantsCount: 3,
+                pendingPlayers: [
+                    { playerTag: '#P1', playerName: 'Алекс', attacksUsed: 0, maxAttacks: 2 },
+                    {
+                        playerTag: '#P3',
+                        playerName: '《ТУРАН》 & Co',
+                        attacksUsed: 0,
+                        maxAttacks: 2,
+                    },
+                    { playerTag: '#P2', playerName: 'Алекс', attacksUsed: 1, maxAttacks: 2 },
+                ],
+            },
+        });
+        expectMatchesGolden(
+            regularOneHourDuplicatesHtml,
+            'warReminder',
+            'regular-one-hour-left-duplicate-nicks-html',
+        );
+
+        const regularOneHourAllUsed = WarReminderFormatter.format({
+            ...baseRegular,
+            kind: WAR_REMINDER_KINDS.oneHourLeft,
+            attackSnapshot: {
+                snapshotAt: oneHourSnapshotAt,
+                totalParticipants: 15,
+                pendingParticipantsCount: 0,
+                pendingPlayers: [],
+            },
+        });
+        expectMatchesGolden(regularOneHourAllUsed, 'warReminder', 'regular-one-hour-left-all-used');
+
+        const cwlSixHours = WarReminderFormatter.format({
+            ...baseCwl,
+            kind: WAR_REMINDER_KINDS.sixHoursLeft,
+            attackSnapshot: {
+                snapshotAt: sixHoursSnapshotAt,
+                totalParticipants: 15,
+                pendingParticipantsCount: 5,
+            },
+        });
+        expectMatchesGolden(cwlSixHours, 'warReminder', 'cwl-six-hours-left-with-counter');
+
+        const cwlOneHour = WarReminderFormatter.format({
+            ...baseCwl,
+            kind: WAR_REMINDER_KINDS.oneHourLeft,
+            attackSnapshot: {
+                snapshotAt: oneHourSnapshotAt,
+                totalParticipants: 15,
+                pendingParticipantsCount: 3,
+                pendingPlayers: [
+                    { playerTag: '#P1', playerName: 'Алекс', attacksUsed: 0, maxAttacks: 1 },
+                    { playerTag: '#P3', playerName: '<Hero>', attacksUsed: 0, maxAttacks: 1 },
+                    { playerTag: '#P2', playerName: 'Алекс', attacksUsed: 0, maxAttacks: 1 },
+                ],
+            },
+        });
+        expectMatchesGolden(cwlOneHour, 'warReminder', 'cwl-one-hour-left-with-list');
+
+        const cwlOneHourAllUsed = WarReminderFormatter.format({
+            ...baseCwl,
+            kind: WAR_REMINDER_KINDS.oneHourLeft,
+            attackSnapshot: {
+                snapshotAt: oneHourSnapshotAt,
+                totalParticipants: 15,
+                pendingParticipantsCount: 0,
+                pendingPlayers: [],
+            },
+        });
+        expectMatchesGolden(cwlOneHourAllUsed, 'warReminder', 'cwl-one-hour-left-all-used');
+
+        // Custom subscription timezone reflected in snapshot timestamp line
+        const utcMinus5 = WarReminderFormatter.format(
+            {
+                ...baseRegular,
+                kind: WAR_REMINDER_KINDS.sixHoursLeft,
+                attackSnapshot: {
+                    snapshotAt: sixHoursSnapshotAt,
+                    totalParticipants: 30,
+                    pendingParticipantsCount: 12,
+                },
+            },
+            -5,
+        );
+        expect(utcMinus5).toContain('по данным на 13:00 (UTC-5)');
+
+        const utcZero = WarReminderFormatter.format(
+            {
+                ...baseCwl,
+                kind: WAR_REMINDER_KINDS.oneHourLeft,
+                attackSnapshot: {
+                    snapshotAt: oneHourSnapshotAt,
+                    totalParticipants: 15,
+                    pendingParticipantsCount: 0,
+                    pendingPlayers: [],
+                },
+            },
+            0,
+        );
+        expect(utcZero).toContain('по данным на 23:00 (UTC+0)');
+
+        // Neutral tone: never uses the word "нарушение"
+        for (const text of [
+            regularSixHours,
+            regularSixHoursAllUsed,
+            regularOneHour,
+            regularOneHourDuplicatesHtml,
+            regularOneHourAllUsed,
+            cwlSixHours,
+            cwlOneHour,
+            cwlOneHourAllUsed,
+        ]) {
+            expect(text.toLowerCase()).not.toContain('нарушен');
+        }
+    });
 });
 
 describe('RaidReminderFormatter (golden parity)', () => {
@@ -524,6 +719,112 @@ describe('RaidReminderFormatter (golden parity)', () => {
         expect(RaidReminderFormatter.format({ ...baseRaid, endTime: 0 }, 14)).toContain(
             '🕒 Окончание: <b>неизвестно</b>',
         );
+    });
+
+    it('matches golden snapshots for all raid reminder checkpoints with counters, compact list (bonus attacks + duplicate nicks + HTML), all-used, and custom timezone', () => {
+        const fortyEightSnapshotAt = baseRaid.endTime - 48 * 3600;
+        const twentyFourSnapshotAt = baseRaid.endTime - 24 * 3600;
+        const sixHoursSnapshotAt = baseRaid.endTime - 6 * 3600;
+        const oneHourSnapshotAt = baseRaid.endTime - 3600;
+
+        // started never displays counter or list even if attackSnapshot is provided
+        expectMatchesGolden(
+            RaidReminderFormatter.format({
+                ...baseRaid,
+                kind: RAID_REMINDER_KINDS.started,
+                attackSnapshot: {
+                    snapshotAt: baseRaid.endTime - 72 * 3600,
+                    totalParticipants: 35,
+                    pendingParticipantsCount: 35,
+                },
+            }),
+            'raidReminder',
+            'started',
+        );
+
+        const fortyEight = RaidReminderFormatter.format({
+            ...baseRaid,
+            kind: RAID_REMINDER_KINDS.fortyEightHoursLeft,
+            attackSnapshot: {
+                snapshotAt: fortyEightSnapshotAt,
+                totalParticipants: 35,
+                pendingParticipantsCount: 14,
+            },
+        });
+        expectMatchesGolden(fortyEight, 'raidReminder', 'forty-eight-hours-left-with-counter');
+
+        const twentyFour = RaidReminderFormatter.format({
+            ...baseRaid,
+            kind: RAID_REMINDER_KINDS.twentyFourHoursLeft,
+            attackSnapshot: {
+                snapshotAt: twentyFourSnapshotAt,
+                totalParticipants: 35,
+                pendingParticipantsCount: 9,
+            },
+        });
+        expectMatchesGolden(twentyFour, 'raidReminder', 'twenty-four-hours-left-with-counter');
+
+        const sixHours = RaidReminderFormatter.format({
+            ...baseRaid,
+            kind: RAID_REMINDER_KINDS.sixHoursLeft,
+            attackSnapshot: {
+                snapshotAt: sixHoursSnapshotAt,
+                totalParticipants: 35,
+                pendingParticipantsCount: 4,
+            },
+        });
+        expectMatchesGolden(sixHours, 'raidReminder', 'six-hours-left-with-counter');
+
+        const oneHour = RaidReminderFormatter.format({
+            ...baseRaid,
+            kind: RAID_REMINDER_KINDS.oneHourLeft,
+            attackSnapshot: {
+                snapshotAt: oneHourSnapshotAt,
+                totalParticipants: 35,
+                pendingParticipantsCount: 5,
+                pendingPlayers: [
+                    { playerTag: '#P1', playerName: 'Алекс', attacksUsed: 0, maxAttacks: 5 },
+                    { playerTag: '#P3', playerName: '《ТУРАН》', attacksUsed: 0, maxAttacks: 5 },
+                    { playerTag: '#P2', playerName: 'Алекс', attacksUsed: 3, maxAttacks: 6 },
+                    { playerTag: '#P4', playerName: 'Dave', attacksUsed: 4, maxAttacks: 5 },
+                    { playerTag: '#P5', playerName: 'Eva', attacksUsed: 5, maxAttacks: 6 },
+                ],
+            },
+        });
+        expectMatchesGolden(oneHour, 'raidReminder', 'one-hour-left-with-list');
+
+        const oneHourAllUsed = RaidReminderFormatter.format({
+            ...baseRaid,
+            kind: RAID_REMINDER_KINDS.oneHourLeft,
+            attackSnapshot: {
+                snapshotAt: oneHourSnapshotAt,
+                totalParticipants: 35,
+                pendingParticipantsCount: 0,
+                pendingPlayers: [],
+            },
+        });
+        expectMatchesGolden(oneHourAllUsed, 'raidReminder', 'one-hour-left-all-used');
+
+        // Custom subscription timezone reflected in snapshot timestamp line
+        const utcPlus14 = RaidReminderFormatter.format(
+            {
+                ...baseRaid,
+                kind: RAID_REMINDER_KINDS.oneHourLeft,
+                attackSnapshot: {
+                    snapshotAt: oneHourSnapshotAt,
+                    totalParticipants: 35,
+                    pendingParticipantsCount: 0,
+                    pendingPlayers: [],
+                },
+            },
+            14,
+        );
+        expect(utcPlus14).toContain('по данным на 13:00 (UTC+14)');
+
+        // Neutral tone: never uses the word "нарушение"
+        for (const text of [fortyEight, twentyFour, sixHours, oneHour, oneHourAllUsed]) {
+            expect(text.toLowerCase()).not.toContain('нарушен');
+        }
     });
 });
 

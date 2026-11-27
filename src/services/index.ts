@@ -22,6 +22,7 @@ export { CLANWAR_SERVICE_NAME, ClanwarService, type ClanwarApiClient } from './c
 export { RAID_SERVICE_NAME, RaidService, type RaidApiClient } from './raidService.js';
 export {
     DEFAULT_STARTED_REMINDER_GRACE_PERIOD_SECONDS,
+    RAID_BASE_ATTACKS_PER_MEMBER,
     RAID_REMINDER_FORTY_EIGHT_HOURS_SECONDS,
     RAID_REMINDER_ONE_HOUR_SECONDS,
     RAID_REMINDER_SIX_HOURS_SECONDS,
@@ -29,6 +30,8 @@ export {
     SECONDS_PER_HOUR,
     WAR_REMINDER_ONE_HOUR_SECONDS,
     WAR_REMINDER_SIX_HOURS_SECONDS,
+    buildRaidReminderAttackSnapshot,
+    buildWarReminderAttackSnapshot,
     getActiveRaidReminderKinds,
     getActiveWarReminderKinds,
     getRaidReminderExpiresAt,

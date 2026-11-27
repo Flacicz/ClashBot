@@ -1056,4 +1056,210 @@ describe('ClanwarService', () => {
         expect(notifications).toHaveLength(1);
         expect(notifications[0]?.messageText).toContain('До окончания войны осталось 25 минут');
     });
+
+    it('captures attack snapshots for regular war reminders (no snapshot on started, counter on 6h, compact list on 1h, and all-used)', async () => {
+        const startTime = 1_703_980_800; // 2023-12-31 00:00 UTC
+        const endTime = 1_704_067_200; // 2024-01-01 00:00 UTC
+        const {
+            db,
+            clock,
+            clansRepo,
+            clanwarRepo,
+            subscriptionRepo,
+            domainEventsRepo,
+            apiClient,
+            service,
+        } = setup(startTime);
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+        subscriptionRepo.saveTelegramChat(-1001, 0, 'Players UTC+3');
+        subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+
+        const buildWarData = (
+            attacks: CompleteClanwarData['attacks'],
+            warUID = 'war-reminder-snapshots-1',
+        ): CompleteClanwarData => ({
+            ...makeClanwarData({
+                warUID,
+                state: 'inWar',
+                preparationStartTime: startTime - 24 * SECONDS_PER_HOUR,
+                startTime,
+                endTime,
+            }),
+            clanwar: {
+                warUID,
+                clanTag: CLAN_TAG,
+                state: 'inWar',
+                warType: WAR_TYPES.regular,
+                teamSize: 4,
+                attacksPerMember: 2,
+                preparationStartTime: startTime - 24 * SECONDS_PER_HOUR,
+                startTime,
+                endTime,
+                seasonId: null,
+                roundNumber: null,
+            },
+            attacks,
+            members: [
+                [
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P1',
+                        playerName: 'Finished',
+                        townhallLevel: 16,
+                        mapPosition: 1,
+                    },
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P2',
+                        playerName: 'Алекс',
+                        townhallLevel: 15,
+                        mapPosition: 2,
+                    },
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P3',
+                        playerName: 'Алекс',
+                        townhallLevel: 15,
+                        mapPosition: 3,
+                    },
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P4',
+                        playerName: '<Hero>',
+                        townhallLevel: 14,
+                        mapPosition: 4,
+                    },
+                ],
+                [
+                    {
+                        clanTag: OPPONENT_TAG,
+                        playerTag: '#OP1',
+                        playerName: 'Enemy 1',
+                        townhallLevel: 16,
+                        mapPosition: 1,
+                    },
+                ],
+            ],
+        });
+
+        const makeAttack = (attackerTag: string, orderNum: number) => ({
+            attackerTag,
+            defenderTag: '#OP1',
+            attackerClanTag: CLAN_TAG,
+            defenderClanTag: OPPONENT_TAG,
+            attackerPosition: 1,
+            defenderPosition: 1,
+            stars: 3,
+            destructionPercentage: 100,
+            orderNum,
+            duration: 100,
+        });
+
+        // 1. started: no attackSnapshot
+        apiClient.warData = buildWarData([]);
+        const started = await service.updateData(CLAN_TAG);
+        const startedEvent = started.events[0];
+        if (startedEvent?.type !== APPLICATION_EVENT_TYPES.warReminder) {
+            throw new Error('Expected started WarReminderEvent');
+        }
+        expect(startedEvent.attackSnapshot).toBeUndefined();
+
+        // 2. six_hours_left: #P1 used 2/2, #P2 used 1/2, #P3 & #P4 used 0/2 -> 3 of 4 pending (counter only, no pendingPlayers)
+        clock.setNow((endTime - 6 * SECONDS_PER_HOUR) * 1000);
+        apiClient.warData = buildWarData([
+            makeAttack('#P1', 1),
+            makeAttack('#P1', 2),
+            makeAttack('#P2', 3),
+        ]);
+        const sixHours = await service.updateData(CLAN_TAG);
+        const sixHoursEvent = sixHours.events[0];
+        if (sixHoursEvent?.type !== APPLICATION_EVENT_TYPES.warReminder) {
+            throw new Error('Expected six_hours_left WarReminderEvent');
+        }
+        expect(sixHoursEvent.attackSnapshot).toEqual({
+            snapshotAt: endTime - 6 * SECONDS_PER_HOUR,
+            totalParticipants: 4,
+            pendingParticipantsCount: 3,
+        });
+
+        // 3. one_hour_left: includes compact pendingPlayers list (duplicate nicks + HTML)
+        clock.setNow((endTime - SECONDS_PER_HOUR) * 1000);
+        const oneHour = await service.updateData(CLAN_TAG);
+        const oneHourEvent = oneHour.events[0];
+        if (oneHourEvent?.type !== APPLICATION_EVENT_TYPES.warReminder) {
+            throw new Error('Expected one_hour_left WarReminderEvent');
+        }
+        expect(oneHourEvent.attackSnapshot).toEqual({
+            snapshotAt: endTime - SECONDS_PER_HOUR,
+            totalParticipants: 4,
+            pendingParticipantsCount: 3,
+            pendingPlayers: [
+                { playerTag: '#P2', playerName: 'Алекс', attacksUsed: 1, maxAttacks: 2 },
+                { playerTag: '#P3', playerName: 'Алекс', attacksUsed: 0, maxAttacks: 2 },
+                { playerTag: '#P4', playerName: '<Hero>', attacksUsed: 0, maxAttacks: 2 },
+            ],
+        });
+
+        // 4. Separate war where all attacks are used at one_hour_left
+        apiClient.warData = buildWarData(
+            [
+                makeAttack('#P1', 1),
+                makeAttack('#P1', 2),
+                makeAttack('#P2', 3),
+                makeAttack('#P2', 4),
+                makeAttack('#P3', 5),
+                makeAttack('#P3', 6),
+                makeAttack('#P4', 7),
+                makeAttack('#P4', 8),
+            ],
+            'war-reminder-snapshots-all-used',
+        );
+        const allUsedSync = await service.updateData(CLAN_TAG);
+        const allUsedEvent = allUsedSync.events[0];
+        if (allUsedEvent?.type !== APPLICATION_EVENT_TYPES.warReminder) {
+            throw new Error('Expected all-used WarReminderEvent');
+        }
+        expect(allUsedEvent.attackSnapshot).toEqual({
+            snapshotAt: endTime - SECONDS_PER_HOUR,
+            totalParticipants: 4,
+            pendingParticipantsCount: 0,
+            pendingPlayers: [],
+        });
+
+        // Materialize all pending destinations and verify rendered HTML
+        const txManager = new TransactionManager(db);
+        const notificationRepo = new NotificationRepo(db);
+        const notificationService = new NotificationService({
+            notificationRepo,
+            clansRepo,
+            clanwarRepo,
+            clanwarsLeagueRepo: new ClanwarsLeagueRepo(db),
+            raidRepo: new RaidRepo(db),
+            subscriptionRepo,
+        });
+        const worker = new DomainEventWorker({
+            domainEventsRepo,
+            transactionManager: txManager,
+            deserializer: new DomainEventPayloadDeserializer(),
+            materializer: notificationService,
+            clock,
+        });
+        worker.processPending();
+
+        const rows = db.connection
+            .prepare<[], { event_id: string; message_text: string }>(
+                'SELECT event_id, message_text FROM notifications ORDER BY id;',
+            )
+            .all();
+        expect(rows).toHaveLength(4);
+        expect(rows[0]?.message_text).not.toContain('по данным на');
+        expect(rows[1]?.message_text).toContain('Ещё не атаковали: 3 из 4 — список: /war');
+        expect(rows[1]?.message_text).toContain('по данным на 21:00 (UTC+3)');
+        expect(rows[2]?.message_text).toContain('Без атак (2): Алекс (#P3), &lt;Hero&gt;');
+        expect(rows[2]?.message_text).toContain('1 из 2 (1): Алекс (#P2)');
+        expect(rows[2]?.message_text).toContain('по данным на 02:00 (UTC+3)');
+        expect(rows[3]?.message_text).toContain('✅ Все атаки использованы');
+        expect(rows[3]?.message_text).toContain('по данным на 02:00 (UTC+3)');
+    });
 });

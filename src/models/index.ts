@@ -18,6 +18,7 @@ export type {
     CompleteRaidData,
     PlayerRaidSnapshot,
     RaidComparisonStats,
+    RaidMemberAttackState,
     RaidMemberStats,
     RaidReference,
     RaidReportData,

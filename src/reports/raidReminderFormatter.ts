@@ -5,6 +5,7 @@ import {
 } from '../common/formatUtils.js';
 import { RAID_REMINDER_KINDS, type RaidReminderEvent } from '../events/applicationEvents.js';
 import { DEFAULT_TIMEZONE_OFFSET_HOURS } from '../models/subscription.js';
+import { formatCountdownReminderBody } from './reminderFormatParts.js';
 
 const SECONDS_PER_HOUR = 60 * 60;
 const NOMINAL_FORTY_EIGHT_HOURS_SECONDS = 48 * SECONDS_PER_HOUR;
@@ -72,7 +73,14 @@ export class RaidReminderFormatter {
         return (
             `⏳ <b>До окончания рейдовых выходных ${remaining}</b>\n\n` +
             formatRaidDetails(event, timezoneOffsetHours) +
-            '📢 Участники рейда, проверьте, что вы начали использовать свои атаки.'
+            formatCountdownReminderBody({
+                callToAction:
+                    '📢 Участники рейда, проверьте, что вы начали использовать свои атаки.',
+                commandHint: '/raid',
+                mode: 'counter',
+                attackSnapshot: event.attackSnapshot,
+                timezoneOffsetHours,
+            })
         );
     }
 
@@ -86,7 +94,13 @@ export class RaidReminderFormatter {
         return (
             `⏳ <b>До окончания рейдовых выходных ${remaining}</b>\n\n` +
             formatRaidDetails(event, timezoneOffsetHours) +
-            '📢 Участники рейда, не забудьте использовать оставшиеся атаки.'
+            formatCountdownReminderBody({
+                callToAction: '📢 Участники рейда, не забудьте использовать оставшиеся атаки.',
+                commandHint: '/raid',
+                mode: 'counter',
+                attackSnapshot: event.attackSnapshot,
+                timezoneOffsetHours,
+            })
         );
     }
 
@@ -100,7 +114,13 @@ export class RaidReminderFormatter {
         return (
             `🚨 <b>До окончания рейдовых выходных ${remaining}</b>\n\n` +
             formatRaidDetails(event, timezoneOffsetHours) +
-            '⚔️ Участники рейда, завершите оставшиеся атаки.'
+            formatCountdownReminderBody({
+                callToAction: '⚔️ Участники рейда, завершите оставшиеся атаки.',
+                commandHint: '/raid',
+                mode: 'counter',
+                attackSnapshot: event.attackSnapshot,
+                timezoneOffsetHours,
+            })
         );
     }
 
@@ -114,7 +134,14 @@ export class RaidReminderFormatter {
         return (
             `🚨 <b>До окончания рейдовых выходных ${remaining}</b>\n\n` +
             formatRaidDetails(event, timezoneOffsetHours) +
-            '⏰ Участники рейда, это последнее напоминание — завершите оставшиеся атаки!'
+            formatCountdownReminderBody({
+                callToAction:
+                    '⏰ Участники рейда, это последнее напоминание — завершите оставшиеся атаки!',
+                commandHint: '/raid',
+                mode: 'raid_list',
+                attackSnapshot: event.attackSnapshot,
+                timezoneOffsetHours,
+            })
         );
     }
 }

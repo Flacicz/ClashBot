@@ -30,6 +30,13 @@ export interface RaidSlacker {
     readonly bonusAttacks: number;
 }
 
+export interface RaidMemberAttackState {
+    readonly playerTag: string;
+    readonly playerName: string;
+    readonly attacksCount: number;
+    readonly bonusAttacks: number;
+}
+
 export interface RaidReportData {
     readonly clanTag: string;
     readonly clanName: string;
