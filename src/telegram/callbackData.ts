@@ -17,7 +17,12 @@ export const CALLBACK_COMMANDS = {
     HELP_MAIN: 'help:main',
     CLANS_LINK: 'clans:link',
     CLANS_LIST: 'clans:list',
+    CLANS_CARD: 'clans:card',
     CLANS_UNLINK: 'clans:unlink',
+    CLANS_UNLINK_LIST: 'clans:unlink_list',
+    CLANS_UNLINK_ASK: 'clans:unlink_ask',
+    CLANS_UNLINK_CONFIRM: 'clans:unlink_confirm',
+    CLANS_UNLINK_CANCEL: 'clans:unlink_cancel',
     SETTINGS_OPEN: 'settings:open',
     SETTINGS_PRESET: 'settings:preset',
     SETTINGS_CATEGORY: 'settings:category',
@@ -31,6 +36,8 @@ export const CALLBACK_COMMANDS = {
     GUIDES_GUIDE: 'guides:guide',
 } as const;
 
+export type UnlinkCallbackSource = 'card' | 'unlink';
+
 export interface CallbackData {
     readonly command: string;
     readonly arguments: readonly string[];
@@ -40,8 +47,28 @@ export type KnownCallbackData =
     | { readonly kind: 'menu:start' }
     | { readonly kind: 'help:main' }
     | { readonly kind: 'clans:link' }
-    | { readonly kind: 'clans:list' }
+    | { readonly kind: 'clans:list'; readonly page: number }
+    | { readonly kind: 'clans:card'; readonly clanTag: string; readonly page: number }
     | { readonly kind: 'clans:unlink'; readonly clanTag: string | null }
+    | { readonly kind: 'clans:unlink_list'; readonly page: number }
+    | {
+          readonly kind: 'clans:unlink_ask';
+          readonly clanTag: string;
+          readonly source: UnlinkCallbackSource;
+          readonly page: number;
+      }
+    | {
+          readonly kind: 'clans:unlink_confirm';
+          readonly clanTag: string;
+          readonly source: UnlinkCallbackSource;
+          readonly page: number;
+      }
+    | {
+          readonly kind: 'clans:unlink_cancel';
+          readonly clanTag: string;
+          readonly source: UnlinkCallbackSource;
+          readonly page: number;
+      }
     | { readonly kind: 'settings:open'; readonly clanTag: string }
     | {
           readonly kind: 'settings:preset';
@@ -96,8 +123,74 @@ export function isWithinCallbackDataLimit(data: string): boolean {
     return Buffer.byteLength(data, 'utf8') <= MAX_CALLBACK_DATA_BYTES;
 }
 
+const POSITIVE_INT_PATTERN = /^[1-9]\d*$/;
+
+function parsePositivePage(raw: string): number | null {
+    if (!POSITIVE_INT_PATTERN.test(raw)) {
+        return null;
+    }
+    const parsed = Number(raw);
+    return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null;
+}
+
+function encodeUnlinkSource(source: UnlinkCallbackSource): 'c' | 'u' {
+    return source === 'card' ? 'c' : 'u';
+}
+
+function parseUnlinkSource(raw: string): UnlinkCallbackSource | null {
+    if (raw === 'c') {
+        return 'card';
+    }
+    if (raw === 'u') {
+        return 'unlink';
+    }
+    return null;
+}
+
+export function buildClansListCallbackData(page = 1): string {
+    return page <= 1
+        ? CALLBACK_COMMANDS.CLANS_LIST
+        : `${CALLBACK_COMMANDS.CLANS_LIST}:${String(page)}`;
+}
+
+export function buildClanCardCallbackData(clanTag: string, page = 1): string {
+    return page <= 1
+        ? `${CALLBACK_COMMANDS.CLANS_CARD}:${clanTag}`
+        : `${CALLBACK_COMMANDS.CLANS_CARD}:${clanTag}:${String(page)}`;
+}
+
+export function buildClanUnlinkListCallbackData(page = 1): string {
+    return page <= 1
+        ? CALLBACK_COMMANDS.CLANS_UNLINK
+        : `${CALLBACK_COMMANDS.CLANS_UNLINK_LIST}:${String(page)}`;
+}
+
 export function buildClanUnlinkCallbackData(clanTag: string): string {
     return `${CALLBACK_COMMANDS.CLANS_UNLINK}:${clanTag}`;
+}
+
+export function buildClanUnlinkAskCallbackData(
+    clanTag: string,
+    source: UnlinkCallbackSource,
+    page = 1,
+): string {
+    return `${CALLBACK_COMMANDS.CLANS_UNLINK_ASK}:${clanTag}:${encodeUnlinkSource(source)}:${String(Math.max(1, Math.trunc(page)))}`;
+}
+
+export function buildClanUnlinkConfirmCallbackData(
+    clanTag: string,
+    source: UnlinkCallbackSource,
+    page = 1,
+): string {
+    return `${CALLBACK_COMMANDS.CLANS_UNLINK_CONFIRM}:${clanTag}:${encodeUnlinkSource(source)}:${String(Math.max(1, Math.trunc(page)))}`;
+}
+
+export function buildClanUnlinkCancelCallbackData(
+    clanTag: string,
+    source: UnlinkCallbackSource,
+    page = 1,
+): string {
+    return `${CALLBACK_COMMANDS.CLANS_UNLINK_CANCEL}:${clanTag}:${encodeUnlinkSource(source)}:${String(Math.max(1, Math.trunc(page)))}`;
 }
 
 export function buildSettingsOpenCallbackData(clanTag: string): string {
@@ -204,16 +297,66 @@ export function parseKnownCallbackData(data: string): KnownCallbackData | null {
             return args.length === 0 ? { kind: 'help:main' } : null;
         case CALLBACK_COMMANDS.CLANS_LINK:
             return args.length === 0 ? { kind: 'clans:link' } : null;
-        case CALLBACK_COMMANDS.CLANS_LIST:
-            return args.length === 0 ? { kind: 'clans:list' } : null;
-        case CALLBACK_COMMANDS.CLANS_UNLINK:
+        case CALLBACK_COMMANDS.CLANS_LIST: {
+            if (args.length === 0) {
+                return { kind: 'clans:list', page: 1 };
+            }
+            if (args.length === 1 && args[0] !== undefined) {
+                const page = parsePositivePage(args[0]);
+                return page !== null ? { kind: 'clans:list', page } : null;
+            }
+            return null;
+        }
+        case CALLBACK_COMMANDS.CLANS_CARD: {
+            if (args.length === 1 && args[0] !== undefined) {
+                const clanTag = parseClanTag(args[0]);
+                return clanTag !== null ? { kind: 'clans:card', clanTag, page: 1 } : null;
+            }
+            if (args.length === 2 && args[0] !== undefined && args[1] !== undefined) {
+                const clanTag = parseClanTag(args[0]);
+                const page = parsePositivePage(args[1]);
+                return clanTag !== null && page !== null
+                    ? { kind: 'clans:card', clanTag, page }
+                    : null;
+            }
+            return null;
+        }
+        case CALLBACK_COMMANDS.CLANS_UNLINK: {
             if (args.length === 0) {
                 return { kind: 'clans:unlink', clanTag: null };
             }
             if (args.length === 1 && args[0] !== undefined) {
-                return { kind: 'clans:unlink', clanTag: args[0] };
+                const clanTag = parseClanTag(args[0]);
+                return clanTag !== null ? { kind: 'clans:unlink', clanTag } : null;
             }
             return null;
+        }
+        case CALLBACK_COMMANDS.CLANS_UNLINK_LIST: {
+            if (args.length !== 1 || args[0] === undefined) {
+                return null;
+            }
+            const page = parsePositivePage(args[0]);
+            return page !== null ? { kind: 'clans:unlink_list', page } : null;
+        }
+        case CALLBACK_COMMANDS.CLANS_UNLINK_ASK:
+        case CALLBACK_COMMANDS.CLANS_UNLINK_CONFIRM:
+        case CALLBACK_COMMANDS.CLANS_UNLINK_CANCEL: {
+            if (
+                args.length !== 3 ||
+                args[0] === undefined ||
+                args[1] === undefined ||
+                args[2] === undefined
+            ) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            const source = parseUnlinkSource(args[1]);
+            const page = parsePositivePage(args[2]);
+            if (clanTag === null || source === null || page === null) {
+                return null;
+            }
+            return { kind: parsed.command, clanTag, source, page };
+        }
         case CALLBACK_COMMANDS.SETTINGS_OPEN: {
             if (args.length !== 1 || args[0] === undefined) {
                 return null;

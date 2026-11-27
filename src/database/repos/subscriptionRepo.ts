@@ -37,6 +37,13 @@ export interface SubscriptionRecord {
     readonly timezoneOffsetHours: number;
 }
 
+export interface ClanSubscriptionSummary extends SubscriptionRecord {
+    readonly clanName: string;
+    readonly hasSnapshot: boolean;
+    readonly isWarLogPublic: boolean | null;
+    readonly hasActiveSyncOutage: boolean;
+}
+
 export interface SubscribeToChatOptions {
     readonly preset?: SubscriptionPreset;
     readonly categories?: SubscriptionCategories;
@@ -83,6 +90,13 @@ interface SubscriptionRecordRow {
     readonly timezone_offset_hours: number;
 }
 
+interface ClanSubscriptionSummaryRow extends SubscriptionRecordRow {
+    readonly clan_name: string;
+    readonly has_snapshot: number;
+    readonly latest_is_war_log_public: number | null;
+    readonly has_active_sync_outage: number;
+}
+
 interface ClanTagRow {
     readonly clan_tag: string;
 }
@@ -112,6 +126,40 @@ const SUBSCRIPTION_SELECT_COLUMNS = `subscription_id,
     notify_system,
     mirror_rule_enabled,
     timezone_offset_hours`;
+
+const CLAN_SUBSCRIPTION_SUMMARY_SELECT = `SELECT
+    cs.subscription_id,
+    cs.clan_tag,
+    cs.chat_id,
+    cs.message_thread_id,
+    cs.notify_summaries,
+    cs.notify_reminders,
+    cs.notify_roster,
+    cs.notify_discipline,
+    cs.notify_system,
+    cs.mirror_rule_enabled,
+    cs.timezone_offset_hours,
+    c.name AS clan_name,
+    EXISTS (
+        SELECT 1
+        FROM clan_snapshots snap
+        WHERE snap.clan_tag = cs.clan_tag
+    ) AS has_snapshot,
+    (
+        SELECT snap.is_war_log_public
+        FROM clan_snapshots snap
+        WHERE snap.clan_tag = cs.clan_tag
+        ORDER BY snap.id DESC
+        LIMIT 1
+    ) AS latest_is_war_log_public,
+    EXISTS (
+        SELECT 1
+        FROM sync_outages so
+        WHERE so.clan_tag = cs.clan_tag
+          AND so.recovered_at IS NULL
+    ) AS has_active_sync_outage
+FROM clan_subscriptions cs
+JOIN clans c ON c.tag = cs.clan_tag`;
 
 function toSqlBool(value: boolean): 0 | 1 {
     return value ? 1 : 0;
@@ -159,6 +207,17 @@ function mapSubscriptionRow(row: SubscriptionRecordRow): SubscriptionRecord {
         },
         mirrorRuleEnabled: row.mirror_rule_enabled !== 0,
         timezoneOffsetHours: row.timezone_offset_hours,
+    };
+}
+
+function mapClanSubscriptionSummaryRow(row: ClanSubscriptionSummaryRow): ClanSubscriptionSummary {
+    return {
+        ...mapSubscriptionRow(row),
+        clanName: row.clan_name,
+        hasSnapshot: row.has_snapshot !== 0,
+        isWarLogPublic:
+            row.latest_is_war_log_public === null ? null : row.latest_is_war_log_public !== 0,
+        hasActiveSyncOutage: row.has_active_sync_outage !== 0,
     };
 }
 
@@ -620,6 +679,53 @@ export class SubscriptionRepo {
                     .all(chatId, messageThreadId);
 
                 return rows.map(mapSubscriptionRow);
+            },
+        );
+    }
+
+    getSubscriptionSummariesForDestination(
+        chatId: number,
+        messageThreadId: number,
+    ): ClanSubscriptionSummary[] {
+        return runRepoQuery(
+            REPO_NAME,
+            'load clan subscription summaries for Telegram destination',
+            { chatId, messageThreadId },
+            () => {
+                const rows = getConnection(this.source)
+                    .prepare<[number, number], ClanSubscriptionSummaryRow>(
+                        `${CLAN_SUBSCRIPTION_SUMMARY_SELECT}
+                         WHERE cs.chat_id = ?
+                           AND cs.message_thread_id = ?
+                         ORDER BY cs.subscription_id;`,
+                    )
+                    .all(chatId, messageThreadId);
+
+                return rows.map(mapClanSubscriptionSummaryRow);
+            },
+        );
+    }
+
+    getSubscriptionSummary(
+        chatId: number,
+        messageThreadId: number,
+        clanTag: string,
+    ): ClanSubscriptionSummary | null {
+        return runRepoQuery(
+            REPO_NAME,
+            'load clan subscription summary',
+            { clanTag, chatId, messageThreadId },
+            () => {
+                const row = getConnection(this.source)
+                    .prepare<[number, number, string], ClanSubscriptionSummaryRow>(
+                        `${CLAN_SUBSCRIPTION_SUMMARY_SELECT}
+                         WHERE cs.chat_id = ?
+                           AND cs.message_thread_id = ?
+                           AND cs.clan_tag = ?;`,
+                    )
+                    .get(chatId, messageThreadId, clanTag);
+
+                return row !== undefined ? mapClanSubscriptionSummaryRow(row) : null;
             },
         );
     }

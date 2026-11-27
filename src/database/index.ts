@@ -70,6 +70,7 @@ export {
     type BestAttack,
     type CWLRoundInfo,
     type ClanSide,
+    type ClanSubscriptionSummary,
     type Clanwar,
     type ClanwarAttack,
     type ClanwarAttackStats,

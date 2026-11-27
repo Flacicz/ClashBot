@@ -16,6 +16,7 @@ import { escapeHtml } from '../common/formatUtils.js';
 import { DEFAULT_MAX_TRACKED_CLANS } from '../config/configSchema.js';
 import type {
     ClansRepo,
+    ClanSubscriptionSummary,
     DomainEventsRepo,
     NotificationRepo,
     SubscriptionRecord,
@@ -42,15 +43,18 @@ import {
     parseKnownCallbackData,
 } from './callbackData.js';
 import { CommandRateLimiter } from './commandRateLimiter.js';
-import { type BotCommand, parseBotCommand, parseClanTag } from './commands.js';
+import { type BotCommand, parseBotCommand } from './commands.js';
 import {
     type InlineKeyboardMarkup,
-    makeClanUnlinkKeyboard,
+    makeClanCardKeyboard,
+    makeClanUnlinkConfirmKeyboard,
+    makeClanUnlinkListKeyboard,
     makeGuideListKeyboard,
     makeGuideNavigationKeyboard,
     makeHelpNavigationKeyboard,
     makeLinkInstructionsKeyboard,
     makeMirrorRuleToggleButton,
+    makeMyClansListKeyboard,
     makeMyClansNavigationKeyboard,
     makeStartMenuKeyboard,
     makeStrategyListKeyboard,
@@ -70,6 +74,16 @@ import {
     LINK_INVALID_ARGUMENTS_TEXT,
     LINK_INVALID_TAG_TEXT,
 } from './linkOnboarding.js';
+import {
+    CLANS_PAGE_SIZE,
+    formatClanCardText,
+    formatMyClansListText,
+    formatUnlinkConfirmText,
+    formatUnlinkListText,
+    formatUnlinkResultText,
+    paginateItems,
+    resolveClanTrackingStatus,
+} from './myClans.js';
 import {
     formatSubscriptionSettingsText,
     formatTimezoneAllSelectText,
@@ -133,6 +147,10 @@ const LINK_INSTRUCTIONS_TEXT =
     'Например:\n' +
     '/link #2PPLQ';
 const ONLY_ADMIN_TEXT = 'Только администратор группы может управлять подключениями кланов.';
+const ONLY_OWNER_TEXT = 'Только владелец чата может управлять подключениями кланов.';
+const CARD_LOAD_ERROR_TEXT = 'Не удалось загрузить карточку клана. Попробуйте ещё раз позже.';
+const UNLINK_LOAD_ERROR_TEXT =
+    'Не удалось загрузить данные для отключения. Попробуйте ещё раз позже.';
 const SETTINGS_ONLY_ADMIN_TEXT = 'Только администратор группы может изменять настройки подписки.';
 const SETTINGS_ONLY_OWNER_TEXT = 'Только владелец чата может изменять настройки подписки.';
 const SETTINGS_LOAD_ERROR_TEXT = 'Не удалось загрузить настройки. Попробуйте ещё раз позже.';
@@ -165,6 +183,21 @@ export interface TelegramBotServiceDependencies {
 
 type GrammyAbortSignal = Parameters<Context['api']['getChatMember']>[2];
 type ClanSubscriptionCommand = Extract<BotCommand, { readonly kind: 'link' | 'unlink' }>;
+type UnlinkCallbackData = Extract<
+    KnownCallbackData,
+    {
+        readonly kind:
+            | 'clans:unlink'
+            | 'clans:unlink_list'
+            | 'clans:unlink_ask'
+            | 'clans:unlink_confirm'
+            | 'clans:unlink_cancel';
+    }
+>;
+interface UnlinkClanResult {
+    readonly unlinked: boolean;
+    readonly clanName: string | null;
+}
 type SettingsCallbackData = Extract<
     KnownCallbackData,
     {
@@ -1043,7 +1076,11 @@ export class TelegramBotService {
         });
     }
 
-    private unlinkClanFromChat(chatId: number, messageThreadId: number, clanTag: string): boolean {
+    private unlinkClanFromChatWithName(
+        chatId: number,
+        messageThreadId: number,
+        clanTag: string,
+    ): UnlinkClanResult {
         return this.transactionManager.retryInTransaction(() => {
             const subscriptionId = this.subscriptionRepo.getSubscriptionId(
                 chatId,
@@ -1051,9 +1088,10 @@ export class TelegramBotService {
                 clanTag,
             );
             if (subscriptionId === null) {
-                return false;
+                return { unlinked: false, clanName: null };
             }
 
+            const clanName = this.clansRepo.getClanNameByTag(clanTag);
             this.domainEventsRepo.cancelForSubscription(subscriptionId);
             this.subscriptionRepo.unsubscribeFromChat(chatId, messageThreadId, clanTag);
 
@@ -1065,8 +1103,12 @@ export class TelegramBotService {
                 this.clansRepo.disableTracking(clanTag);
             }
 
-            return true;
+            return { unlinked: true, clanName };
         });
+    }
+
+    private unlinkClanFromChat(chatId: number, messageThreadId: number, clanTag: string): boolean {
+        return this.unlinkClanFromChatWithName(chatId, messageThreadId, clanTag).unlinked;
     }
 
     private async handleLinkCommand(
@@ -1437,8 +1479,24 @@ export class TelegramBotService {
             return;
         }
 
-        if (callbackData.kind === 'clans:unlink') {
-            await this.handleUnlinkCallback(api, context, callbackData.clanTag);
+        if (callbackData.kind === 'clans:card') {
+            await this.handleClanCardCallback(
+                api,
+                context,
+                callbackData.clanTag,
+                callbackData.page,
+            );
+            return;
+        }
+
+        if (
+            callbackData.kind === 'clans:unlink' ||
+            callbackData.kind === 'clans:unlink_list' ||
+            callbackData.kind === 'clans:unlink_ask' ||
+            callbackData.kind === 'clans:unlink_confirm' ||
+            callbackData.kind === 'clans:unlink_cancel'
+        ) {
+            await this.handleUnlinkCallback(api, context, callbackData);
             return;
         }
 
@@ -1472,7 +1530,7 @@ export class TelegramBotService {
                 await this.handleLinkInstructionsCallback(api, context);
                 break;
             case 'clans:list':
-                await this.handleMyClansCallback(api, context);
+                await this.handleMyClansCallback(api, context, callbackData.page);
                 break;
             case 'guides:townhalls':
                 await this.handleTownHallListCallback(api, context);
@@ -1566,6 +1624,7 @@ export class TelegramBotService {
     private async handleMyClansCallback(
         api: Context['api'],
         context: CallbackContext,
+        page = 1,
     ): Promise<void> {
         if (!isSupportedTelegramChatType(context.chatType)) {
             await this.editHtmlMessage(
@@ -1578,9 +1637,9 @@ export class TelegramBotService {
             return;
         }
 
-        let clanTags: string[];
+        let summaries: ClanSubscriptionSummary[];
         try {
-            clanTags = this.subscriptionRepo.getClanTagsForChat(
+            summaries = this.subscriptionRepo.getSubscriptionSummariesForDestination(
                 context.chatId,
                 context.messageThreadId,
             );
@@ -1602,37 +1661,155 @@ export class TelegramBotService {
             throw error;
         }
 
-        const message =
-            clanTags.length === 0
-                ? 'В этом чате пока нет подключённых кланов.\n\nЧтобы подключить клан, используйте:\n/link #ТЕГ_КЛАНА'
-                : `Подключённые кланы:\n\n${clanTags.map((tag) => `• ${tag}\n`).join('')}`;
+        const pageSlice = paginateItems(summaries, page, CLANS_PAGE_SIZE);
+        const keyboardSlice = {
+            ...pageSlice,
+            items: pageSlice.items.map((item) => ({
+                clanTag: item.clanTag,
+                clanName: item.clanName,
+                status: resolveClanTrackingStatus(item),
+            })),
+        };
 
         await this.editHtmlMessage(
             api,
             context.chatId,
             context.messageId,
-            message,
-            makeMyClansNavigationKeyboard(),
+            formatMyClansListText(pageSlice),
+            makeMyClansListKeyboard(keyboardSlice),
+        );
+    }
+
+    private async handleClanCardCallback(
+        api: Context['api'],
+        context: CallbackContext,
+        clanTag: string,
+        page: number,
+    ): Promise<void> {
+        if (!isSupportedTelegramChatType(context.chatType)) {
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text: 'Этот тип Telegram-чата пока не поддерживается.',
+                show_alert: true,
+            });
+            return;
+        }
+
+        let summary: ClanSubscriptionSummary | null;
+        try {
+            summary = this.subscriptionRepo.getSubscriptionSummary(
+                context.chatId,
+                context.messageThreadId,
+                clanTag,
+            );
+        } catch (error: unknown) {
+            if (error instanceof DatabaseError) {
+                this.logger.error(
+                    { err: error, chatId: context.chatId, clanTag },
+                    'Failed to load clan card',
+                );
+                await this.safeAnswerCallbackQuery(api, context.queryId, {
+                    text: CARD_LOAD_ERROR_TEXT,
+                    show_alert: true,
+                });
+                return;
+            }
+            throw error;
+        }
+
+        if (summary === null) {
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text: `Этот чат не привязан к клану ${clanTag}.`,
+                show_alert: true,
+            });
+            return;
+        }
+
+        await this.safeAnswerCallbackQuery(api, context.queryId);
+
+        if (this.activeSignal?.aborted) {
+            return;
+        }
+
+        await this.editHtmlMessage(
+            api,
+            context.chatId,
+            context.messageId,
+            formatClanCardText(summary),
+            makeClanCardKeyboard(summary.clanTag, page),
+        );
+    }
+
+    private async renderUnlinkList(
+        api: Context['api'],
+        context: CallbackContext,
+        page: number,
+    ): Promise<void> {
+        let summaries: ClanSubscriptionSummary[];
+        try {
+            summaries = this.subscriptionRepo.getSubscriptionSummariesForDestination(
+                context.chatId,
+                context.messageThreadId,
+            );
+        } catch (error: unknown) {
+            if (error instanceof DatabaseError) {
+                this.logger.error(
+                    { err: error, chatId: context.chatId },
+                    'Failed to load clans for unlink menu',
+                );
+                await this.editHtmlMessage(
+                    api,
+                    context.chatId,
+                    context.messageId,
+                    'Не удалось отключить клан. Попробуйте ещё раз позже.',
+                    makeStartMenuKeyboard(),
+                );
+                return;
+            }
+            throw error;
+        }
+
+        const pageSlice = paginateItems(summaries, page, CLANS_PAGE_SIZE);
+        const keyboardSlice = {
+            ...pageSlice,
+            items: pageSlice.items.map((item) => ({
+                clanTag: item.clanTag,
+                clanName: item.clanName,
+            })),
+        };
+
+        await this.editHtmlMessage(
+            api,
+            context.chatId,
+            context.messageId,
+            formatUnlinkListText(pageSlice),
+            makeClanUnlinkListKeyboard(keyboardSlice),
         );
     }
 
     private async handleUnlinkCallback(
         api: Context['api'],
         context: CallbackContext,
-        rawClanTag: string | null,
+        callbackData: UnlinkCallbackData,
     ): Promise<void> {
         if (!isSupportedTelegramChatType(context.chatType)) {
-            await this.safeAnswerCallbackQuery(api, context.queryId);
-            if (this.activeSignal?.aborted) {
+            if (callbackData.kind === 'clans:unlink' && callbackData.clanTag === null) {
+                await this.safeAnswerCallbackQuery(api, context.queryId);
+                if (this.activeSignal?.aborted) {
+                    return;
+                }
+                await this.editHtmlMessage(
+                    api,
+                    context.chatId,
+                    context.messageId,
+                    'Этот тип Telegram-чата пока не поддерживается.',
+                    makeStartMenuKeyboard(),
+                );
                 return;
             }
-            await this.editHtmlMessage(
-                api,
-                context.chatId,
-                context.messageId,
-                'Этот тип Telegram-чата пока не поддерживается.',
-                makeStartMenuKeyboard(),
-            );
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text: 'Этот тип Telegram-чата пока не поддерживается.',
+                show_alert: true,
+            });
             return;
         }
 
@@ -1649,7 +1826,7 @@ export class TelegramBotService {
                 return;
             }
             this.logger.error(
-                { err: error, chatId: context.chatId },
+                { err: error, chatId: context.chatId, kind: callbackData.kind },
                 'Failed to check permissions for unlink callback',
             );
             await this.safeAnswerCallbackQuery(api, context.queryId, {
@@ -1665,67 +1842,148 @@ export class TelegramBotService {
 
         if (!canManage) {
             await this.safeAnswerCallbackQuery(api, context.queryId, {
-                text: ONLY_ADMIN_TEXT,
+                text: context.chatType === 'private' ? ONLY_OWNER_TEXT : ONLY_ADMIN_TEXT,
                 show_alert: true,
             });
             return;
         }
 
-        await this.safeAnswerCallbackQuery(api, context.queryId);
-
-        if (this.activeSignal?.aborted) {
+        if (
+            callbackData.kind === 'clans:unlink_list' ||
+            (callbackData.kind === 'clans:unlink' && callbackData.clanTag === null)
+        ) {
+            await this.safeAnswerCallbackQuery(api, context.queryId);
+            if (this.activeSignal?.aborted) {
+                return;
+            }
+            const page = callbackData.kind === 'clans:unlink_list' ? callbackData.page : 1;
+            await this.renderUnlinkList(api, context, page);
             return;
         }
 
-        if (rawClanTag === null) {
-            let clanTags: string[];
+        if (callbackData.kind === 'clans:unlink' || callbackData.kind === 'clans:unlink_ask') {
+            const clanTag = callbackData.clanTag;
+            if (clanTag === null) {
+                return;
+            }
+            const source =
+                callbackData.kind === 'clans:unlink_ask' ? callbackData.source : 'unlink';
+            const page = callbackData.kind === 'clans:unlink_ask' ? callbackData.page : 1;
+
+            let summary: ClanSubscriptionSummary | null;
             try {
-                clanTags = this.subscriptionRepo.getClanTagsForChat(
+                summary = this.subscriptionRepo.getSubscriptionSummary(
                     context.chatId,
                     context.messageThreadId,
+                    clanTag,
                 );
             } catch (error: unknown) {
                 if (error instanceof DatabaseError) {
                     this.logger.error(
-                        { err: error, chatId: context.chatId },
-                        'Failed to load clans for unlink menu',
+                        { err: error, chatId: context.chatId, clanTag },
+                        'Failed to load subscription for unlink confirmation',
+                    );
+                    await this.safeAnswerCallbackQuery(api, context.queryId, {
+                        text: UNLINK_LOAD_ERROR_TEXT,
+                        show_alert: true,
+                    });
+                    return;
+                }
+                throw error;
+            }
+
+            if (summary === null) {
+                await this.safeAnswerCallbackQuery(api, context.queryId, {
+                    text: `Этот чат не привязан к клану ${clanTag}.`,
+                    show_alert: true,
+                });
+                return;
+            }
+
+            await this.safeAnswerCallbackQuery(api, context.queryId);
+            if (this.activeSignal?.aborted) {
+                return;
+            }
+
+            await this.editHtmlMessage(
+                api,
+                context.chatId,
+                context.messageId,
+                formatUnlinkConfirmText(
+                    summary.clanTag,
+                    summary.clanName,
+                    context.chatType,
+                    context.messageThreadId,
+                ),
+                makeClanUnlinkConfirmKeyboard(summary.clanTag, source, page),
+            );
+            return;
+        }
+
+        if (callbackData.kind === 'clans:unlink_cancel') {
+            await this.safeAnswerCallbackQuery(api, context.queryId);
+            if (this.activeSignal?.aborted) {
+                return;
+            }
+
+            if (callbackData.source === 'unlink') {
+                await this.renderUnlinkList(api, context, callbackData.page);
+                return;
+            }
+
+            let summary: ClanSubscriptionSummary | null;
+            try {
+                summary = this.subscriptionRepo.getSubscriptionSummary(
+                    context.chatId,
+                    context.messageThreadId,
+                    callbackData.clanTag,
+                );
+            } catch (error: unknown) {
+                if (error instanceof DatabaseError) {
+                    this.logger.error(
+                        { err: error, chatId: context.chatId, clanTag: callbackData.clanTag },
+                        'Failed to reload clan card after unlink cancel',
                     );
                     await this.editHtmlMessage(
                         api,
                         context.chatId,
                         context.messageId,
-                        'Не удалось отключить клан. Попробуйте ещё раз позже.',
-                        makeStartMenuKeyboard(),
+                        'Не удалось загрузить список кланов. Попробуйте ещё раз позже.',
+                        makeMyClansNavigationKeyboard(),
                     );
                     return;
                 }
                 throw error;
             }
 
-            const message =
-                clanTags.length === 0
-                    ? 'В этом чате нет подключённых кланов.'
-                    : 'Выберите клан для отключения:';
+            if (summary !== null) {
+                await this.editHtmlMessage(
+                    api,
+                    context.chatId,
+                    context.messageId,
+                    formatClanCardText(summary),
+                    makeClanCardKeyboard(summary.clanTag, callbackData.page),
+                );
+                return;
+            }
 
-            await this.editHtmlMessage(
-                api,
-                context.chatId,
-                context.messageId,
-                message,
-                makeClanUnlinkKeyboard(clanTags),
-            );
+            await this.handleMyClansCallback(api, context, callbackData.page);
             return;
         }
 
-        const clanTag = parseClanTag(rawClanTag);
-        if (clanTag === null) {
-            this.logger.warn({ rawClanTag }, 'Invalid clan tag in unlink callback');
+        await this.safeAnswerCallbackQuery(api, context.queryId);
+        if (this.activeSignal?.aborted) {
             return;
         }
 
-        let unlinked: boolean;
+        const { clanTag } = callbackData;
+        let result: UnlinkClanResult;
         try {
-            unlinked = this.unlinkClanFromChat(context.chatId, context.messageThreadId, clanTag);
+            result = this.unlinkClanFromChatWithName(
+                context.chatId,
+                context.messageThreadId,
+                clanTag,
+            );
         } catch (error: unknown) {
             if (error instanceof DatabaseError) {
                 this.logger.error(
@@ -1744,15 +2002,11 @@ export class TelegramBotService {
             throw error;
         }
 
-        const message = unlinked
-            ? `Готово! Клан ${clanTag} отключён.`
-            : `Этот чат не привязан к клану ${clanTag}.`;
-
         await this.editHtmlMessage(
             api,
             context.chatId,
             context.messageId,
-            message,
+            formatUnlinkResultText(clanTag, result.clanName, result.unlinked),
             makeStartMenuKeyboard(),
         );
     }

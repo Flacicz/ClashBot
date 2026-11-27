@@ -9,7 +9,13 @@ import {
 } from '../models/subscription.js';
 import type { AttackGuide, AttackStrategy } from './attackGuideCatalog.js';
 import {
+    buildClanCardCallbackData,
+    buildClansListCallbackData,
+    buildClanUnlinkAskCallbackData,
     buildClanUnlinkCallbackData,
+    buildClanUnlinkCancelCallbackData,
+    buildClanUnlinkConfirmCallbackData,
+    buildClanUnlinkListCallbackData,
     buildGuideCallbackData,
     buildSettingsCategoryCallbackData,
     buildSettingsMirrorCallbackData,
@@ -21,7 +27,14 @@ import {
     buildStrategyCallbackData,
     buildTownHallCallbackData,
     CALLBACK_COMMANDS,
+    type UnlinkCallbackSource,
 } from './callbackData.js';
+import {
+    CLAN_TRACKING_STATUS_ICONS,
+    formatClanButtonLabel,
+    type ClanTrackingStatus,
+    type PaginatedSlice,
+} from './myClans.js';
 import {
     CIS_TIMEZONE_PRESETS,
     MIRROR_RULE_LABEL,
@@ -44,6 +57,17 @@ export interface SubscriptionSettingsKeyboardOptions {
     readonly timezoneOffsetHours?: number;
     readonly extraRows?: readonly (readonly InlineKeyboardButton[])[];
     readonly backButton?: InlineKeyboardButton;
+}
+
+export interface MyClansKeyboardItem {
+    readonly clanTag: string;
+    readonly clanName?: string | null;
+    readonly status: ClanTrackingStatus;
+}
+
+export interface ClanUnlinkKeyboardItem {
+    readonly clanTag: string;
+    readonly clanName?: string | null;
 }
 
 const MAIN_MENU_BUTTON: InlineKeyboardButton = {
@@ -77,6 +101,76 @@ export function makeMyClansNavigationKeyboard(): InlineKeyboardMarkup {
     };
 }
 
+function makePaginationRow(
+    pageSlice: Pick<PaginatedSlice<unknown>, 'page' | 'totalPages' | 'hasPrev' | 'hasNext'>,
+    buildPageCallbackData: (page: number) => string,
+): InlineKeyboardButton[] {
+    if (pageSlice.totalPages <= 1) {
+        return [];
+    }
+
+    const row: InlineKeyboardButton[] = [];
+    if (pageSlice.hasPrev) {
+        row.push({
+            text: '⬅️ Пред.',
+            callback_data: buildPageCallbackData(pageSlice.page - 1),
+        });
+    }
+    if (pageSlice.hasNext) {
+        row.push({
+            text: 'След. ➡️',
+            callback_data: buildPageCallbackData(pageSlice.page + 1),
+        });
+    }
+    return row;
+}
+
+export function makeMyClansListKeyboard(
+    pageSlice: PaginatedSlice<MyClansKeyboardItem>,
+): InlineKeyboardMarkup {
+    const rows: InlineKeyboardButton[][] = pageSlice.items.map((item) => [
+        {
+            text: formatClanButtonLabel(
+                item.clanTag,
+                item.clanName,
+                CLAN_TRACKING_STATUS_ICONS[item.status],
+            ),
+            callback_data: buildClanCardCallbackData(item.clanTag, pageSlice.page),
+        },
+    ]);
+
+    const paginationRow = makePaginationRow(pageSlice, buildClansListCallbackData);
+    if (paginationRow.length > 0) {
+        rows.push(paginationRow);
+    }
+
+    rows.push([MAIN_MENU_BUTTON]);
+
+    return {
+        inline_keyboard: rows,
+    };
+}
+
+export function makeClanCardKeyboard(clanTag: string, page = 1): InlineKeyboardMarkup {
+    return {
+        inline_keyboard: [
+            [makeSubscriptionSettingsButton(clanTag)],
+            [
+                {
+                    text: '❌ Отключить',
+                    callback_data: buildClanUnlinkAskCallbackData(clanTag, 'card', page),
+                },
+            ],
+            [
+                {
+                    text: '⬅️ Назад',
+                    callback_data: buildClansListCallbackData(page),
+                },
+            ],
+        ],
+    };
+}
+
 export function makeLinkInstructionsKeyboard(): InlineKeyboardMarkup {
     return {
         inline_keyboard: [[MAIN_MENU_BUTTON]],
@@ -101,6 +195,49 @@ export function makeClanUnlinkKeyboard(clanTags: readonly string[]): InlineKeybo
 
     return {
         inline_keyboard: rows,
+    };
+}
+
+export function makeClanUnlinkListKeyboard(
+    pageSlice: PaginatedSlice<ClanUnlinkKeyboardItem>,
+): InlineKeyboardMarkup {
+    const rows: InlineKeyboardButton[][] = pageSlice.items.map((item) => [
+        {
+            text: formatClanButtonLabel(item.clanTag, item.clanName, '❌'),
+            callback_data: buildClanUnlinkAskCallbackData(item.clanTag, 'unlink', pageSlice.page),
+        },
+    ]);
+
+    const paginationRow = makePaginationRow(pageSlice, buildClanUnlinkListCallbackData);
+    if (paginationRow.length > 0) {
+        rows.push(paginationRow);
+    }
+
+    rows.push([MAIN_MENU_BUTTON]);
+
+    return {
+        inline_keyboard: rows,
+    };
+}
+
+export function makeClanUnlinkConfirmKeyboard(
+    clanTag: string,
+    source: UnlinkCallbackSource,
+    page = 1,
+): InlineKeyboardMarkup {
+    return {
+        inline_keyboard: [
+            [
+                {
+                    text: 'Да, отключить',
+                    callback_data: buildClanUnlinkConfirmCallbackData(clanTag, source, page),
+                },
+                {
+                    text: 'Отмена',
+                    callback_data: buildClanUnlinkCancelCallbackData(clanTag, source, page),
+                },
+            ],
+        ],
     };
 }
 

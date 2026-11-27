@@ -15,6 +15,7 @@ import {
     MigratorManager,
     NotificationRepo,
     SubscriptionRepo,
+    SyncOutageRepo,
     TransactionManager,
 } from '../../src/database/index.js';
 import { DomainEventPayloadSerializer, DomainEventRecorder } from '../../src/domainEvents/index.js';
@@ -26,6 +27,8 @@ import {
     COMMAND_RATE_LIMIT_EXCEEDED_TEXT,
     type CommandRateLimiter,
     DEFERRED_SYNC_HINT_TEXT,
+    MAX_CALLBACK_DATA_BYTES,
+    PENDING_CLAN_SYNC_NAME,
     PRIVATE_WAR_LOG_WARNING_TEXT,
     SUPERCELL_FAN_CONTENT_DISCLAIMER,
     TELEGRAM_BOT_ALLOWED_UPDATES,
@@ -525,6 +528,7 @@ interface TestHarness {
     readonly db: Database;
     readonly clansRepo: ClansRepo;
     readonly subscriptionRepo: SubscriptionRepo;
+    readonly syncOutageRepo: SyncOutageRepo;
     readonly domainEventsRepo: DomainEventsRepo;
     readonly notificationRepo: NotificationRepo;
     readonly transactionManager: TransactionManager;
@@ -556,6 +560,7 @@ describe('TelegramBotService', () => {
 
         const clansRepo = new ClansRepo(db);
         const subscriptionRepo = new SubscriptionRepo(db);
+        const syncOutageRepo = new SyncOutageRepo(db);
         const domainEventsRepo = new DomainEventsRepo(db);
         const notificationRepo = new NotificationRepo(db);
         const logger = options?.logger ?? createLogger({ level: 'silent' });
@@ -597,6 +602,7 @@ describe('TelegramBotService', () => {
             db,
             clansRepo,
             subscriptionRepo,
+            syncOutageRepo,
             domainEventsRepo,
             notificationRepo,
             transactionManager,
@@ -2145,7 +2151,7 @@ describe('TelegramBotService', () => {
             expect(String(transport.editedMessages()[2]?.text)).toContain('не поддерживается');
 
             const repoSpy = vi
-                .spyOn(subscriptionRepo, 'getClanTagsForChat')
+                .spyOn(subscriptionRepo, 'getSubscriptionSummariesForDestination')
                 .mockImplementation(() => {
                     throw new DatabaseError('read failed');
                 });
@@ -2158,7 +2164,408 @@ describe('TelegramBotService', () => {
             );
         });
 
-        it('handles clans:unlink list, clan removal, repeat click, non-admin and API/DB errors', async () => {
+        it('displays clan names, all four tracking statuses, and all four preset labels in My Clans and clan cards without Pending synchronization', async () => {
+            const { service, transport, clansRepo, subscriptionRepo, syncOutageRepo } =
+                createHarness();
+            const chatId = 5100;
+            const userId = 5100;
+
+            subscriptionRepo.saveTelegramChat(chatId, 0, 'Leader Private');
+
+            // 1. Pending sync (no snapshot, Pending synchronization) -> players preset
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.subscribeToChat(chatId, 0, '#2PPLQ', 'players');
+
+            // 2. Tracked (synced name with HTML chars, public war log) -> management preset
+            const trackedData = makeCompleteClanData({
+                tag: '#999888',
+                name: 'Dark <Dragons>',
+                isWarLogPublic: true,
+            });
+            clansRepo.saveClan(trackedData.clan);
+            clansRepo.saveClanSnapshot(trackedData.clanSnapshot);
+            subscriptionRepo.subscribeToChat(chatId, 0, '#999888', 'management');
+
+            // 3. Private war log (is_war_log_public = 0, plus a recovered outage that must not trigger outage status) -> all preset
+            const privateData = makeCompleteClanData({
+                tag: '#888222',
+                name: 'Secret Clan',
+                isWarLogPublic: false,
+            });
+            clansRepo.saveClan(privateData.clan);
+            clansRepo.saveClanSnapshot(privateData.clanSnapshot);
+            const recoveredOutage = syncOutageRepo.recordFailure('#888222', 'ClanInfoService');
+            syncOutageRepo.markRecovered(recoveredOutage.id);
+            subscriptionRepo.subscribeToChat(chatId, 0, '#888222', 'all');
+
+            // 4. Sync outage (active open outage takes priority even over private war log) -> custom categories
+            const outageData = makeCompleteClanData({
+                tag: '#777111',
+                name: 'Outage Clan',
+                isWarLogPublic: false,
+            });
+            clansRepo.saveClan(outageData.clan);
+            clansRepo.saveClanSnapshot(outageData.clanSnapshot);
+            syncOutageRepo.recordFailure('#777111', 'ClanwarService');
+            subscriptionRepo.subscribeToChat(chatId, 0, '#777111', {
+                categories: {
+                    summaries: true,
+                    reminders: false,
+                    roster: false,
+                    discipline: false,
+                    system: false,
+                },
+            });
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-statuses',
+                    data: 'clans:list',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+
+            const listEdit = transport.editedMessages()[0];
+            const listText = String(listEdit?.text);
+            expect(listText).toContain('• #2PPLQ\n  ⏳ ожидает синхронизации · Пресет: Игроки');
+            expect(listText).not.toContain(PENDING_CLAN_SYNC_NAME);
+            expect(listText).toContain(
+                '• <b>Dark &lt;Dragons&gt;</b> (#999888)\n  ✅ отслеживается · Пресет: Руководство',
+            );
+            expect(listText).toContain(
+                '• <b>Secret Clan</b> (#888222)\n  🔒 журнал войн закрыт · Пресет: Всё вместе',
+            );
+            expect(listText).toContain(
+                '• <b>Outage Clan</b> (#777111)\n  ⚠️ сбой синхронизации · Пресет: своя настройка',
+            );
+
+            const listKb = getInlineKeyboard(listEdit);
+            expect(listKb).toEqual([
+                [{ text: '⏳ #2PPLQ', callback_data: 'clans:card:#2PPLQ' }],
+                [{ text: '✅ Dark <Dragons> (#999888)', callback_data: 'clans:card:#999888' }],
+                [{ text: '🔒 Secret Clan (#888222)', callback_data: 'clans:card:#888222' }],
+                [{ text: '⚠️ Outage Clan (#777111)', callback_data: 'clans:card:#777111' }],
+                [{ text: '🏠 В главное меню', callback_data: 'menu:start' }],
+            ]);
+
+            // Click clan card -> shows details, Settings button (opens settings screen), Disconnect button, Back button
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-card',
+                    data: 'clans:card:#999888',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            const cardEdit = transport.editedMessages()[1];
+            const cardText = String(cardEdit?.text);
+            expect(cardText).toContain('Клан: <b>Dark &lt;Dragons&gt;</b> (#999888)');
+            expect(cardText).toContain('Статус: ✅ отслеживается');
+            expect(cardText).toContain('Пресет: Руководство');
+            expect(getInlineKeyboard(cardEdit)).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#999888' }],
+                [{ text: '❌ Отключить', callback_data: 'clans:unlink_ask:#999888:c:1' }],
+                [{ text: '⬅️ Назад', callback_data: 'clans:list' }],
+            ]);
+
+            // Clicking Settings button on the card opens the #89 settings screen
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-card-settings',
+                    data: 'settings:open:#999888',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(String(transport.editedMessages()[2]?.text)).toContain('Настройки подписки');
+            expect(String(transport.editedMessages()[2]?.text)).toContain(
+                'Клан: <b>Dark &lt;Dragons&gt;</b> (#999888)',
+            );
+        });
+
+        it('paginates My Clans and Unlink menus by 5 clans per page for 0, 5, 6 and 11 clans with <= 64 byte callbacks', async () => {
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness();
+            const chatId = 5200;
+            const userId = 5200;
+            const tags = [
+                '#2PP0',
+                '#2PP2',
+                '#2PP8',
+                '#2PP9',
+                '#2PPP',
+                '#2PPY',
+                '#2PPL',
+                '#2PPQ',
+                '#2PPG',
+                '#2PPR',
+                '#2PPJ',
+            ];
+
+            const seedCount = (count: number): void => {
+                subscriptionRepo.saveTelegramChat(chatId, 0, 'Pagination Chat');
+                for (const [idx, tag] of tags.slice(0, count).entries()) {
+                    if (!subscriptionRepo.hasSubscription(chatId, 0, tag)) {
+                        const data = makeCompleteClanData({
+                            tag,
+                            name: `Clan ${String(idx + 1)}`,
+                            isWarLogPublic: true,
+                        });
+                        clansRepo.saveClan(data.clan);
+                        clansRepo.saveClanSnapshot(data.clanSnapshot);
+                        subscriptionRepo.subscribeToChat(chatId, 0, tag, 'players');
+                    }
+                }
+            };
+
+            const assertCallbackSizes = (payload: Record<string, unknown> | undefined): void => {
+                for (const row of getInlineKeyboard(payload)) {
+                    for (const button of row) {
+                        expect(Buffer.byteLength(button.callback_data, 'utf8')).toBeLessThanOrEqual(
+                            MAX_CALLBACK_DATA_BYTES,
+                        );
+                    }
+                }
+            };
+
+            // 0 clans -> empty state, no pagination row
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:list', chatId, chatType: 'private', userId }),
+            );
+            expect(String(transport.editedMessages().at(-1)?.text)).toContain(
+                'пока нет подключённых кланов',
+            );
+            expect(getInlineKeyboard(transport.editedMessages().at(-1))).toHaveLength(1);
+
+            // 5 clans -> single page, 5 buttons + main menu, no pagination row
+            seedCount(5);
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:list', chatId, chatType: 'private', userId }),
+            );
+            const fiveList = transport.editedMessages().at(-1);
+            expect(String(fiveList?.text)).not.toContain('(страница');
+            expect(getInlineKeyboard(fiveList)).toHaveLength(6);
+            assertCallbackSizes(fiveList);
+
+            // 6 clans -> 2 pages (5 + 1) in both My Clans and Unlink menus
+            seedCount(6);
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:list', chatId, chatType: 'private', userId }),
+            );
+            const sixListP1 = transport.editedMessages().at(-1);
+            expect(String(sixListP1?.text)).toContain('(страница 1 из 2)');
+            expect(getInlineKeyboard(sixListP1)).toHaveLength(7);
+            expect(getInlineKeyboard(sixListP1)[5]).toEqual([
+                { text: 'След. ➡️', callback_data: 'clans:list:2' },
+            ]);
+            assertCallbackSizes(sixListP1);
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:list:2', chatId, chatType: 'private', userId }),
+            );
+            const sixListP2 = transport.editedMessages().at(-1);
+            expect(String(sixListP2?.text)).toContain('(страница 2 из 2)');
+            expect(String(sixListP2?.text)).toContain('#2PPY');
+            expect(String(sixListP2?.text)).not.toContain('#2PPP');
+            expect(getInlineKeyboard(sixListP2)[1]).toEqual([
+                { text: '⬅️ Пред.', callback_data: 'clans:list' },
+            ]);
+            assertCallbackSizes(sixListP2);
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:unlink', chatId, chatType: 'private', userId }),
+            );
+            const sixUnlinkP1 = transport.editedMessages().at(-1);
+            expect(String(sixUnlinkP1?.text)).toContain('(страница 1 из 2)');
+            expect(getInlineKeyboard(sixUnlinkP1)[5]).toEqual([
+                { text: 'След. ➡️', callback_data: 'clans:unlink_list:2' },
+            ]);
+            assertCallbackSizes(sixUnlinkP1);
+
+            // 11 clans -> 3 pages (5 + 5 + 1), page 2 has both prev and next, out-of-range page clamps to 3
+            seedCount(11);
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:list:2', chatId, chatType: 'private', userId }),
+            );
+            const elevenListP2 = transport.editedMessages().at(-1);
+            expect(String(elevenListP2?.text)).toContain('(страница 2 из 3)');
+            expect(String(elevenListP2?.text)).toContain('#2PPY');
+            expect(String(elevenListP2?.text)).toContain('#2PPR');
+            expect(String(elevenListP2?.text)).not.toContain('#2PPP');
+            expect(String(elevenListP2?.text)).not.toContain('#2PPJ');
+            expect(getInlineKeyboard(elevenListP2)[5]).toEqual([
+                { text: '⬅️ Пред.', callback_data: 'clans:list' },
+                { text: 'След. ➡️', callback_data: 'clans:list:3' },
+            ]);
+            assertCallbackSizes(elevenListP2);
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:list:99', chatId, chatType: 'private', userId }),
+            );
+            const elevenListClamped = transport.editedMessages().at(-1);
+            expect(String(elevenListClamped?.text)).toContain('(страница 3 из 3)');
+            expect(String(elevenListClamped?.text)).toContain('#2PPJ');
+            expect(getInlineKeyboard(elevenListClamped)).toHaveLength(3);
+            assertCallbackSizes(elevenListClamped);
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_list:3',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            const elevenUnlinkP3 = transport.editedMessages().at(-1);
+            expect(String(elevenUnlinkP3?.text)).toContain('(страница 3 из 3)');
+            expect(getInlineKeyboard(elevenUnlinkP3)[0]?.[0]).toEqual({
+                text: '❌ Clan 11 (#2PPJ)',
+                callback_data: 'clans:unlink_ask:#2PPJ:u:3',
+            });
+            expect(getInlineKeyboard(elevenUnlinkP3)[1]).toEqual([
+                { text: '⬅️ Пред.', callback_data: 'clans:unlink_list:2' },
+            ]);
+            assertCallbackSizes(elevenUnlinkP3);
+
+            // Opening card on page 2 -> Disconnect -> Cancel returns to card with Back still pointing to page 2
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:card:#2PPY:2',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(getInlineKeyboard(transport.editedMessages().at(-1))[2]?.[0]).toEqual({
+                text: '⬅️ Назад',
+                callback_data: 'clans:list:2',
+            });
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_ask:#2PPY:c:2',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            const confirmEdit = transport.editedMessages().at(-1);
+            expect(String(confirmEdit?.text)).toContain(
+                'Отключить клан <b>Clan 6</b> (#2PPY) от этого личного чата?',
+            );
+            expect(getInlineKeyboard(confirmEdit)).toEqual([
+                [
+                    { text: 'Да, отключить', callback_data: 'clans:unlink_confirm:#2PPY:c:2' },
+                    { text: 'Отмена', callback_data: 'clans:unlink_cancel:#2PPY:c:2' },
+                ],
+            ]);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPY')).toBe(true);
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_cancel:#2PPY:c:2',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            const restoredCard = transport.editedMessages().at(-1);
+            expect(String(restoredCard?.text)).toContain('Карточка клана');
+            expect(String(restoredCard?.text)).toContain('#2PPY');
+            expect(getInlineKeyboard(restoredCard)[2]?.[0]).toEqual({
+                text: '⬅️ Назад',
+                callback_data: 'clans:list:2',
+            });
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPY')).toBe(true);
+        });
+
+        it('isolates My Clans list, clan cards, and unlink confirmation across forum topics of the same supergroup', async () => {
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness();
+            const chatId = -5300;
+            const adminId = 5301;
+            const topicA = 101;
+            const topicB = 202;
+
+            transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
+
+            const clanA = makeCompleteClanData({ tag: '#2PP0L', name: 'Topic A Clan' });
+            const clanShared = makeCompleteClanData({ tag: '#2PP0Q', name: 'Shared Clan' });
+            clansRepo.saveClan(clanA.clan);
+            clansRepo.saveClanSnapshot(clanA.clanSnapshot);
+            clansRepo.saveClan(clanShared.clan);
+            clansRepo.saveClanSnapshot(clanShared.clanSnapshot);
+
+            subscriptionRepo.saveTelegramChat(chatId, topicA, 'Topic A');
+            subscriptionRepo.saveTelegramChat(chatId, topicB, 'Topic B');
+            subscriptionRepo.subscribeToChat(chatId, topicA, '#2PP0L', 'players');
+            subscriptionRepo.subscribeToChat(chatId, topicA, '#2PP0Q', 'management');
+            subscriptionRepo.subscribeToChat(chatId, topicB, '#2PP0Q', 'all');
+
+            // Topic B sees only #2PP0Q with preset "Всё вместе"
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:list',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicB,
+                }),
+            );
+            const topicBList = String(transport.editedMessages()[0]?.text);
+            expect(topicBList).toContain('Shared Clan');
+            expect(topicBList).toContain('Пресет: Всё вместе');
+            expect(topicBList).not.toContain('#2PP0L');
+
+            // Trying to open Topic A's clan card from Topic B is rejected via personal alert
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-cross-topic-card',
+                    data: 'clans:card:#2PP0L',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicB,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(1);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-cross-topic-card',
+                text: 'Этот чат не привязан к клану #2PP0L.',
+                show_alert: true,
+            });
+
+            // Unlinking #2PP0Q from Topic A asks confirmation mentioning "этой темы" and leaves Topic B intact
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_ask:#2PP0Q:c:1',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(String(transport.editedMessages()[1]?.text)).toContain(
+                'Отключить клан <b>Shared Clan</b> (#2PP0Q) от этой темы?',
+            );
+            expect(subscriptionRepo.hasSubscription(chatId, topicA, '#2PP0Q')).toBe(true);
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_confirm:#2PP0Q:c:1',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(subscriptionRepo.hasSubscription(chatId, topicA, '#2PP0Q')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(chatId, topicB, '#2PP0Q')).toBe(true);
+            expect(clansRepo.getTrackedClans()).toContain('#2PP0Q');
+        });
+
+        it('handles clans:unlink list, confirmation/cancel, clan removal, repeat click, non-admin and API/DB errors', async () => {
             const {
                 service,
                 transport,
@@ -2260,7 +2667,7 @@ describe('TelegramBotService', () => {
                 },
             ]);
 
-            // Admin sees list of linked clans
+            // Admin sees informative list of linked clans
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
                     queryId: 'admin-unlink-list',
@@ -2270,18 +2677,58 @@ describe('TelegramBotService', () => {
                     userId: adminId,
                 }),
             );
-            expect(transport.editedMessages()[0]?.text).toBe('Выберите клан для отключения:');
-            expect(getInlineKeyboard(transport.editedMessages()[0])[0]?.[0]?.callback_data).toBe(
-                'clans:unlink:#2PPLQ',
+            expect(String(transport.editedMessages()[0]?.text)).toContain(
+                'Выберите клан для отключения:',
             );
+            expect(String(transport.editedMessages()[0]?.text)).toContain(
+                '⏳ ожидает синхронизации · Пресет: Игроки',
+            );
+            expect(getInlineKeyboard(transport.editedMessages()[0])[0]?.[0]).toEqual({
+                text: '❌ #2PPLQ',
+                callback_data: 'clans:unlink_ask:#2PPLQ:u:1',
+            });
             expect(transport.answeredCallbackQueries()[1]).toEqual({
                 callback_query_id: 'admin-unlink-list',
             });
 
-            // Admin clicks unlink button
+            // Admin clicks clan to disconnect -> bot asks for confirmation without unlinking yet
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
-                    data: 'clans:unlink:#2PPLQ',
+                    data: 'clans:unlink_ask:#2PPLQ:u:1',
+                    chatId,
+                    chatType: 'group',
+                    userId: adminId,
+                }),
+            );
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ')).toBe(true);
+            expect(String(transport.editedMessages()[1]?.text)).toContain(
+                'Отключить клан #2PPLQ от этого чата?',
+            );
+            expect(getInlineKeyboard(transport.editedMessages()[1])).toEqual([
+                [
+                    { text: 'Да, отключить', callback_data: 'clans:unlink_confirm:#2PPLQ:u:1' },
+                    { text: 'Отмена', callback_data: 'clans:unlink_cancel:#2PPLQ:u:1' },
+                ],
+            ]);
+
+            // Admin clicks Cancel -> returns to unlink list without disconnecting
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_cancel:#2PPLQ:u:1',
+                    chatId,
+                    chatType: 'group',
+                    userId: adminId,
+                }),
+            );
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ')).toBe(true);
+            expect(String(transport.editedMessages()[2]?.text)).toContain(
+                'Выберите клан для отключения:',
+            );
+
+            // Admin confirms disconnect -> removes subscription and cancels pending destinations/notifications
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_confirm:#2PPLQ:u:1',
                     chatId,
                     chatType: 'group',
                     userId: adminId,
@@ -2294,20 +2741,20 @@ describe('TelegramBotService', () => {
             );
             expect(rowStatus(db, 'notifications', pendingNotif.id)).toBe('cancelled');
             expect(rowStatus(db, 'notifications', sentNotif.id)).toBe('sent');
-            expect(String(transport.editedMessages()[1]?.text)).toContain(
+            expect(String(transport.editedMessages()[3]?.text)).toContain(
                 'Готово! Клан #2PPLQ отключён.',
             );
 
-            // Clicking the same stale button again reports not linked
+            // Clicking the same stale confirm button again reports not linked
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
-                    data: 'clans:unlink:#2PPLQ',
+                    data: 'clans:unlink_confirm:#2PPLQ:u:1',
                     chatId,
                     chatType: 'group',
                     userId: adminId,
                 }),
             );
-            expect(String(transport.editedMessages()[2]?.text)).toContain(
+            expect(String(transport.editedMessages()[4]?.text)).toContain(
                 'Этот чат не привязан к клану #2PPLQ.',
             );
 
@@ -2320,7 +2767,7 @@ describe('TelegramBotService', () => {
                     userId: adminId,
                 }),
             );
-            expect(transport.editedMessages()[3]?.text).toBe(
+            expect(transport.editedMessages()[5]?.text).toBe(
                 'В этом чате нет подключённых кланов.',
             );
 
@@ -2333,7 +2780,7 @@ describe('TelegramBotService', () => {
                     userId: adminId,
                 }),
             );
-            expect(String(transport.editedMessages()[4]?.text)).toContain('не поддерживается');
+            expect(String(transport.editedMessages()[6]?.text)).toContain('не поддерживается');
 
             // getChatMember error responds via personal alert without overwriting the shared menu
             const editsBeforePermissionError = transport.editedMessages().length;
@@ -2355,7 +2802,7 @@ describe('TelegramBotService', () => {
                 show_alert: true,
             });
 
-            // DB error during inline unlink
+            // DB error during inline unlink confirm
             const txSpy = vi
                 .spyOn(transactionManager, 'retryInTransaction')
                 .mockImplementation(() => {
@@ -2363,19 +2810,19 @@ describe('TelegramBotService', () => {
                 });
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
-                    data: 'clans:unlink:#2PPLQ',
+                    data: 'clans:unlink_confirm:#2PPLQ:u:1',
                     chatId,
                     chatType: 'group',
                     userId: adminId,
                 }),
             );
             txSpy.mockRestore();
-            expect(String(transport.editedMessages()[5]?.text)).toContain(
+            expect(String(transport.editedMessages()[7]?.text)).toContain(
                 'Не удалось отключить клан',
             );
         });
 
-        it('keeps shared group inline menu intact on repeated non-admin and permission-error unlink callbacks', async () => {
+        it('keeps shared group inline menu intact on repeated non-admin, owner-mismatch and permission-error unlink callbacks', async () => {
             const { service, transport, clansRepo, subscriptionRepo } = createHarness();
             const chatId = -4100;
             const adminId = 700;
@@ -2387,34 +2834,44 @@ describe('TelegramBotService', () => {
             transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
             transport.chatMembers.set(memberKey(chatId, memberId), 'member');
 
-            // Repeated non-admin clicks on both clans:unlink and clans:unlink:#TAG
+            // Repeated non-admin clicks on all unlink callbacks (list, paginate, ask, confirm, cancel)
+            for (const [queryId, data] of [
+                ['q-member-1', 'clans:unlink'],
+                ['q-member-2', 'clans:unlink:#2PPLQ'],
+                ['q-member-3', 'clans:unlink_list:2'],
+                ['q-member-4', 'clans:unlink_ask:#2PPLQ:c:1'],
+                ['q-member-5', 'clans:unlink_confirm:#2PPLQ:c:1'],
+                ['q-member-6', 'clans:unlink_cancel:#2PPLQ:c:1'],
+            ] as const) {
+                await service.bot.handleUpdate(
+                    makeCallbackUpdate({
+                        queryId,
+                        data,
+                        chatId,
+                        chatType: 'supergroup',
+                        userId: memberId,
+                        messageThreadId: 15,
+                    }),
+                );
+            }
+
+            // Private chat owner mismatch on unlink confirm
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
-                    queryId: 'q-member-1',
-                    data: 'clans:unlink',
-                    chatId,
-                    chatType: 'supergroup',
-                    userId: memberId,
-                    messageThreadId: 15,
-                }),
-            );
-            await service.bot.handleUpdate(
-                makeCallbackUpdate({
-                    queryId: 'q-member-2',
-                    data: 'clans:unlink:#2PPLQ',
-                    chatId,
-                    chatType: 'supergroup',
-                    userId: memberId,
-                    messageThreadId: 15,
+                    queryId: 'q-priv-mismatch',
+                    data: 'clans:unlink_confirm:#2PPLQ:c:1',
+                    chatId: 8888,
+                    chatType: 'private',
+                    userId: 9999,
                 }),
             );
 
-            // Permission check API error on clans:unlink:#TAG
+            // Permission check API error on unlink confirm
             transport.failGetChatMember = true;
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
                     queryId: 'q-perm-err',
-                    data: 'clans:unlink:#2PPLQ',
+                    data: 'clans:unlink_confirm:#2PPLQ:c:1',
                     chatId,
                     chatType: 'supergroup',
                     userId: adminId,
@@ -2452,6 +2909,31 @@ describe('TelegramBotService', () => {
                     show_alert: true,
                 },
                 {
+                    callback_query_id: 'q-member-3',
+                    text: 'Только администратор группы может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-member-4',
+                    text: 'Только администратор группы может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-member-5',
+                    text: 'Только администратор группы может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-member-6',
+                    text: 'Только администратор группы может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-priv-mismatch',
+                    text: 'Только владелец чата может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+                {
                     callback_query_id: 'q-perm-err',
                     text: 'Не удалось проверить права пользователя. Попробуйте ещё раз позже.',
                     show_alert: true,
@@ -2475,9 +2957,11 @@ describe('TelegramBotService', () => {
                 }),
             );
             expect(transport.editedMessages()).toHaveLength(1);
-            expect(transport.editedMessages()[0]?.text).toBe('Выберите клан для отключения:');
-            expect(transport.answeredCallbackQueries()).toHaveLength(5);
-            expect(transport.answeredCallbackQueries()[4]).toEqual({
+            expect(String(transport.editedMessages()[0]?.text)).toContain(
+                'Выберите клан для отключения:',
+            );
+            expect(transport.answeredCallbackQueries()).toHaveLength(10);
+            expect(transport.answeredCallbackQueries()[9]).toEqual({
                 callback_query_id: 'q-admin-ok',
             });
         });

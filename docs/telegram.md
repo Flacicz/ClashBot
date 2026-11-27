@@ -91,7 +91,7 @@ Telegram-слой разделён на два независимых компо
 Функции `resolveDefaultPreset(chatType)` и `isSupportedTelegramChatType(chatType)` (`src/telegram/validation.ts`), а также
 проверка `canManageCurrentChat` определяют пресет по умолчанию при первом `/link` и права управления подписками:
 
-| Тип чата Telegram        | Пресет по умолчанию при `/link` | Проверка прав для `/link`, `/unlink`, `clans:unlink` и `settings:*`                |
+| Тип чата Telegram        | Пресет по умолчанию при `/link` | Проверка прав для `/link`, `/unlink`, `clans:unlink*` и `settings:*`               |
 | ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------- |
 | `private`                | `management` («Руководство»)    | `chatType === 'private' && chatId === userId` (без вызова `getChatMember`)         |
 | `group`                  | `players` («Игроки»)            | `api.getChatMember(chatId, userId)` → `status` равен `administrator` или `creator` |
@@ -222,8 +222,8 @@ Telegram-слой разделён на два независимых компо
 сервис сначала валидирует `CallbackContext` (`parseCallbackContext`: обязательны `id`, `from.id`, `message.message_id`,
 `message.chat.id`; `data` по умолчанию `''`, `message_thread_id` по умолчанию `0`, `chat.type` по умолчанию `''`), затем
 отвечает на callback через `safeAnswerCallbackQuery` (ошибка ответа логируется, не прерывая обработку). Для
-`clans:unlink` и `settings:*` ответ отправляется после проверки прав и бизнес-инвариантов: при отказе в правах, ошибке
-`getChatMember`, отсутствии подписки, ошибке БД или попытке отключить последнюю категорию уведомлений пользователь
+`clans:card`, `clans:unlink*` и `settings:*` ответ отправляется после проверки прав и бизнес-инвариантов: при отказе в правах,
+ошибке `getChatMember`, отсутствии подписки, ошибке БД или попытке отключить последнюю категорию уведомлений пользователь
 получает персональное уведомление через `answerCallbackQuery` (`show_alert: true`), а общее inline-меню в чате не
 перезаписывается.
 
@@ -236,8 +236,13 @@ Telegram-слой разделён на два независимых компо
 | `menu:start`                          | без аргументов                                              | `editMessageText` → главное меню                                                                               |
 | `help:main`                           | без аргументов                                              | `editMessageText` → справка по командам, правам, пресетам подписки и дисклеймер Supercell Fan Content Policy   |
 | `clans:link`                          | без аргументов                                              | `editMessageText` → инструкция по `/link`                                                                      |
-| `clans:list`                          | без аргументов                                              | `editMessageText` → список кланов для `(chatId, messageThreadId)`                                              |
-| `clans:unlink`                        | 0 или 1 (`clanTag` через `parseClanTag`)                    | Проверка прав; без тега — список кнопок отключения; с тегом — транзакционное отключение                        |
+| `clans:list[:<page>]`                 | опционально `page >= 1` (по умолчанию `1`)                  | `editMessageText` → пагинированный список кланов (по 5 на страницу) для `(chatId, messageThreadId)`            |
+| `clans:card:<clanTag>[:<page>]`       | `clanTag` (`parseClanTag`), опционально `page >= 1`         | `editMessageText` → карточка клана с кнопками `⚙️ Настройки`, `❌ Отключить` и `⬅️ Назад` к странице списка    |
+| `clans:unlink[:<clanTag>]`            | 0 аргументов или `clanTag` (`parseClanTag`)                 | Проверка прав; без тега — страница 1 меню отключения; с тегом — запрос подтверждения отключения                |
+| `clans:unlink_list:<page>`            | `page >= 1`                                                 | Проверка прав; `editMessageText` → указанная страница меню отключения (по 5 кланов на страницу)                |
+| `clans:unlink_ask:<clanTag>:<src>:<page>` | `clanTag`, `src` (`c` — карточка / `u` — меню отключения), `page >= 1` | Проверка прав; `editMessageText` → запрос подтверждения отключения (`Да, отключить` / `Отмена`) |
+| `clans:unlink_confirm:<clanTag>:<src>:<page>` | `clanTag`, `src` (`c`/`u`), `page >= 1`                 | Проверка прав; транзакционное отключение клана с отменой `pending`-записей поколения подписки                  |
+| `clans:unlink_cancel:<clanTag>:<src>:<page>` | `clanTag`, `src` (`c`/`u`), `page >= 1`                  | Проверка прав; возврат к карточке клана (с сохранением `page`) или к странице меню отключения                  |
 | `settings:open:<clanTag>`             | `clanTag` (`parseClanTag`)                                  | Проверка прав; `editMessageText` → экран «⚙️ Настройки» подписки `(clanTag, chatId, messageThreadId)`          |
 | `settings:preset:<clanTag>:<preset>`  | `clanTag` (`parseClanTag`), `preset` (`players`/`management`/`all`) | Проверка прав; атомарное применение пресета в `clan_subscriptions` и `editMessageText` экрана настроек |
 | `settings:category:<clanTag>:<category>` | `clanTag` (`parseClanTag`), `category` (`summaries`/`reminders`/`roster`/`discipline`/`system`) | Проверка прав; атомарное переключение категории (с запретом отключения последней) и `editMessageText` |
@@ -249,6 +254,32 @@ Telegram-слой разделён на два независимых компо
 | `guides:townhall:<townHall>`          | `parseTownHall` (`7..18`)                                   | `editMessageText` → уникальные стратегии для выбранной ратуши                                                  |
 | `guides:strategy:<townHall>:<armyId>` | `townHall` (`7..18`), `armyId`                              | `editMessageText` → список гайдов стратегии (если пусто — игнорируется)                                        |
 | `guides:guide:<townHall>:<guideId>`   | `townHall` (`7..18`), `guideId`                             | Проверка совместимости гайда с `townHall` (`findById(guideId, townHall)`); `sendMessage` (2 HTML-сообщения с сохранением `message_thread_id`): `escapeHtml(title)\nescapeHtml(youtubeUrl)` и кнопки навигации |
+
+### «Мои кланы», карточки кланов, пагинация и подтверждение отключения
+
+Логика статусов, пагинации и форматирования выделена в `src/telegram/myClans.ts` (клавиатуры — в `src/telegram/keyboards.ts`,
+единый SQLite-запрос сводки — `SubscriptionRepo.getSubscriptionSummariesForDestination` / `getSubscriptionSummary`):
+
+- **Отображение каждой строки списка «Мои кланы»** (и меню отключения):
+  - синхронизированное название клана (HTML-экранированное; служебное значение `'Pending synchronization'` скрывается) и тег `#TAG`;
+  - статус отслеживания по строгому приоритету:
+    1. есть незакрытый сбой в `sync_outages` (`recovered_at IS NULL`) → `⚠️ сбой синхронизации`;
+    2. нет ни одного снимка в `clan_snapshots` или имя ещё не синхронизировано → `⏳ ожидает синхронизации`;
+    3. в последнем снимке `clan_snapshots` (по `id DESC`) `is_war_log_public = 0` → `🔒 журнал войн закрыт`;
+    4. иначе → `✅ отслеживается`;
+  - активный пресет подписки (`formatPresetStatusLabel`: `Игроки`, `Руководство`, `Всё вместе` или `своя настройка`).
+- **Пагинация**: по `5` кланов на страницу (`CLANS_PAGE_SIZE = 5`) и в «Моих кланах», и в меню отключения. При `<= 5` кланах
+  ряд пагинации не отображается; при `> 5` кланах добавляются кнопки `⬅️ Пред.` / `След. ➡️`, а выход номера страницы за
+  границы безопасно прижимается к `[1, totalPages]`.
+- **Карточка клана**: нажатие на клан в «Моих кланах» открывает карточку с названием/тегом, статусом, пресетом и кнопками
+  `⚙️ Настройки` (`makeSubscriptionSettingsButton`), `❌ Отключить` и `⬅️ Назад` (возвращает на ту же страницу списка).
+- **Подтверждение отключения и права**: нажатие `❌ Отключить` на карточке или выбор клана в меню отключения не удаляет
+  подписку сразу, а показывает подтверждение с кнопками `Да, отключить` и `Отмена`. Все действия `clans:unlink*` проверяют
+  права администратора/создателя группы или владельца личного чата (`canManageCurrentChat`) и при отказе или ошибке
+  `getChatMember` отвечают персональным alert без перезаписи общего сообщения в чате.
+- **Изоляция тем и лимит `callback_data`**: все выборки, карточки и отключения строго привязаны к `(chat_id, message_thread_id)`;
+  максимальная длина новых `callback_data` для 16-байтного тега `#PYLQGRJCUV0289P` и 4-значной страницы составляет `44` байта
+  UTF-8 (`<= 64` байт, `MAX_CALLBACK_DATA_BYTES`).
 
 ### Экран «⚙️ Настройки» подписки
 

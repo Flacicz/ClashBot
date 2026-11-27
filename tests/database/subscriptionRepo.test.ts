@@ -403,4 +403,115 @@ describe('SubscriptionRepo', () => {
             duplicateSubscriptionIds: [],
         });
     });
+
+    it('loads clan subscription summaries with latest snapshot war log flag, open sync outage status and topic isolation', () => {
+        const { db, repo } = setup();
+        seedClan(db, '#CLAN1', 'Pending synchronization');
+        seedClan(db, '#CLAN2', 'Public War Clan');
+        seedClan(db, '#CLAN3', 'Private War Clan');
+        seedClan(db, '#CLAN4', 'Outage Clan');
+
+        // #CLAN2: older private snapshot followed by newer public snapshot -> latest is public (1)
+        db.connection
+            .prepare(
+                `INSERT INTO clan_snapshots (clan_tag, type, is_war_log_public, created_at)
+                 VALUES (?, 'open', ?, 1700000000);`,
+            )
+            .run('#CLAN2', 0);
+        db.connection
+            .prepare(
+                `INSERT INTO clan_snapshots (clan_tag, type, is_war_log_public, created_at)
+                 VALUES (?, 'open', ?, 1700000000);`,
+            )
+            .run('#CLAN2', 1);
+
+        // #CLAN3: latest snapshot has private war log (0), plus a recovered outage (should NOT count as active)
+        db.connection
+            .prepare(
+                `INSERT INTO clan_snapshots (clan_tag, type, is_war_log_public)
+                 VALUES (?, 'inviteOnly', 0);`,
+            )
+            .run('#CLAN3');
+        db.connection
+            .prepare(
+                `INSERT INTO sync_outages (clan_tag, service_name, failure_count, started_at, recovered_at)
+                 VALUES (?, 'ClanInfoService', 3, 1700000000, 1700000900);`,
+            )
+            .run('#CLAN3');
+
+        // #CLAN4: has snapshot AND an open sync outage (recovered_at IS NULL)
+        db.connection
+            .prepare(
+                `INSERT INTO clan_snapshots (clan_tag, type, is_war_log_public)
+                 VALUES (?, 'open', 1);`,
+            )
+            .run('#CLAN4');
+        db.connection
+            .prepare(
+                `INSERT INTO sync_outages (clan_tag, service_name, failure_count, started_at, recovered_at)
+                 VALUES (?, 'ClanwarService', 2, 1700000000, NULL);`,
+            )
+            .run('#CLAN4');
+
+        repo.saveTelegramChat(-700, 11, 'Topic 11');
+        repo.saveTelegramChat(-700, 22, 'Topic 22');
+        repo.subscribeToChat(-700, 11, '#CLAN1', SUBSCRIPTION_PRESETS.players);
+        repo.subscribeToChat(-700, 11, '#CLAN2', SUBSCRIPTION_PRESETS.management);
+        repo.subscribeToChat(-700, 11, '#CLAN3', SUBSCRIPTION_PRESETS.all);
+        repo.subscribeToChat(-700, 11, '#CLAN4', {
+            categories: {
+                summaries: true,
+                reminders: false,
+                roster: false,
+                discipline: false,
+                system: false,
+            },
+        });
+        repo.subscribeToChat(-700, 22, '#CLAN2', SUBSCRIPTION_PRESETS.players);
+
+        const topic11 = repo.getSubscriptionSummariesForDestination(-700, 11);
+        expect(topic11).toHaveLength(4);
+        expect(topic11.map((item) => item.clanTag)).toEqual([
+            '#CLAN1',
+            '#CLAN2',
+            '#CLAN3',
+            '#CLAN4',
+        ]);
+        expect(topic11[0]).toMatchObject({
+            clanTag: '#CLAN1',
+            clanName: 'Pending synchronization',
+            hasSnapshot: false,
+            isWarLogPublic: null,
+            hasActiveSyncOutage: false,
+        });
+        expect(topic11[1]).toMatchObject({
+            clanTag: '#CLAN2',
+            clanName: 'Public War Clan',
+            hasSnapshot: true,
+            isWarLogPublic: true,
+            hasActiveSyncOutage: false,
+        });
+        expect(topic11[2]).toMatchObject({
+            clanTag: '#CLAN3',
+            clanName: 'Private War Clan',
+            hasSnapshot: true,
+            isWarLogPublic: false,
+            hasActiveSyncOutage: false,
+        });
+        expect(topic11[3]).toMatchObject({
+            clanTag: '#CLAN4',
+            clanName: 'Outage Clan',
+            hasSnapshot: true,
+            isWarLogPublic: true,
+            hasActiveSyncOutage: true,
+        });
+
+        const topic22 = repo.getSubscriptionSummariesForDestination(-700, 22);
+        expect(topic22).toHaveLength(1);
+        expect(topic22[0]?.clanTag).toBe('#CLAN2');
+
+        expect(repo.getSubscriptionSummary(-700, 11, '#CLAN3')).toEqual(topic11[2]);
+        expect(repo.getSubscriptionSummary(-700, 22, '#CLAN3')).toBeNull();
+        expect(repo.getSubscriptionSummariesForDestination(-700, 99)).toEqual([]);
+    });
 });

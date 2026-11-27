@@ -7,7 +7,13 @@ import {
     MIN_TIMEZONE_OFFSET_HOURS,
 } from '../../src/models/subscription.js';
 import {
+    buildClanCardCallbackData,
+    buildClansListCallbackData,
+    buildClanUnlinkAskCallbackData,
     buildClanUnlinkCallbackData,
+    buildClanUnlinkCancelCallbackData,
+    buildClanUnlinkConfirmCallbackData,
+    buildClanUnlinkListCallbackData,
     buildGuideCallbackData,
     buildSettingsCategoryCallbackData,
     buildSettingsMirrorCallbackData,
@@ -116,14 +122,64 @@ describe('callback_data builders and parseKnownCallbackData', () => {
         expect(parseKnownCallbackData('menu:start')).toEqual({ kind: 'menu:start' });
         expect(parseKnownCallbackData('help:main')).toEqual({ kind: 'help:main' });
         expect(parseKnownCallbackData('clans:link')).toEqual({ kind: 'clans:link' });
-        expect(parseKnownCallbackData('clans:list')).toEqual({ kind: 'clans:list' });
+        expect(parseKnownCallbackData('clans:list')).toEqual({ kind: 'clans:list', page: 1 });
+        expect(parseKnownCallbackData(buildClansListCallbackData(1))).toEqual({
+            kind: 'clans:list',
+            page: 1,
+        });
+        expect(parseKnownCallbackData(buildClansListCallbackData(3))).toEqual({
+            kind: 'clans:list',
+            page: 3,
+        });
+        expect(parseKnownCallbackData(buildClanCardCallbackData('#2PPLQ'))).toEqual({
+            kind: 'clans:card',
+            clanTag: '#2PPLQ',
+            page: 1,
+        });
+        expect(parseKnownCallbackData(buildClanCardCallbackData('#2PPLQ', 2))).toEqual({
+            kind: 'clans:card',
+            clanTag: '#2PPLQ',
+            page: 2,
+        });
         expect(parseKnownCallbackData('clans:unlink')).toEqual({
             kind: 'clans:unlink',
             clanTag: null,
         });
+        expect(parseKnownCallbackData(buildClanUnlinkListCallbackData(1))).toEqual({
+            kind: 'clans:unlink',
+            clanTag: null,
+        });
+        expect(parseKnownCallbackData(buildClanUnlinkListCallbackData(2))).toEqual({
+            kind: 'clans:unlink_list',
+            page: 2,
+        });
         expect(parseKnownCallbackData(buildClanUnlinkCallbackData('#2PPLQ'))).toEqual({
             kind: 'clans:unlink',
             clanTag: '#2PPLQ',
+        });
+        expect(parseKnownCallbackData(buildClanUnlinkAskCallbackData('#2PPLQ', 'card', 2))).toEqual(
+            {
+                kind: 'clans:unlink_ask',
+                clanTag: '#2PPLQ',
+                source: 'card',
+                page: 2,
+            },
+        );
+        expect(
+            parseKnownCallbackData(buildClanUnlinkConfirmCallbackData('#2PPLQ', 'unlink', 3)),
+        ).toEqual({
+            kind: 'clans:unlink_confirm',
+            clanTag: '#2PPLQ',
+            source: 'unlink',
+            page: 3,
+        });
+        expect(
+            parseKnownCallbackData(buildClanUnlinkCancelCallbackData('#2PPLQ', 'card', 2)),
+        ).toEqual({
+            kind: 'clans:unlink_cancel',
+            clanTag: '#2PPLQ',
+            source: 'card',
+            page: 2,
         });
         expect(parseKnownCallbackData('guides:townhalls')).toEqual({ kind: 'guides:townhalls' });
         expect(parseKnownCallbackData(buildTownHallCallbackData(7))).toEqual({
@@ -197,7 +253,7 @@ describe('callback_data builders and parseKnownCallbackData', () => {
         }
     });
 
-    it('keeps all settings callback_data strictly within Telegram 64-byte UTF-8 limit even for max-length clan tags', () => {
+    it('keeps all settings and My Clans callback_data strictly within Telegram 64-byte UTF-8 limit even for max-length clan tags', () => {
         const longestClanTag = '#PYLQGRJCUV0289P';
         const timezoneOffsets: number[] = [];
         for (
@@ -208,6 +264,18 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             timezoneOffsets.push(offset);
         }
         const payloads: string[] = [
+            buildClansListCallbackData(1),
+            buildClansListCallbackData(9999),
+            buildClanCardCallbackData(longestClanTag, 1),
+            buildClanCardCallbackData(longestClanTag, 9999),
+            buildClanUnlinkListCallbackData(9999),
+            buildClanUnlinkCallbackData(longestClanTag),
+            buildClanUnlinkAskCallbackData(longestClanTag, 'card', 9999),
+            buildClanUnlinkAskCallbackData(longestClanTag, 'unlink', 9999),
+            buildClanUnlinkConfirmCallbackData(longestClanTag, 'card', 9999),
+            buildClanUnlinkConfirmCallbackData(longestClanTag, 'unlink', 9999),
+            buildClanUnlinkCancelCallbackData(longestClanTag, 'card', 9999),
+            buildClanUnlinkCancelCallbackData(longestClanTag, 'unlink', 9999),
             buildSettingsOpenCallbackData(longestClanTag),
             buildSettingsMirrorCallbackData(longestClanTag),
             buildSettingsTimezoneCallbackData(longestClanTag),
@@ -237,14 +305,36 @@ describe('callback_data builders and parseKnownCallbackData', () => {
         expect(parseKnownCallbackData(oversized)).toBeNull();
     });
 
-    it('rejects unknown commands, invalid town halls, invalid settings arguments, and wrong argument counts', () => {
+    it('rejects unknown commands, invalid town halls, invalid pages/cards/unlink args, invalid settings arguments, and wrong argument counts', () => {
         const invalidCallbacks = [
             'unknown:action',
             'menu:start:extra',
             'help:main:extra',
             'clans:link:extra',
             'clans:list:extra',
+            'clans:list:0',
+            'clans:list:-1',
+            'clans:list:01',
+            'clans:list:1:2',
+            'clans:card',
+            'clans:card:#BAD!',
+            'clans:card:#2PPLQ:0',
+            'clans:card:#2PPLQ:abc',
+            'clans:card:#2PPLQ:1:extra',
+            'clans:unlink:#BAD!',
             'clans:unlink:#2PPLQ:extra',
+            'clans:unlink_list',
+            'clans:unlink_list:0',
+            'clans:unlink_list:abc',
+            'clans:unlink_list:2:extra',
+            'clans:unlink_ask:#2PPLQ:c',
+            'clans:unlink_ask:#2PPLQ:x:1',
+            'clans:unlink_ask:#2PPLQ:c:0',
+            'clans:unlink_ask:#BAD!:c:1',
+            'clans:unlink_confirm:#2PPLQ:u',
+            'clans:unlink_confirm:#2PPLQ:bad:1',
+            'clans:unlink_cancel:#2PPLQ:c:0',
+            'clans:unlink_cancel:#2PPLQ:c:1:extra',
             'settings:open',
             'settings:open:#INVALID!',
             'settings:open:#2PPLQ:extra',
