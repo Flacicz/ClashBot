@@ -724,6 +724,7 @@ describe('TelegramBotService', () => {
             expect(helpText).toContain('Помощь');
             expect(helpText).toContain('/start');
             expect(helpText).toContain('/war');
+            expect(helpText).toContain('/raid');
             expect(helpText).toContain('/help');
             expect(helpText).toContain('/link #ТЕГ_КЛАНА');
             expect(helpText).toContain('/unlink #ТЕГ_КЛАНА');
@@ -4048,7 +4049,7 @@ describe('TelegramBotService', () => {
             expect(commandsCall?.payload.commands).toEqual(TELEGRAM_BOT_COMMANDS);
             expect(
                 (commandsCall?.payload.commands as { command: string }[]).map((c) => c.command),
-            ).toEqual(['start', 'war', 'help', 'link', 'unlink']);
+            ).toEqual(['start', 'war', 'raid', 'help', 'link', 'unlink']);
 
             expect(descriptionCall?.payload.description).toBe(TELEGRAM_BOT_DESCRIPTION);
             expect(String(descriptionCall?.payload.description)).toContain(

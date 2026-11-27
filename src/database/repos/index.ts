@@ -65,7 +65,12 @@ export {
     type NotificationStatus,
     type PendingNotification,
 } from './notificationRepo.js';
-export { RaidRepo } from './raidRepo.js';
+export {
+    RaidRepo,
+    type ActiveRaidEligibleMember,
+    type ActiveRaidSnapshot,
+    type CompletedRaidSummary,
+} from './raidRepo.js';
 export {
     GENERAL_CHAT_THREAD_ID,
     SubscriptionRepo,

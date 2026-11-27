@@ -212,9 +212,32 @@ describe('parseBotCommand', () => {
             view: 'war',
             status: 'invalid_arguments',
         });
-        // Future view commands remain unknown until their own tickets (#92-#94)
+        expect(parseBotCommand('/raid')).toEqual({
+            kind: 'view',
+            view: 'raid',
+            status: 'ok',
+            clanTag: null,
+        });
+        expect(parseBotCommand('/RAID@clash_bot #2pplq')).toEqual({
+            kind: 'view',
+            view: 'raid',
+            status: 'ok',
+            clanTag: '#2PPLQ',
+            botUsername: 'clash_bot',
+        });
+        expect(parseBotCommand('/raid #INVALID')).toEqual({
+            kind: 'view',
+            view: 'raid',
+            status: 'invalid_clan_tag',
+            rawTag: '#INVALID',
+        });
+        expect(parseBotCommand('/raid #2PPLQ extra')).toEqual({
+            kind: 'view',
+            view: 'raid',
+            status: 'invalid_arguments',
+        });
+        // Future view commands remain unknown until their own tickets (#92, #94)
         expect(parseBotCommand('/cwl')).toEqual({ kind: 'unknown', name: 'cwl' });
-        expect(parseBotCommand('/raid')).toEqual({ kind: 'unknown', name: 'raid' });
         expect(parseBotCommand('/clan')).toEqual({ kind: 'unknown', name: 'clan' });
     });
 

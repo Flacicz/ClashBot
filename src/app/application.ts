@@ -217,6 +217,7 @@ export async function createApplication(
                 attackGuideCatalog,
                 clansRepo,
                 clanwarRepo,
+                raidRepo,
                 subscriptionRepo,
                 domainEventsRepo,
                 notificationRepo,

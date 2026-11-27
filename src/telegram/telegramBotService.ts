@@ -20,6 +20,7 @@ import type {
     ClanwarRepo,
     DomainEventsRepo,
     NotificationRepo,
+    RaidRepo,
     SubscriptionRecord,
     SubscriptionRepo,
     TransactionManager,
@@ -88,6 +89,7 @@ import {
     paginateItems,
     resolveClanTrackingStatus,
 } from './myClans.js';
+import { formatRaidView, loadRaidViewData } from './raidView.js';
 import {
     formatSubscriptionSettingsText,
     formatTimezoneAllSelectText,
@@ -123,6 +125,7 @@ export const SUPERCELL_FAN_CONTENT_DISCLAIMER =
 export const TELEGRAM_BOT_COMMANDS: readonly GrammyBotCommand[] = [
     { command: 'start', description: 'Главное меню и гайды по атакам' },
     { command: 'war', description: 'Текущая война кланов: /war [#ТЕГ_КЛАНА]' },
+    { command: 'raid', description: 'Текущий рейдовый уикенд: /raid [#ТЕГ_КЛАНА]' },
     { command: 'help', description: 'Справка по командам, правам и пресетам' },
     { command: 'link', description: 'Подключить клан: /link #ТЕГ_КЛАНА' },
     { command: 'unlink', description: 'Отключить клан: /unlink #ТЕГ_КЛАНА' },
@@ -144,12 +147,13 @@ const HELP_TEXT =
     '<b>Команды:</b>\n' +
     '/start — главное меню и гайды по атакам\n' +
     '/war [#ТЕГ_КЛАНА] — текущая обычная КВ из локальной базы\n' +
+    '/raid [#ТЕГ_КЛАНА] — текущий рейдовый уикенд из локальной базы\n' +
     '/help — эта справка\n' +
     '/link #ТЕГ_КЛАНА — подключить клан к чату или теме форума\n' +
     '/unlink #ТЕГ_КЛАНА — отключить клан\n\n' +
     'Кнопка «📋 Мои кланы» показывает подключённые кланы.\n\n' +
     '<b>Права:</b>\n' +
-    'Команды просмотра (/war) доступны любому участнику чата без прав администратора. ' +
+    'Команды просмотра (/war, /raid) доступны любому участнику чата без прав администратора. ' +
     'В личном чате управлять подписками может владелец чата. В группе и супергруппе ' +
     'подключать и отключать кланы могут только администраторы и создатель группы; ' +
     'бот должен быть администратором группы.\n\n' +
@@ -183,6 +187,7 @@ export interface TelegramBotServiceDependencies {
     readonly attackGuideCatalog: AttackGuideCatalog;
     readonly clansRepo: ClansRepo;
     readonly clanwarRepo?: ClanwarRepo;
+    readonly raidRepo?: RaidRepo;
     readonly subscriptionRepo: SubscriptionRepo;
     readonly domainEventsRepo: DomainEventsRepo;
     readonly notificationRepo?: NotificationRepo;
@@ -331,6 +336,7 @@ export class TelegramBotService {
     private readonly attackGuideCatalog: AttackGuideCatalog;
     private readonly clansRepo: ClansRepo;
     private readonly clanwarRepo?: ClanwarRepo;
+    private readonly raidRepo?: RaidRepo;
     private readonly subscriptionRepo: SubscriptionRepo;
     private readonly domainEventsRepo: DomainEventsRepo;
     private readonly transactionManager: TransactionManager;
@@ -351,6 +357,9 @@ export class TelegramBotService {
         this.clansRepo = deps.clansRepo;
         if (deps.clanwarRepo !== undefined) {
             this.clanwarRepo = deps.clanwarRepo;
+        }
+        if (deps.raidRepo !== undefined) {
+            this.raidRepo = deps.raidRepo;
         }
         this.subscriptionRepo = deps.subscriptionRepo;
         this.domainEventsRepo = deps.domainEventsRepo;
@@ -1517,6 +1526,24 @@ export class TelegramBotService {
                     nowEpochSeconds,
                 );
                 return formatWarView(warViewData, nowEpochSeconds);
+            },
+            raid: (target) => {
+                if (this.raidRepo === undefined) {
+                    throw new DatabaseError(
+                        '[TelegramBotService] RaidRepo is required for /raid view',
+                        { context: { clanTag: target.clanTag, view } },
+                    );
+                }
+                const nowEpochSeconds = this.clock.nowEpochSeconds();
+                const raidViewData = loadRaidViewData(
+                    {
+                        raidRepo: this.raidRepo,
+                        clansRepo: this.clansRepo,
+                    },
+                    target,
+                    nowEpochSeconds,
+                );
+                return formatRaidView(raidViewData, nowEpochSeconds);
             },
         };
 

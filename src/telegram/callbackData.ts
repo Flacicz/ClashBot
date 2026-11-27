@@ -17,6 +17,7 @@ export const CALLBACK_COMMANDS = {
     MENU_START: 'menu:start',
     HELP_MAIN: 'help:main',
     VIEW_WAR: 'view:war',
+    VIEW_RAID: 'view:raid',
     CLANS_LINK: 'clans:link',
     CLANS_LIST: 'clans:list',
     CLANS_CARD: 'clans:card',
@@ -330,9 +331,12 @@ export function parseKnownCallbackData(data: string): KnownCallbackData | null {
             return args.length === 0 ? { kind: 'menu:start' } : null;
         case CALLBACK_COMMANDS.HELP_MAIN:
             return args.length === 0 ? { kind: 'help:main' } : null;
-        case CALLBACK_COMMANDS.VIEW_WAR: {
+        case CALLBACK_COMMANDS.VIEW_WAR:
+        case CALLBACK_COMMANDS.VIEW_RAID: {
+            const view: ViewCommandName =
+                parsed.command === CALLBACK_COMMANDS.VIEW_WAR ? 'war' : 'raid';
             if (args.length === 0) {
-                return { kind: 'view:open', view: 'war' };
+                return { kind: 'view:open', view };
             }
             if (args.length === 2 && args[0] !== undefined && args[1] !== undefined) {
                 const clanTag = parseClanTag(args[0]);
@@ -340,7 +344,7 @@ export function parseKnownCallbackData(data: string): KnownCallbackData | null {
                 if (clanTag === null || source === null) {
                     return null;
                 }
-                return { kind: 'view:clan', view: 'war', clanTag, source };
+                return { kind: 'view:clan', view, clanTag, source };
             }
             return null;
         }

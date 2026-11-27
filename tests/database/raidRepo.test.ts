@@ -938,4 +938,135 @@ describe('RaidRepo', () => {
 
         expect(raidRepo.countSkippedIncompleteRaids(current, 0)).toBe(0);
     });
+
+    it('loads active raid with eligible cohort (#47) and latest completed raid for /raid view', () => {
+        const { db, clansRepo, raidRepo } = createMigratedDb();
+
+        const startTime = 1_700_000_000;
+        const endTime = startTime + 3 * 86_400;
+        const now = startTime + 86_400;
+
+        clansRepo.insertMinimalClan('#CLAN1');
+        clansRepo.insertMinimalClan('#CLAN2');
+
+        expect(raidRepo.getActiveRaid('#CLAN1', now)).toBeNull();
+        expect(raidRepo.getLatestCompletedRaid('#CLAN1')).toBeNull();
+
+        // Incomplete ended raid and another clan's ended raid must be ignored
+        const incomplete = raidRepo.saveRaid(
+            makeRaid({
+                clanTag: '#CLAN1',
+                startTime: startTime - 14 * 86_400,
+                endTime: startTime - 11 * 86_400,
+                state: 'ended',
+                totalLoot: 77_000,
+            }),
+            startTime - 11 * 86_400,
+        );
+        db.connection
+            .prepare('UPDATE clan_raids SET is_complete = 0 WHERE id = ?;')
+            .run(incomplete.raidId);
+        raidRepo.saveRaid(
+            makeRaid({
+                clanTag: '#CLAN2',
+                startTime: startTime - 7 * 86_400,
+                endTime: startTime - 4 * 86_400,
+                state: 'ended',
+                totalLoot: 99_000,
+            }),
+            startTime - 4 * 86_400,
+        );
+        expect(raidRepo.getLatestCompletedRaid('#CLAN1')).toBeNull();
+
+        // Completed raid for #CLAN1
+        const completedRef = raidRepo.saveRaid(
+            makeRaid({
+                clanTag: '#CLAN1',
+                startTime: startTime - 7 * 86_400,
+                endTime: startTime - 4 * 86_400,
+                state: 'ended',
+                totalLoot: 115_000,
+                raidsCompleted: 8,
+                totalAttacks: 140,
+                enemyDistrictsDestroyed: 33,
+            }),
+            startTime - 4 * 86_400 + 60,
+        );
+        expect(raidRepo.getLatestCompletedRaid('#CLAN1')).toEqual({
+            raidId: completedRef.raidId,
+            clanTag: '#CLAN1',
+            startTime: startTime - 7 * 86_400,
+            endTime: startTime - 4 * 86_400,
+            totalLoot: 115_000,
+            raidsCompleted: 8,
+            totalAttacks: 140,
+            enemyDistrictsDestroyed: 33,
+            lastObservedAt: startTime - 4 * 86_400 + 60,
+        });
+
+        // Expired ongoing raid (end_time <= now) must NOT be returned as active
+        raidRepo.saveRaid(
+            makeRaid({
+                clanTag: '#CLAN1',
+                startTime: startTime - 21 * 86_400,
+                endTime: now,
+                state: 'ongoing',
+            }),
+            now - 10,
+        );
+        expect(raidRepo.getActiveRaid('#CLAN1', now)).toBeNull();
+
+        // Active ongoing raid with eligible, late-joiner, left-early, and guest players
+        clansRepo.savePlayers([
+            { tag: '#P1', name: 'Bravo', clanTag: '#CLAN1' },
+            { tag: '#P2', name: 'Alpha', clanTag: '#CLAN1' },
+            { tag: '#P3', name: 'Alpha', clanTag: '#CLAN1' },
+            { tag: '#LATE', name: 'Late', clanTag: '#CLAN1' },
+            { tag: '#LEFT', name: 'Left', clanTag: '#CLAN1' },
+        ]);
+        clansRepo.insertMinimal('#GUEST', 'Guest');
+        insertMembership(db, '#CLAN1', '#P1', startTime - 100, null);
+        insertMembership(db, '#CLAN1', '#P2', startTime, null);
+        insertMembership(db, '#CLAN1', '#P3', startTime - 50, null);
+        insertMembership(db, '#CLAN1', '#LATE', startTime + 1, null);
+        insertMembership(db, '#CLAN1', '#LEFT', startTime - 50, now - 10);
+
+        const activeRef = raidRepo.saveCompleteRaidData(
+            makeRaid({
+                clanTag: '#CLAN1',
+                startTime,
+                endTime,
+                state: 'ongoing',
+                totalLoot: 64_000,
+                raidsCompleted: 4,
+                totalAttacks: 14,
+                enemyDistrictsDestroyed: 18,
+            }),
+            [
+                { playerTag: '#P1', attacksCount: 5, bonusAttack: 1, totalLoot: 24_000 },
+                { playerTag: '#P2', attacksCount: 0, bonusAttack: 0, totalLoot: 0 },
+                { playerTag: '#LATE', attacksCount: 3, bonusAttack: 0, totalLoot: 10_000 },
+                { playerTag: '#GUEST', attacksCount: 6, bonusAttack: 1, totalLoot: 30_000 },
+            ],
+            now - 300,
+        );
+
+        expect(raidRepo.getActiveRaid('#CLAN1', now)).toEqual({
+            raidId: activeRef.raidId,
+            clanTag: '#CLAN1',
+            startTime,
+            endTime,
+            state: 'ongoing',
+            totalLoot: 64_000,
+            raidsCompleted: 4,
+            totalAttacks: 14,
+            enemyDistrictsDestroyed: 18,
+            lastObservedAt: now - 300,
+            eligibleMembers: [
+                { playerTag: '#P2', playerName: 'Alpha', attacksCount: 0, bonusAttacks: 0 },
+                { playerTag: '#P3', playerName: 'Alpha', attacksCount: 0, bonusAttacks: 0 },
+                { playerTag: '#P1', playerName: 'Bravo', attacksCount: 5, bonusAttacks: 1 },
+            ],
+        });
+    });
 });

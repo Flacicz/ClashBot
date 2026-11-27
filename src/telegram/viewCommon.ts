@@ -5,7 +5,7 @@ import type { ClanSubscriptionSummary } from '../database/repos/subscriptionRepo
  * Active read-only SQLite view commands.
  * #92 adds `'cwl'`, #93 adds `'raid'`, #94 adds `'clan'`.
  */
-export const VIEW_COMMAND_NAMES = ['war'] as const;
+export const VIEW_COMMAND_NAMES = ['war', 'raid'] as const;
 
 export type ViewCommandName = (typeof VIEW_COMMAND_NAMES)[number];
 
@@ -13,6 +13,7 @@ export type ViewCallbackSource = 'menu' | 'command';
 
 export const VIEW_COMMAND_TITLES: Readonly<Record<ViewCommandName, string>> = {
     war: 'КВ',
+    raid: 'Рейд',
 };
 
 export const VIEW_LOAD_ERROR_TEXT = 'Не удалось загрузить данные. Попробуйте ещё раз позже.';

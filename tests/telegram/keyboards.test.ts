@@ -50,7 +50,10 @@ describe('Telegram inline keyboards', () => {
     it('builds exact start menu keyboard JSON with active view row', () => {
         expect(makeStartMenuKeyboard()).toEqual({
             inline_keyboard: [
-                [{ text: '⚔️ КВ', callback_data: 'view:war' }],
+                [
+                    { text: '⚔️ КВ', callback_data: 'view:war' },
+                    { text: '🏰 Рейд', callback_data: 'view:raid' },
+                ],
                 [{ text: '🎥 Гайды по атакам', callback_data: 'guides:townhalls' }],
                 [{ text: '🔗 Подключить клан', callback_data: 'clans:link' }],
                 [{ text: '📋 Мои кланы', callback_data: 'clans:list' }],
@@ -103,7 +106,30 @@ describe('Telegram inline keyboards', () => {
             inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu:start' }]],
         });
 
-        for (const kb of [menuResult, cmdResult, menuPicker, cmdPicker]) {
+        const raidMenuResult = makeViewResultKeyboard('raid', longestTag, 'menu');
+        const raidCmdResult = makeViewResultKeyboard('raid', longestTag, 'command');
+        expect(raidMenuResult).toEqual({
+            inline_keyboard: [
+                [
+                    { text: '🔄 Обновить', callback_data: `view:raid:${longestTag}:m` },
+                    { text: '⬅️ Назад', callback_data: 'menu:start' },
+                ],
+            ],
+        });
+        expect(raidCmdResult).toEqual({
+            inline_keyboard: [
+                [{ text: '🔄 Обновить', callback_data: `view:raid:${longestTag}:c` }],
+            ],
+        });
+
+        for (const kb of [
+            menuResult,
+            cmdResult,
+            menuPicker,
+            cmdPicker,
+            raidMenuResult,
+            raidCmdResult,
+        ]) {
             for (const row of kb.inline_keyboard) {
                 for (const button of row) {
                     expect(Buffer.byteLength(button.callback_data, 'utf8')).toBeLessThanOrEqual(
