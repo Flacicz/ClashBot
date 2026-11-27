@@ -136,6 +136,7 @@ export function loadConfig(configPath: string, options?: LoadConfigOptions): App
         databasePath: jsonResult.data.database.path,
         migrationPath: jsonResult.data.database.migrations_path,
         attackGuidesPath: jsonResult.data.telegram.attack_guides_path,
+        maxTrackedClans: jsonResult.data.limits.max_tracked_clans,
         supercellToken: envResult.data.SUPERCELL_TOKEN,
         telegramToken: envResult.data.TELEGRAM_TOKEN,
     };

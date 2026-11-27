@@ -10,5 +10,8 @@
   },
   "telegram": {
     "attack_guides_path": "/app/resources/telegram/attack_guides.json"
+  },
+  "limits": {
+    "max_tracked_clans": 20
   }
 }

@@ -223,6 +223,8 @@ export async function createApplication(
                 destinationLifecycle,
                 cocApiClient,
                 clanManager,
+                clock,
+                maxTrackedClans: config.maxTrackedClans,
                 logger,
             });
 

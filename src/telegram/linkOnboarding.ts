@@ -22,6 +22,8 @@ export const PRIVATE_WAR_LOG_WARNING_TEXT =
 
 export const DEFERRED_SYNC_HINT_TEXT = '⏳ данные появятся после первой синхронизации';
 
+export const COMMAND_RATE_LIMIT_EXCEEDED_TEXT = 'Слишком много команд, попробуйте через минуту.';
+
 const PRESET_DETAILS: Readonly<Record<SubscriptionPreset, string>> = {
     [SUBSCRIPTION_PRESETS.players]: 'итоги, сравнения, напоминания и кадровые события',
     [SUBSCRIPTION_PRESETS.management]: 'дисциплина, аналитика и системные оповещения',
@@ -78,6 +80,27 @@ function formatDestinationAddedPhrase(chatType: string, messageThreadId: number)
 
 export function formatClanNotFoundText(clanTag: string): string {
     return `Клан ${escapeHtml(clanTag)} не найден. Проверьте тег и попробуйте снова (например: /link #2PPLQ).`;
+}
+
+export function formatDestinationClanLimitText(
+    maxClansPerDestination: number,
+    messageThreadId: number,
+): string {
+    const absCount = Math.abs(maxClansPerDestination);
+    const clansWord = absCount % 10 === 1 && absCount % 100 !== 11 ? 'клана' : 'кланов';
+    const scope = messageThreadId !== 0 ? 'в одной теме' : 'в одном чате';
+    return (
+        `Достигнут лимит пилота: не более ${String(maxClansPerDestination)} ${clansWord} ${scope}. ` +
+        'Отключите ненужный клан через /unlink #ТЕГ_КЛАНА, чтобы подключить новый.'
+    );
+}
+
+export function formatInstanceClanLimitText(maxTrackedClans: number): string {
+    const clansWord = pluralizeRu(maxTrackedClans, 'клан', 'клана', 'кланов');
+    return (
+        `Достигнут лимит пилота на число отслеживаемых кланов (максимум ${String(maxTrackedClans)} ${clansWord} на бота). ` +
+        'Попробуйте позже или свяжитесь с администратором бота.'
+    );
 }
 
 export function formatAlreadyLinkedText(params: AlreadyLinkedTextParams): string {

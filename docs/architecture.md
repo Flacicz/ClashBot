@@ -77,6 +77,7 @@ ClashBot — автономный сервис мониторинга клано
 | `database.path` | `databasePath` | `string` | `'data/database.sqlite'` | Путь к файлу SQLite (непустой) |
 | `database.migrations_path` | `migrationPath` | `string` | `'migrations'` | Каталог `.sql`-миграций (непустой) |
 | `telegram.attack_guides_path` | `attackGuidesPath` | `string` | `'resources/telegram/attack_guides.json'` | Путь к JSON-каталогу видео-гайдов (непустой) |
+| `limits.max_tracked_clans` | `maxTrackedClans` | `number` (int `>= 1`) | `20` | Максимальное число отслеживаемых кланов на инстанс ClashBot |
 
 Относительные пути внутри `config.json` разрешаются относительно текущего рабочего каталога процесса (`process.cwd()`), а не каталога `config.json`. Шаблон файла — [`config.example.json`](../config.example.json).
 

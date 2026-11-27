@@ -10,8 +10,10 @@ import type {
 
 import { isCocApiError } from '../api/errors.js';
 import type { ClashOfClansApi, CompleteClanData } from '../api/models.js';
-import { DatabaseError, isAbortError } from '../common/errors.js';
+import type { Clock } from '../common/clock.js';
+import { DatabaseError, isAbortError, ValidationError } from '../common/errors.js';
 import { escapeHtml } from '../common/formatUtils.js';
+import { DEFAULT_MAX_TRACKED_CLANS } from '../config/configSchema.js';
 import type {
     ClansRepo,
     DomainEventsRepo,
@@ -39,6 +41,7 @@ import {
     parseCallbackContext,
     parseKnownCallbackData,
 } from './callbackData.js';
+import { CommandRateLimiter } from './commandRateLimiter.js';
 import { type BotCommand, parseBotCommand, parseClanTag } from './commands.js';
 import {
     type InlineKeyboardMarkup,
@@ -58,8 +61,11 @@ import {
     makeTownHallListKeyboard,
 } from './keyboards.js';
 import {
+    COMMAND_RATE_LIMIT_EXCEEDED_TEXT,
     formatAlreadyLinkedText,
     formatClanNotFoundText,
+    formatDestinationClanLimitText,
+    formatInstanceClanLimitText,
     formatLinkedClanText,
     LINK_INVALID_ARGUMENTS_TEXT,
     LINK_INVALID_TAG_TEXT,
@@ -79,6 +85,7 @@ export const TELEGRAM_BOT_ALLOWED_UPDATES = [
 ] as const;
 export const DEFAULT_POLLING_TIMEOUT_SECONDS = 2;
 export const DEFAULT_STOP_CONFIRMATION_TIMEOUT_MS = 2_000;
+export const DEFAULT_MAX_CLANS_PER_DESTINATION = 5;
 
 export const SUPERCELL_FAN_CONTENT_DISCLAIMER =
     'ClashBot — неофициальный фанатский проект, не связанный с Supercell и не одобренный ею. ' +
@@ -146,6 +153,10 @@ export interface TelegramBotServiceDependencies {
     readonly destinationLifecycle?: TelegramDestinationLifecycle;
     readonly cocApiClient?: ClanLookupApiClient;
     readonly clanManager?: WakeableClanManager;
+    readonly clock?: Clock;
+    readonly maxClansPerDestination?: number;
+    readonly maxTrackedClans?: number;
+    readonly commandRateLimiter?: CommandRateLimiter;
     readonly logger?: Logger;
     readonly botConfig?: BotConfig<Context>;
     readonly pollingTimeoutSeconds?: number;
@@ -180,16 +191,37 @@ type ClanLookupOutcome =
     | { readonly status: 'not_found' }
     | { readonly status: 'unavailable' }
     | { readonly status: 'aborted' };
+type LinkPrecheckOutcome =
+    | { readonly status: 'proceed' }
+    | {
+          readonly status: 'already_linked';
+          readonly subscription: SubscriptionRecord;
+          readonly clanName: string;
+      }
+    | { readonly status: 'destination_limit_reached' }
+    | { readonly status: 'instance_limit_reached' };
 type LinkClanOutcome =
     | {
           readonly status: 'already_linked';
           readonly subscription: SubscriptionRecord;
           readonly clanName: string;
       }
+    | { readonly status: 'destination_limit_reached' }
+    | { readonly status: 'instance_limit_reached' }
     | {
           readonly status: 'linked_new_clan' | 'linked_existing_clan';
           readonly clanName: string;
       };
+
+function assertPositiveInteger(value: number, name: string): number {
+    if (!Number.isSafeInteger(value) || value < 1) {
+        throw new ValidationError(
+            `TelegramBotService ${name} must be a positive integer, got ${String(value)}`,
+            { context: { [name]: value } },
+        );
+    }
+    return value;
+}
 
 function isMessageNotModifiedError(error: unknown): boolean {
     return (
@@ -250,6 +282,9 @@ export class TelegramBotService {
     private readonly destinationLifecycle?: TelegramDestinationLifecycle;
     private readonly cocApiClient?: ClanLookupApiClient;
     private readonly clanManager?: WakeableClanManager;
+    private readonly maxClansPerDestination: number;
+    private readonly maxTrackedClans: number;
+    private readonly commandRateLimiter: CommandRateLimiter;
     private readonly logger: Logger;
     private readonly pollingTimeoutSeconds: number;
     private readonly stopConfirmationTimeoutMs: number;
@@ -278,6 +313,17 @@ export class TelegramBotService {
         if (deps.clanManager !== undefined) {
             this.clanManager = deps.clanManager;
         }
+        this.maxClansPerDestination = assertPositiveInteger(
+            deps.maxClansPerDestination ?? DEFAULT_MAX_CLANS_PER_DESTINATION,
+            'maxClansPerDestination',
+        );
+        this.maxTrackedClans = assertPositiveInteger(
+            deps.maxTrackedClans ?? DEFAULT_MAX_TRACKED_CLANS,
+            'maxTrackedClans',
+        );
+        this.commandRateLimiter =
+            deps.commandRateLimiter ??
+            new CommandRateLimiter(deps.clock !== undefined ? { clock: deps.clock } : undefined);
         this.logger = deps.logger ?? createLogger({ name: 'TelegramBotService' });
         this.pollingTimeoutSeconds = deps.pollingTimeoutSeconds ?? DEFAULT_POLLING_TIMEOUT_SECONDS;
         this.stopConfirmationTimeoutMs =
@@ -621,6 +667,27 @@ export class TelegramBotService {
 
         const userId = message.from.id;
 
+        const rateLimit = this.commandRateLimiter.consume(userId);
+        if (!rateLimit.allowed) {
+            this.logger.info(
+                {
+                    chatId,
+                    messageThreadId,
+                    userId,
+                    command: command.kind,
+                    retryAfterMs: rateLimit.retryAfterMs,
+                },
+                'Rejected Telegram command due to per-user rate limit',
+            );
+            await this.sendHtmlMessage(
+                api,
+                chatId,
+                COMMAND_RATE_LIMIT_EXCEEDED_TEXT,
+                messageThreadId,
+            );
+            return;
+        }
+
         if (command.kind === 'link') {
             await this.handleLinkCommand(
                 api,
@@ -910,6 +977,37 @@ export class TelegramBotService {
         }
     }
 
+    private evaluateLinkPrecheck(
+        chatId: number,
+        messageThreadId: number,
+        clanTag: string,
+    ): LinkPrecheckOutcome {
+        const existing = this.subscriptionRepo.getSubscription(chatId, messageThreadId, clanTag);
+        if (existing !== null) {
+            return {
+                status: 'already_linked',
+                subscription: existing,
+                clanName: this.clansRepo.getClanNameByTag(clanTag),
+            };
+        }
+
+        if (
+            this.subscriptionRepo.countSubscriptionsForDestination(chatId, messageThreadId) >=
+            this.maxClansPerDestination
+        ) {
+            return { status: 'destination_limit_reached' };
+        }
+
+        if (
+            !this.clansRepo.isClanTracked(clanTag) &&
+            this.clansRepo.countTrackedClans() >= this.maxTrackedClans
+        ) {
+            return { status: 'instance_limit_reached' };
+        }
+
+        return { status: 'proceed' };
+    }
+
     private linkClanToChat(
         chatId: number,
         messageThreadId: number,
@@ -919,17 +1017,9 @@ export class TelegramBotService {
         clanData: CompleteClanData | null,
     ): LinkClanOutcome {
         return this.transactionManager.retryInTransaction((): LinkClanOutcome => {
-            const existing = this.subscriptionRepo.getSubscription(
-                chatId,
-                messageThreadId,
-                clanTag,
-            );
-            if (existing !== null) {
-                return {
-                    status: 'already_linked',
-                    subscription: existing,
-                    clanName: this.clansRepo.getClanNameByTag(clanTag),
-                };
+            const precheck = this.evaluateLinkPrecheck(chatId, messageThreadId, clanTag);
+            if (precheck.status !== 'proceed') {
+                return precheck;
             }
 
             const alreadyTrackedByOtherChats =
@@ -1032,22 +1122,14 @@ export class TelegramBotService {
         const title = resolveChatTitle(chat);
         const { clanTag } = command;
 
-        let existingSubscription: SubscriptionRecord | null;
-        let existingClanName: string | null = null;
+        let precheck: LinkPrecheckOutcome;
         try {
-            existingSubscription = this.subscriptionRepo.getSubscription(
-                chatId,
-                messageThreadId,
-                clanTag,
-            );
-            if (existingSubscription !== null) {
-                existingClanName = this.clansRepo.getClanNameByTag(clanTag);
-            }
+            precheck = this.evaluateLinkPrecheck(chatId, messageThreadId, clanTag);
         } catch (error: unknown) {
             if (error instanceof DatabaseError) {
                 this.logger.error(
                     { err: error, chatId, clanTag },
-                    'Failed to check existing subscription for /link',
+                    'Failed to check existing subscription or limits for /link',
                 );
                 await this.sendHtmlMessage(
                     api,
@@ -1060,19 +1142,59 @@ export class TelegramBotService {
             throw error;
         }
 
-        if (existingSubscription !== null) {
+        if (precheck.status === 'already_linked') {
             await this.sendHtmlMessage(
                 api,
                 chatId,
                 formatAlreadyLinkedText({
                     clanTag,
-                    clanName: existingClanName,
-                    categories: existingSubscription.categories,
+                    clanName: precheck.clanName,
+                    categories: precheck.subscription.categories,
                     chatType: chat.type,
                     messageThreadId,
                 }),
                 messageThreadId,
                 makeSubscriptionSettingsEntryKeyboard(clanTag),
+            );
+            return;
+        }
+
+        if (precheck.status === 'destination_limit_reached') {
+            this.logger.info(
+                {
+                    chatId,
+                    messageThreadId,
+                    userId,
+                    clanTag,
+                    maxClansPerDestination: this.maxClansPerDestination,
+                },
+                'Rejected /link because Telegram destination reached clan limit',
+            );
+            await this.sendHtmlMessage(
+                api,
+                chatId,
+                formatDestinationClanLimitText(this.maxClansPerDestination, messageThreadId),
+                messageThreadId,
+            );
+            return;
+        }
+
+        if (precheck.status === 'instance_limit_reached') {
+            this.logger.info(
+                {
+                    chatId,
+                    messageThreadId,
+                    userId,
+                    clanTag,
+                    maxTrackedClans: this.maxTrackedClans,
+                },
+                'Rejected /link because instance reached tracked clans limit',
+            );
+            await this.sendHtmlMessage(
+                api,
+                chatId,
+                formatInstanceClanLimitText(this.maxTrackedClans),
+                messageThreadId,
             );
             return;
         }
@@ -1131,6 +1253,46 @@ export class TelegramBotService {
                 }),
                 messageThreadId,
                 makeSubscriptionSettingsEntryKeyboard(clanTag),
+            );
+            return;
+        }
+
+        if (linkOutcome.status === 'destination_limit_reached') {
+            this.logger.info(
+                {
+                    chatId,
+                    messageThreadId,
+                    userId,
+                    clanTag,
+                    maxClansPerDestination: this.maxClansPerDestination,
+                },
+                'Rejected /link in transaction because Telegram destination reached clan limit',
+            );
+            await this.sendHtmlMessage(
+                api,
+                chatId,
+                formatDestinationClanLimitText(this.maxClansPerDestination, messageThreadId),
+                messageThreadId,
+            );
+            return;
+        }
+
+        if (linkOutcome.status === 'instance_limit_reached') {
+            this.logger.info(
+                {
+                    chatId,
+                    messageThreadId,
+                    userId,
+                    clanTag,
+                    maxTrackedClans: this.maxTrackedClans,
+                },
+                'Rejected /link in transaction because instance reached tracked clans limit',
+            );
+            await this.sendHtmlMessage(
+                api,
+                chatId,
+                formatInstanceClanLimitText(this.maxTrackedClans),
+                messageThreadId,
             );
             return;
         }

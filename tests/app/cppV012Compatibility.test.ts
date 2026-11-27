@@ -170,6 +170,7 @@ describe('Drop-in compatibility with C++-generated v012 SQLite database', () => 
             databasePath: dbPath,
             migrationPath: MIGRATIONS_PATH,
             attackGuidesPath: ATTACK_GUIDES_PATH,
+            maxTrackedClans: 20,
             supercellToken: 'test-supercell-token',
             telegramToken: '123456:TEST-TOKEN',
         };

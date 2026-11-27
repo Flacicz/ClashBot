@@ -21,7 +21,8 @@ pnpm install --frozen-lockfile
 
 1. Скопируйте [`config.example.json`](config.example.json) в `config.json` и замените контейнерные пути `/app/...` на
    локальные (например, `data/database.sqlite`, `migrations`, `resources/telegram/attack_guides.json`), затем создайте
-   каталог `data/`.
+   каталог `data/`. При необходимости скорректируйте лимит отслеживаемых кланов инстанса
+   `limits.max_tracked_clans` (по умолчанию `20`).
 2. Скопируйте [`.env.example`](.env.example) в `.env` рядом с `config.json` и заполните `SUPERCELL_TOKEN` и
    `TELEGRAM_TOKEN`.
 
@@ -63,8 +64,9 @@ CI/CD, обновлениям, SSH-туннелю и онлайн-бэкапам
   **пресетам подписки** (`Игроки`, `Руководство`, `Всё вместе`, [`docs/reports.md`](docs/reports.md)).
 - **Telegram-бот (`grammY`)**: команды `/start` (в т.ч. `/start <arg>`), `/help`, `/link`, `/unlink`, регистрация
   подсказок команд и описания бота при старте, автоматический выбор **пресета подписки** по типу чата, поддержка
-  форумных тем (`message_thread_id`) и интерактивный каталог видео-гайдов для ратуш TH7–TH18
-  ([`docs/telegram.md`](docs/telegram.md)).
+  форумных тем (`message_thread_id`), квоты подключения кланов (`5` на чат/тему и настраиваемый `limits.max_tracked_clans`,
+  по умолчанию `20` на инстанс), per-user rate-limit (`5` команд/мин на `/link` и `/unlink`) и интерактивный каталог
+  видео-гайдов для ратуш TH7–TH18 ([`docs/telegram.md`](docs/telegram.md)).
 
 Актуальное подтверждённое состояние **AS-IS** и известные ограничения зафиксированы в
 [`docs/roadmap.md`](docs/roadmap.md).

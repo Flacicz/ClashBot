@@ -320,6 +320,25 @@ export class SubscriptionRepo {
         );
     }
 
+    countSubscriptionsForDestination(chatId: number, messageThreadId: number): number {
+        return runRepoQuery(
+            REPO_NAME,
+            'count Telegram destination subscriptions',
+            { chatId, messageThreadId },
+            () => {
+                const row = getConnection(this.source)
+                    .prepare<[number, number], CountRow>(
+                        `SELECT COUNT(*) AS count
+                         FROM clan_subscriptions
+                         WHERE chat_id = ?
+                           AND message_thread_id = ?;`,
+                    )
+                    .get(chatId, messageThreadId);
+                return row?.count ?? 0;
+            },
+        );
+    }
+
     hasSubscriptionsForClan(clanTag: string): boolean {
         return runRepoQuery(REPO_NAME, 'check clan subscriptions', { clanTag }, () => {
             const row = getConnection(this.source)

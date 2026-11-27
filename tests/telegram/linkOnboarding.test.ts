@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import { getPresetCategories, SUBSCRIPTION_PRESETS } from '../../src/models/subscription.js';
 import {
+    COMMAND_RATE_LIMIT_EXCEEDED_TEXT,
     DEFERRED_SYNC_HINT_TEXT,
     formatAlreadyLinkedText,
     formatClanNotFoundText,
+    formatDestinationClanLimitText,
+    formatInstanceClanLimitText,
     formatLinkedClanText,
     LINK_INVALID_ARGUMENTS_TEXT,
     LINK_INVALID_TAG_TEXT,
@@ -149,5 +152,28 @@ describe('link onboarding text formatters', () => {
             'Клан уже отслеживается в других чатах — этот личный чат подключён',
         );
         expect(trackedFallbackWithName).toContain('⏳');
+    });
+
+    it('formats clear Russian rejection messages for destination limit, instance limit and command rate limit', () => {
+        expect(COMMAND_RATE_LIMIT_EXCEEDED_TEXT).toBe(
+            'Слишком много команд, попробуйте через минуту.',
+        );
+
+        const chatLimitText = formatDestinationClanLimitText(5, 0);
+        expect(chatLimitText).toContain('Достигнут лимит пилота: не более 5 кланов в одном чате');
+        expect(chatLimitText).toContain('/unlink');
+
+        const topicLimitText = formatDestinationClanLimitText(5, 42);
+        expect(topicLimitText).toContain('Достигнут лимит пилота: не более 5 кланов в одной теме');
+
+        const singularLimitText = formatDestinationClanLimitText(1, 0);
+        expect(singularLimitText).toContain('не более 1 клана в одном чате');
+
+        const instanceLimitText = formatInstanceClanLimitText(20);
+        expect(instanceLimitText).toContain('Достигнут лимит пилота на число отслеживаемых кланов');
+        expect(instanceLimitText).toContain('20 кланов');
+
+        const smallInstanceLimitText = formatInstanceClanLimitText(3);
+        expect(smallInstanceLimitText).toContain('3 клана');
     });
 });

@@ -85,6 +85,7 @@ function makeTestConfig(dbPath: string, overrides: Partial<AppConfig> = {}): App
         databasePath: dbPath,
         migrationPath: MIGRATIONS_PATH,
         attackGuidesPath: ATTACK_GUIDES_PATH,
+        maxTrackedClans: 20,
         supercellToken: 'test-supercell-token',
         telegramToken: '123456:TEST-TOKEN',
         ...overrides,

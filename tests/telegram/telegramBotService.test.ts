@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CocApiError } from '../../src/api/errors.js';
 import type { CompleteClanData } from '../../src/api/models.js';
-import { DatabaseError } from '../../src/common/errors.js';
+import { type Clock, FakeClock } from '../../src/common/clock.js';
+import { DatabaseError, ValidationError } from '../../src/common/errors.js';
 import {
     ClansRepo,
     Database,
@@ -22,6 +23,8 @@ import { ClanInfoService, type WakeableClanManager } from '../../src/services/in
 import {
     AttackGuideCatalog,
     type ClanLookupApiClient,
+    COMMAND_RATE_LIMIT_EXCEEDED_TEXT,
+    type CommandRateLimiter,
     DEFERRED_SYNC_HINT_TEXT,
     PRIVATE_WAR_LOG_WARNING_TEXT,
     SUPERCELL_FAN_CONTENT_DISCLAIMER,
@@ -539,6 +542,10 @@ describe('TelegramBotService', () => {
         readonly stopConfirmationTimeoutMs?: number;
         readonly cocApiClient?: ClanLookupApiClient;
         readonly clanManager?: WakeableClanManager;
+        readonly clock?: Clock;
+        readonly maxClansPerDestination?: number;
+        readonly maxTrackedClans?: number;
+        readonly commandRateLimiter?: CommandRateLimiter;
         readonly logger?: Logger;
     }): TestHarness {
         const db = new Database(':memory:');
@@ -565,6 +572,16 @@ describe('TelegramBotService', () => {
             logger,
             ...(options?.cocApiClient !== undefined ? { cocApiClient: options.cocApiClient } : {}),
             ...(options?.clanManager !== undefined ? { clanManager: options.clanManager } : {}),
+            ...(options?.clock !== undefined ? { clock: options.clock } : {}),
+            ...(options?.maxClansPerDestination !== undefined
+                ? { maxClansPerDestination: options.maxClansPerDestination }
+                : {}),
+            ...(options?.maxTrackedClans !== undefined
+                ? { maxTrackedClans: options.maxTrackedClans }
+                : {}),
+            ...(options?.commandRateLimiter !== undefined
+                ? { commandRateLimiter: options.commandRateLimiter }
+                : {}),
             ...(options?.pollingTimeoutSeconds !== undefined
                 ? { pollingTimeoutSeconds: options.pollingTimeoutSeconds }
                 : {}),
@@ -4177,6 +4194,663 @@ describe('TelegramBotService', () => {
 
             // Zero Telegram HTTP calls were made during my_chat_member handling
             expect(transport.calls).toHaveLength(0);
+        });
+    });
+
+    describe('clan limits, quotas and per-user command rate limiting (#5)', () => {
+        it('enforces a limit of 5 clans per destination with independent quotas across forum topics and frees slot on /unlink', async () => {
+            const clock = new FakeClock(1_000_000);
+            const notify = vi.fn();
+            const getCompleteClanData = vi.fn((tag: string) =>
+                Promise.resolve(makeCompleteClanData({ tag, name: `Clan ${tag}` })),
+            );
+            const { service, transport, subscriptionRepo, clansRepo } = createHarness({
+                clock,
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
+
+            const chatId = -1009001;
+            const adminId = 9001;
+            transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
+
+            const generalTags = ['#2PP2', '#2PP8', '#2PP9', '#2PPP', '#2PPY'];
+            for (const tag of generalTags) {
+                await service.bot.handleUpdate(
+                    makeMessageUpdate({
+                        chatId,
+                        chatType: 'supergroup',
+                        title: 'Forum Guild',
+                        userId: adminId,
+                        text: `/link ${tag}`,
+                    }),
+                );
+            }
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 0)).toBe(5);
+            expect(notify).toHaveBeenCalledTimes(5);
+            expect(getCompleteClanData).toHaveBeenCalledTimes(5);
+
+            // Reset rate-limit window so the 6th command tests destination limit, not rate limit.
+            clock.advance(60_000);
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Forum Guild',
+                    userId: adminId,
+                    text: '/link #2PPL',
+                }),
+            );
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 0)).toBe(5);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPL')).toBe(false);
+            expect(clansRepo.isClanTracked('#2PPL')).toBe(false);
+            expect(getCompleteClanData).toHaveBeenCalledTimes(5);
+            expect(notify).toHaveBeenCalledTimes(5);
+            const chatLimitMessage = String(transport.sentMessages().at(-1)?.text);
+            expect(chatLimitMessage).toContain(
+                'Достигнут лимит пилота: не более 5 кланов в одном чате',
+            );
+
+            // Forum topic 42 in the exact same supergroup has its own independent quota of 5 clans.
+            const topicTags = ['#8PP2', '#8PP8', '#8PP9', '#8PPP', '#8PPY'];
+            clock.advance(60_000);
+            for (const tag of topicTags) {
+                await service.bot.handleUpdate(
+                    makeMessageUpdate({
+                        chatId,
+                        chatType: 'supergroup',
+                        title: 'Forum Guild',
+                        userId: adminId,
+                        messageThreadId: 42,
+                        text: `/link ${tag}`,
+                    }),
+                );
+            }
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 42)).toBe(5);
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 0)).toBe(5);
+
+            clock.advance(60_000);
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Forum Guild',
+                    userId: adminId,
+                    messageThreadId: 42,
+                    text: '/link #8PPL',
+                }),
+            );
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 42)).toBe(5);
+            expect(subscriptionRepo.hasSubscription(chatId, 42, '#8PPL')).toBe(false);
+            const topicLimitReply = transport.sentMessages().at(-1);
+            expect(topicLimitReply?.message_thread_id).toBe(42);
+            expect(String(topicLimitReply?.text)).toContain(
+                'Достигнут лимит пилота: не более 5 кланов в одной теме',
+            );
+
+            // Unlinking one clan from the general chat frees a destination slot for #2PPL.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Forum Guild',
+                    userId: adminId,
+                    text: '/unlink #2PP2',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Forum Guild',
+                    userId: adminId,
+                    text: '/link #2PPL',
+                }),
+            );
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 0)).toBe(5);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPL')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PP2')).toBe(false);
+        });
+
+        it('enforces configurable instance-wide tracked clans limit and re-checks untracked clans', async () => {
+            const clock = new FakeClock(2_000_000);
+            const notify = vi.fn();
+            const getCompleteClanData = vi.fn((tag: string) =>
+                Promise.resolve(makeCompleteClanData({ tag, name: `Clan ${tag}` })),
+            );
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness({
+                clock,
+                maxTrackedClans: 3,
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8001,
+                    chatType: 'private',
+                    userId: 8001,
+                    text: '/link #2PP2',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8002,
+                    chatType: 'private',
+                    userId: 8002,
+                    text: '/link #2PP8',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8003,
+                    chatType: 'private',
+                    userId: 8003,
+                    text: '/link #2PP9',
+                }),
+            );
+
+            expect(clansRepo.countTrackedClans()).toBe(3);
+
+            // A brand-new 4th clan from a fresh chat (0/5 destination) must be rejected by instance limit.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8004,
+                    chatType: 'private',
+                    userId: 8004,
+                    text: '/link #2PPP',
+                }),
+            );
+
+            expect(clansRepo.countTrackedClans()).toBe(3);
+            expect(clansRepo.isClanTracked('#2PPP')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(8004, 0, '#2PPP')).toBe(false);
+            expect(getCompleteClanData).toHaveBeenCalledTimes(3);
+            expect(notify).toHaveBeenCalledTimes(3);
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain(
+                'Достигнут лимит пилота на число отслеживаемых кланов',
+            );
+
+            // Unlinking #2PP9 disables tracking (tracked count drops to 2) so #2PPP can now be linked.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8003,
+                    chatType: 'private',
+                    userId: 8003,
+                    text: '/unlink #2PP9',
+                }),
+            );
+            expect(clansRepo.countTrackedClans()).toBe(2);
+            expect(clansRepo.isClanTracked('#2PP9')).toBe(false);
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8004,
+                    chatType: 'private',
+                    userId: 8004,
+                    text: '/link #2PPP',
+                }),
+            );
+            expect(clansRepo.countTrackedClans()).toBe(3);
+            expect(subscriptionRepo.hasSubscription(8004, 0, '#2PPP')).toBe(true);
+
+            // Re-linking previously untracked #2PP9 must respect instance limit again.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8003,
+                    chatType: 'private',
+                    userId: 8003,
+                    text: '/link #2PP9',
+                }),
+            );
+            expect(clansRepo.countTrackedClans()).toBe(3);
+            expect(clansRepo.isClanTracked('#2PP9')).toBe(false);
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain(
+                'Достигнут лимит пилота на число отслеживаемых кланов',
+            );
+        });
+
+        it('does not consume quota on repeated /link, allows already-tracked clans at instance limit, and still counts them toward chat limit', async () => {
+            const clock = new FakeClock(3_000_000);
+            const getCompleteClanData = vi.fn((tag: string) =>
+                Promise.resolve(makeCompleteClanData({ tag, name: `Clan ${tag}` })),
+            );
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness({
+                clock,
+                maxTrackedClans: 6,
+                cocApiClient: { getCompleteClanData },
+            });
+
+            // Seed 6 tracked clans across other chats so instance is strictly at limit (6/6).
+            const trackedTags = ['#2PP2', '#2PP8', '#2PP9', '#2PPP', '#2PPY', '#2PPL'];
+            for (let i = 0; i < trackedTags.length; i += 1) {
+                const tag = trackedTags[i] ?? '#2PP2';
+                const otherChatId = 7100 + i;
+                clansRepo.insertMinimalClan(tag);
+                subscriptionRepo.saveTelegramChat(otherChatId, 0, `Other ${String(i)}`);
+                subscriptionRepo.subscribeToChat(otherChatId, 0, tag, 'management');
+            }
+            expect(clansRepo.countTrackedClans()).toBe(6);
+
+            // Fresh private chat 7200 links 5 already-tracked clans even though instance is at 6/6.
+            for (let i = 0; i < 5; i += 1) {
+                const tag = trackedTags[i] ?? '#2PP2';
+                await service.bot.handleUpdate(
+                    makeMessageUpdate({
+                        chatId: 7200,
+                        chatType: 'private',
+                        userId: 7200,
+                        text: `/link ${tag}`,
+                    }),
+                );
+            }
+
+            expect(clansRepo.countTrackedClans()).toBe(6);
+            expect(subscriptionRepo.countSubscriptionsForDestination(7200, 0)).toBe(5);
+            const originalSubId = subscriptionRepo.getSubscriptionId(7200, 0, '#2PP2');
+            expect(originalSubId).not.toBeNull();
+
+            clock.advance(60_000);
+            const callsBeforeRepeat = getCompleteClanData.mock.calls.length;
+
+            // Repeated /link of an already-linked clan at 5/5 chat and 6/6 instance must succeed idempotently.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 7200,
+                    chatType: 'private',
+                    userId: 7200,
+                    text: '/link #2PP2',
+                }),
+            );
+
+            expect(subscriptionRepo.getSubscriptionId(7200, 0, '#2PP2')).toBe(originalSubId);
+            expect(getCompleteClanData).toHaveBeenCalledTimes(callsBeforeRepeat);
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain('уже подключён');
+
+            // Connecting a 6th already-tracked clan (#2PPL) to chat 7200 must hit the 5-clan destination limit.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 7200,
+                    chatType: 'private',
+                    userId: 7200,
+                    text: '/link #2PPL',
+                }),
+            );
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(7200, 0)).toBe(5);
+            expect(subscriptionRepo.hasSubscription(7200, 0, '#2PPL')).toBe(false);
+            expect(getCompleteClanData).toHaveBeenCalledTimes(callsBeforeRepeat);
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain(
+                'Достигнут лимит пилота: не более 5 кланов в одном чате',
+            );
+        });
+
+        it('does not consume destination or instance quota when CoC API returns 404 for a non-existent clan', async () => {
+            const clock = new FakeClock(4_000_000);
+            const notify = vi.fn();
+            const getCompleteClanData = vi.fn((tag: string) => {
+                if (tag === '#999PPP') {
+                    return Promise.reject(
+                        new CocApiError('Clan not found', {
+                            kind: 'not_found',
+                            endpoint: `/clans/${encodeURIComponent(tag)}`,
+                            statusCode: 404,
+                            retryable: false,
+                        }),
+                    );
+                }
+                return Promise.resolve(makeCompleteClanData({ tag, name: `Clan ${tag}` }));
+            });
+
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness({
+                clock,
+                maxTrackedClans: 5,
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
+
+            // Seed 4 clans in private chat 7300 (4/5 destination, 4/5 instance).
+            for (const tag of ['#2PP2', '#2PP8', '#2PP9', '#2PPP']) {
+                clansRepo.insertMinimalClan(tag);
+                subscriptionRepo.saveTelegramChat(7300, 0, 'Leader');
+                subscriptionRepo.subscribeToChat(7300, 0, tag, 'management');
+            }
+
+            // Attempt linking a non-existent clan -> 404 must consume neither quota.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 7300,
+                    chatType: 'private',
+                    userId: 7300,
+                    text: '/link #999PPP',
+                }),
+            );
+
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain(
+                'Клан #999PPP не найден',
+            );
+            expect(subscriptionRepo.countSubscriptionsForDestination(7300, 0)).toBe(4);
+            expect(clansRepo.countTrackedClans()).toBe(4);
+            expect(notify).not.toHaveBeenCalled();
+
+            // The 5th slot in both destination and instance is still available for a real clan.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 7300,
+                    chatType: 'private',
+                    userId: 7300,
+                    text: '/link #2PPY',
+                }),
+            );
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(7300, 0)).toBe(5);
+            expect(clansRepo.countTrackedClans()).toBe(5);
+            expect(subscriptionRepo.hasSubscription(7300, 0, '#2PPY')).toBe(true);
+            expect(notify).toHaveBeenCalledTimes(1);
+        });
+
+        it('enforces destination and instance limits atomically inside SQLite transactions under concurrent /link races', async () => {
+            const clock = new FakeClock(5_000_000);
+            const notify = vi.fn();
+            let releaseFirst!: () => void;
+            let releaseSecond!: () => void;
+            const firstGate = new Promise<void>((resolve) => {
+                releaseFirst = resolve;
+            });
+            const secondGate = new Promise<void>((resolve) => {
+                releaseSecond = resolve;
+            });
+            let lookupCalls = 0;
+
+            const { service, db, transport, clansRepo, subscriptionRepo } = createHarness({
+                clock,
+                maxTrackedClans: 5,
+                clanManager: { notify },
+                cocApiClient: {
+                    async getCompleteClanData(tag: string) {
+                        // Pure transactions invariant: HTTP lookup must run outside any SQLite transaction.
+                        expect(db.connection.inTransaction).toBe(false);
+                        lookupCalls += 1;
+                        if (lookupCalls === 1) {
+                            await firstGate;
+                        } else {
+                            await secondGate;
+                        }
+                        return makeCompleteClanData({ tag, name: `Race ${tag}` });
+                    },
+                },
+            });
+
+            // Seed 4 clans in supergroup -1007400 (4/5 destination, 4/5 instance).
+            const chatId = -1007400;
+            transport.chatMembers.set(memberKey(chatId, 11), 'administrator');
+            transport.chatMembers.set(memberKey(chatId, 12), 'administrator');
+            for (const tag of ['#2PP2', '#2PP8', '#2PP9', '#2PPP']) {
+                clansRepo.insertMinimalClan(tag);
+                subscriptionRepo.saveTelegramChat(chatId, 0, 'Race Group');
+                subscriptionRepo.subscribeToChat(chatId, 0, tag, 'players');
+            }
+
+            // Two admins concurrently pass pre-check and hit CoC API outside transaction.
+            const firstLink = service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 901,
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Race Group',
+                    userId: 11,
+                    text: '/link #2PPY',
+                }),
+            );
+            const secondLink = service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 902,
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Race Group',
+                    userId: 12,
+                    text: '/link #2PPL',
+                }),
+            );
+
+            await vi.waitFor(() => {
+                expect(lookupCalls).toBe(2);
+            });
+
+            releaseFirst();
+            await firstLink;
+            releaseSecond();
+            await secondLink;
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 0)).toBe(5);
+            expect(clansRepo.countTrackedClans()).toBe(5);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPY')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPL')).toBe(false);
+            expect(notify).toHaveBeenCalledTimes(1);
+            expect(transport.sentMessages().map((m) => String(m.text))).toEqual(
+                expect.arrayContaining([
+                    expect.stringContaining('Подключён клан <b>Race #2PPY</b>'),
+                    expect.stringContaining(
+                        'Достигнут лимит пилота: не более 5 кланов в одном чате',
+                    ),
+                ]),
+            );
+        });
+
+        it('enforces instance limit atomically inside SQLite transactions under concurrent /link races across different chats', async () => {
+            const clock = new FakeClock(5_500_000);
+            const notify = vi.fn();
+            let releaseFirst!: () => void;
+            let releaseSecond!: () => void;
+            const firstGate = new Promise<void>((resolve) => {
+                releaseFirst = resolve;
+            });
+            const secondGate = new Promise<void>((resolve) => {
+                releaseSecond = resolve;
+            });
+            let lookupCalls = 0;
+
+            const { service, db, transport, clansRepo, subscriptionRepo } = createHarness({
+                clock,
+                maxTrackedClans: 1,
+                clanManager: { notify },
+                cocApiClient: {
+                    async getCompleteClanData(tag: string) {
+                        expect(db.connection.inTransaction).toBe(false);
+                        lookupCalls += 1;
+                        if (lookupCalls === 1) {
+                            await firstGate;
+                        } else {
+                            await secondGate;
+                        }
+                        return makeCompleteClanData({ tag, name: `Race ${tag}` });
+                    },
+                },
+            });
+
+            const firstLink = service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 911,
+                    chatId: 7411,
+                    chatType: 'private',
+                    userId: 7411,
+                    text: '/link #2PPY',
+                }),
+            );
+            const secondLink = service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 912,
+                    chatId: 7412,
+                    chatType: 'private',
+                    userId: 7412,
+                    text: '/link #2PPL',
+                }),
+            );
+
+            await vi.waitFor(() => {
+                expect(lookupCalls).toBe(2);
+            });
+
+            releaseFirst();
+            await firstLink;
+            releaseSecond();
+            await secondLink;
+
+            expect(clansRepo.countTrackedClans()).toBe(1);
+            expect(subscriptionRepo.hasSubscription(7411, 0, '#2PPY')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(7412, 0, '#2PPL')).toBe(false);
+            expect(notify).toHaveBeenCalledTimes(1);
+            expect(transport.sentMessages().map((m) => String(m.text))).toEqual(
+                expect.arrayContaining([
+                    expect.stringContaining('Подключён клан <b>Race #2PPY</b>'),
+                    expect.stringContaining('Достигнут лимит пилота на число отслеживаемых кланов'),
+                ]),
+            );
+        });
+
+        it('rate-limits /link and /unlink at 5 commands/min per user, isolates other users and /start, and resets deterministically after 60s', async () => {
+            const clock = new FakeClock(6_000_000);
+            const getCompleteClanData = vi.fn((tag: string) =>
+                Promise.resolve(makeCompleteClanData({ tag, name: `Clan ${tag}` })),
+            );
+            const { service, transport, subscriptionRepo } = createHarness({
+                clock,
+                cocApiClient: { getCompleteClanData },
+            });
+
+            const userA = 7501;
+            const userB = 7502;
+
+            // 5 commands from user A within 1 minute (mix of /link and /unlink) all proceed.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/link #2PP2',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/unlink #2PP2',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/link #2PP8',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/unlink #2PP8',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/link #2PP9',
+                }),
+            );
+
+            expect(getCompleteClanData).toHaveBeenCalledTimes(3);
+            expect(subscriptionRepo.hasSubscription(userA, 0, '#2PP9')).toBe(true);
+
+            // 6th command (/link) and 7th command (/unlink) within the same minute are rejected before CoC API / DB.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/link #2PPP',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/unlink #2PP9',
+                }),
+            );
+
+            expect(getCompleteClanData).toHaveBeenCalledTimes(3);
+            expect(subscriptionRepo.hasSubscription(userA, 0, '#2PPP')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(userA, 0, '#2PP9')).toBe(true);
+            const sentAfterThrottle = transport.sentMessages();
+            expect(String(sentAfterThrottle.at(-2)?.text)).toBe(COMMAND_RATE_LIMIT_EXCEEDED_TEXT);
+            expect(String(sentAfterThrottle.at(-1)?.text)).toBe(COMMAND_RATE_LIMIT_EXCEEDED_TEXT);
+
+            // /start for user A and /link for user B remain unaffected.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/start',
+                }),
+            );
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain('Добро пожаловать');
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userB,
+                    chatType: 'private',
+                    userId: userB,
+                    text: '/link #2PPP',
+                }),
+            );
+            expect(subscriptionRepo.hasSubscription(userB, 0, '#2PPP')).toBe(true);
+
+            // 1 ms before window expires -> user A is still rate-limited.
+            clock.advance(59_999);
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/unlink #2PP9',
+                }),
+            );
+            expect(subscriptionRepo.hasSubscription(userA, 0, '#2PP9')).toBe(true);
+            expect(String(transport.sentMessages().at(-1)?.text)).toBe(
+                COMMAND_RATE_LIMIT_EXCEEDED_TEXT,
+            );
+
+            // Exactly at 60_000 ms -> window resets and user A can execute /unlink again.
+            clock.advance(1);
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/unlink #2PP9',
+                }),
+            );
+            expect(subscriptionRepo.hasSubscription(userA, 0, '#2PP9')).toBe(false);
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain('отвязан от клана');
+        });
+
+        it('rejects non-positive limit configuration in TelegramBotService constructor', () => {
+            expect(() => createHarness({ maxClansPerDestination: 0 })).toThrow(ValidationError);
+            expect(() => createHarness({ maxTrackedClans: 0 })).toThrow(ValidationError);
+            expect(() => createHarness({ maxTrackedClans: -1 })).toThrow(ValidationError);
         });
     });
 });

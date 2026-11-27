@@ -123,6 +123,9 @@ describe('loadConfig', () => {
                 telegram: {
                     attack_guides_path: '/app/resources/telegram/attack_guides.json',
                 },
+                limits: {
+                    max_tracked_clans: 35,
+                },
             }),
             'utf8',
         );
@@ -142,6 +145,7 @@ describe('loadConfig', () => {
             databasePath: '/app/data/database.sqlite',
             migrationPath: '/app/migrations',
             attackGuidesPath: '/app/resources/telegram/attack_guides.json',
+            maxTrackedClans: 35,
             supercellToken: 'sc-secret-token',
             telegramToken: 'tg-secret-token',
         });
@@ -182,6 +186,7 @@ describe('loadConfig', () => {
         expect(config.databasePath).toBe('data/database.sqlite');
         expect(config.migrationPath).toBe('migrations');
         expect(config.attackGuidesPath).toBe('resources/telegram/attack_guides.json');
+        expect(config.maxTrackedClans).toBe(20);
         expect(config.supercellToken).toBe('sc-only-env');
         expect(config.telegramToken).toBe('tg-only-env');
     });
@@ -299,5 +304,25 @@ describe('loadConfig', () => {
                 env: { SUPERCELL_TOKEN: 'sc', TELEGRAM_TOKEN: 'tg' },
             });
         }).toThrow(ConfigError);
+    });
+
+    it('validates limits.max_tracked_clans as a positive integer', () => {
+        const dir = createTempDir();
+        const invalidValues: readonly unknown[] = [0, -5, 2.5, '20', null];
+
+        for (let i = 0; i < invalidValues.length; i += 1) {
+            const configPath = path.join(dir, `invalid-limit-${String(i)}.json`);
+            fs.writeFileSync(
+                configPath,
+                JSON.stringify({ limits: { max_tracked_clans: invalidValues[i] } }),
+                'utf8',
+            );
+
+            expect(() => {
+                loadConfig(configPath, {
+                    env: { SUPERCELL_TOKEN: 'sc', TELEGRAM_TOKEN: 'tg' },
+                });
+            }).toThrow(ConfigError);
+        }
     });
 });
