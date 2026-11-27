@@ -9,6 +9,7 @@ import {
     WAR_REMINDER_KINDS,
     WAR_REMINDER_WAR_KINDS,
     type ApplicationEvent,
+    type ReminderAttackSnapshot,
 } from '../events/applicationEvents.js';
 import { CURRENT_DOMAIN_EVENT_PAYLOAD_VERSION } from './domainEventPayloadSerializer.js';
 
@@ -80,12 +81,35 @@ const syncRecoveryPayloadSchema = z.object({
     outage_id: safeIntSchema,
 });
 
+const reminderPendingPlayerSchema = z
+    .object({
+        player_tag: z.string(),
+        player_name: z.string(),
+        attacks_used: safeIntSchema.nonnegative(),
+        max_attacks: safeIntSchema.positive(),
+    })
+    .refine((player) => player.attacks_used < player.max_attacks, {
+        message: 'attacks_used must be less than max_attacks',
+    });
+
+const reminderAttackSnapshotSchema = z
+    .object({
+        snapshot_at: safeIntSchema.nonnegative(),
+        total_participants: safeIntSchema.nonnegative(),
+        pending_participants_count: safeIntSchema.nonnegative(),
+        pending_players: z.array(reminderPendingPlayerSchema).optional(),
+    })
+    .refine((snapshot) => snapshot.pending_participants_count <= snapshot.total_participants, {
+        message: 'pending_participants_count cannot exceed total_participants',
+    });
+
 const warReminderPayloadSchema = z.object({
     war_id: safeIntSchema,
     end_time: safeIntSchema,
     war_kind: warKindSchema,
     reminder_kind: warReminderKindSchema,
     remaining_seconds: safeIntSchema.nonnegative().optional(),
+    attack_snapshot: reminderAttackSnapshotSchema.optional(),
 });
 
 const raidReminderPayloadSchema = z.object({
@@ -93,6 +117,7 @@ const raidReminderPayloadSchema = z.object({
     end_time: safeIntSchema,
     reminder_kind: raidReminderKindSchema,
     remaining_seconds: safeIntSchema.nonnegative().optional(),
+    attack_snapshot: reminderAttackSnapshotSchema.optional(),
 });
 
 function toClanwarReference(parsed: z.infer<typeof clanwarReferenceSchema>): ClanwarReference {
@@ -101,6 +126,26 @@ function toClanwarReference(parsed: z.infer<typeof clanwarReferenceSchema>): Cla
         warId: parsed.war_id,
         homeClanId: parsed.home_clan_id,
         opponentClanId: parsed.opponent_clan_id,
+    };
+}
+
+function toReminderAttackSnapshot(
+    parsed: z.infer<typeof reminderAttackSnapshotSchema>,
+): ReminderAttackSnapshot {
+    return {
+        snapshotAt: parsed.snapshot_at,
+        totalParticipants: parsed.total_participants,
+        pendingParticipantsCount: parsed.pending_participants_count,
+        ...(parsed.pending_players !== undefined
+            ? {
+                  pendingPlayers: parsed.pending_players.map((player) => ({
+                      playerTag: player.player_tag,
+                      playerName: player.player_name,
+                      attacksUsed: player.attacks_used,
+                      maxAttacks: player.max_attacks,
+                  })),
+              }
+            : {}),
     };
 }
 
@@ -255,6 +300,9 @@ export function deserializeDomainEvent(
                 ...(data.remaining_seconds !== undefined
                     ? { remainingSeconds: data.remaining_seconds }
                     : {}),
+                ...(data.attack_snapshot !== undefined
+                    ? { attackSnapshot: toReminderAttackSnapshot(data.attack_snapshot) }
+                    : {}),
             };
         }
         case APPLICATION_EVENT_TYPES.raidReminder: {
@@ -267,6 +315,9 @@ export function deserializeDomainEvent(
                 kind: data.reminder_kind,
                 ...(data.remaining_seconds !== undefined
                     ? { remainingSeconds: data.remaining_seconds }
+                    : {}),
+                ...(data.attack_snapshot !== undefined
+                    ? { attackSnapshot: toReminderAttackSnapshot(data.attack_snapshot) }
                     : {}),
             };
         }

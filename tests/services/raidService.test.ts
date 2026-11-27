@@ -731,4 +731,187 @@ describe('RaidService', () => {
             { tag: '#NAMELESS', name: 'Unknown Player', clan_tag: null },
         ]);
     });
+
+    it('captures #47 eligible raid cohort snapshots across checkpoints (bonus attacks, late joiner and leaver excluded, duplicate nicks, all-used)', async () => {
+        const endTime = 1_704_067_200; // 2024-01-01 00:00 UTC
+        const startTime = endTime - 72 * SECONDS_PER_HOUR;
+
+        const {
+            db,
+            clock,
+            clansRepo,
+            raidRepo,
+            subscriptionRepo,
+            domainEventsRepo,
+            apiClient,
+            service,
+        } = setup(startTime);
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+        clansRepo.savePlayers([
+            { tag: '#P1', name: 'FinishedBase', clanTag: CLAN_TAG },
+            { tag: '#P2', name: 'FinishedBonus', clanTag: CLAN_TAG },
+            { tag: '#P3', name: 'Алекс', clanTag: CLAN_TAG },
+            { tag: '#P4', name: 'Алекс', clanTag: CLAN_TAG },
+            { tag: '#P5', name: 'BonusFiveOfSix', clanTag: CLAN_TAG },
+            { tag: '#P6', name: 'ZeroSnapshot', clanTag: CLAN_TAG },
+            { tag: '#P7', name: 'LateJoiner', clanTag: CLAN_TAG },
+            { tag: '#P8', name: 'EarlyLeaver', clanTag: CLAN_TAG },
+        ]);
+
+        const insertMembership = db.connection.prepare(
+            'INSERT INTO clan_memberships (clan_tag, player_tag, joined_at, left_at) VALUES (?, ?, ?, ?);',
+        );
+        // 6 eligible members present at startTime and not left before endTime
+        for (const tag of ['#P1', '#P2', '#P3', '#P4', '#P5', '#P6']) {
+            insertMembership.run(CLAN_TAG, tag, startTime - 1_000, null);
+        }
+        // Joined AFTER raid start -> excluded from cohort
+        insertMembership.run(CLAN_TAG, '#P7', startTime + 60, null);
+        // Left BEFORE raid end -> excluded from cohort
+        insertMembership.run(CLAN_TAG, '#P8', startTime - 1_000, endTime - 10_000);
+
+        subscriptionRepo.saveTelegramChat(-1001, 0, 'Players');
+        subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+
+        const participants: CompleteRaidData['playerRaidSnapshots'] = [
+            {
+                playerTag: '#P1',
+                playerName: 'FinishedBase',
+                attacksCount: 5,
+                bonusAttack: 0,
+                totalLoot: 10_000,
+            },
+            {
+                playerTag: '#P2',
+                playerName: 'FinishedBonus',
+                attacksCount: 6,
+                bonusAttack: 1,
+                totalLoot: 12_000,
+            },
+            // #P3 has NO snapshot at all -> 0/5 (pending in Без атак)
+            {
+                playerTag: '#P4',
+                playerName: 'Алекс',
+                attacksCount: 3,
+                bonusAttack: 1,
+                totalLoot: 6_000,
+            },
+            {
+                playerTag: '#P5',
+                playerName: 'BonusFiveOfSix',
+                attacksCount: 5,
+                bonusAttack: 1,
+                totalLoot: 10_000,
+            },
+            {
+                playerTag: '#P6',
+                playerName: 'ZeroSnapshot',
+                attacksCount: 0,
+                bonusAttack: 0,
+                totalLoot: 0,
+            },
+            // Late joiner and leaver have partial attacks, but MUST be excluded from cohort
+            {
+                playerTag: '#P7',
+                playerName: 'LateJoiner',
+                attacksCount: 2,
+                bonusAttack: 0,
+                totalLoot: 4_000,
+            },
+            {
+                playerTag: '#P8',
+                playerName: 'EarlyLeaver',
+                attacksCount: 1,
+                bonusAttack: 0,
+                totalLoot: 2_000,
+            },
+        ];
+
+        apiClient.raidData = makeRaidData({
+            startTime,
+            endTime,
+            state: 'ongoing',
+            participants,
+        });
+
+        // 1. started -> no attackSnapshot
+        const started = await service.updateData(CLAN_TAG);
+        const startedEvent = started.events[0];
+        if (startedEvent?.type !== APPLICATION_EVENT_TYPES.raidReminder) {
+            throw new Error('Expected started RaidReminderEvent');
+        }
+        expect(startedEvent.attackSnapshot).toBeUndefined();
+
+        // 2. 48h left -> counter (4 of 6 eligible pending; LateJoiner and EarlyLeaver excluded)
+        clock.setNow((endTime - 48 * SECONDS_PER_HOUR) * 1000);
+        const fortyEight = await service.updateData(CLAN_TAG);
+        const fortyEightEvent = fortyEight.events[0];
+        if (fortyEightEvent?.type !== APPLICATION_EVENT_TYPES.raidReminder) {
+            throw new Error('Expected 48h RaidReminderEvent');
+        }
+        expect(fortyEightEvent.attackSnapshot).toEqual({
+            snapshotAt: endTime - 48 * SECONDS_PER_HOUR,
+            totalParticipants: 6,
+            pendingParticipantsCount: 4,
+        });
+
+        // 3. 1h left -> compact list with bonus attack limits and duplicate nicks
+        clock.setNow((endTime - SECONDS_PER_HOUR) * 1000);
+        const oneHour = await service.updateData(CLAN_TAG);
+        const oneHourEvent = oneHour.events[0];
+        if (oneHourEvent?.type !== APPLICATION_EVENT_TYPES.raidReminder) {
+            throw new Error('Expected 1h RaidReminderEvent');
+        }
+        expect(oneHourEvent.attackSnapshot).toEqual({
+            snapshotAt: endTime - SECONDS_PER_HOUR,
+            totalParticipants: 6,
+            pendingParticipantsCount: 4,
+            pendingPlayers: [
+                { playerTag: '#P6', playerName: 'ZeroSnapshot', attacksUsed: 0, maxAttacks: 5 },
+                { playerTag: '#P3', playerName: 'Алекс', attacksUsed: 0, maxAttacks: 5 },
+                { playerTag: '#P4', playerName: 'Алекс', attacksUsed: 3, maxAttacks: 6 },
+                { playerTag: '#P5', playerName: 'BonusFiveOfSix', attacksUsed: 5, maxAttacks: 6 },
+            ],
+        });
+
+        // Materialize and verify rendered notifications
+        const txManager = new TransactionManager(db);
+        const notificationRepo = new NotificationRepo(db);
+        const notificationService = new NotificationService({
+            notificationRepo,
+            clansRepo,
+            clanwarRepo: new ClanwarRepo(db),
+            clanwarsLeagueRepo: new ClanwarsLeagueRepo(db),
+            raidRepo,
+            subscriptionRepo,
+        });
+        const worker = new DomainEventWorker({
+            domainEventsRepo,
+            transactionManager: txManager,
+            deserializer: new DomainEventPayloadDeserializer(),
+            materializer: notificationService,
+            clock,
+        });
+        worker.processPending();
+
+        const rows = db.connection
+            .prepare<[], { event_id: string; message_text: string }>(
+                'SELECT event_id, message_text FROM notifications ORDER BY id;',
+            )
+            .all();
+        expect(rows).toHaveLength(3);
+        expect(rows[0]?.message_text).not.toContain('по данным на');
+        expect(rows[1]?.message_text).toContain('Ещё не атаковали: 4 из 6 — список: /raid');
+        expect(rows[1]?.message_text).toContain('по данным на 03:00 (UTC+3)');
+        expect(rows[2]?.message_text).toContain('Без атак (2): ZeroSnapshot, Алекс (#P3)');
+        expect(rows[2]?.message_text).toContain(
+            'Не все атаки (2): Алекс (#P4) 3/6, BonusFiveOfSix 5/6',
+        );
+        expect(rows[2]?.message_text).toContain('по данным на 02:00 (UTC+3)');
+        expect(rows[2]?.message_text).not.toContain('LateJoiner');
+        expect(rows[2]?.message_text).not.toContain('EarlyLeaver');
+        expect(rows[2]?.message_text).not.toContain('FinishedBase');
+        expect(rows[2]?.message_text).not.toContain('FinishedBonus');
+    });
 });

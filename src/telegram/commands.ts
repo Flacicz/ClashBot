@@ -1,3 +1,5 @@
+import { isViewCommandName, type ViewCommandName } from './viewCommon.js';
+
 export interface ParsedCommand {
     readonly name: string;
     readonly arguments: readonly string[];
@@ -8,6 +10,26 @@ export type BotCommand =
     | { readonly kind: 'start'; readonly botUsername?: string }
     | { readonly kind: 'help'; readonly botUsername?: string }
     | { readonly kind: 'unknown'; readonly name: string; readonly botUsername?: string }
+    | {
+          readonly kind: 'view';
+          readonly view: ViewCommandName;
+          readonly status: 'ok';
+          readonly clanTag: string | null;
+          readonly botUsername?: string;
+      }
+    | {
+          readonly kind: 'view';
+          readonly view: ViewCommandName;
+          readonly status: 'invalid_arguments';
+          readonly botUsername?: string;
+      }
+    | {
+          readonly kind: 'view';
+          readonly view: ViewCommandName;
+          readonly status: 'invalid_clan_tag';
+          readonly rawTag: string;
+          readonly botUsername?: string;
+      }
     | {
           readonly kind: 'link' | 'unlink';
           readonly status: 'ok';
@@ -89,6 +111,56 @@ export function parseBotCommand(text: string): BotCommand | null {
 
     if (command.name === 'help') {
         return { kind: 'help', ...botUsernameField };
+    }
+
+    if (isViewCommandName(command.name)) {
+        if (command.arguments.length === 0) {
+            return {
+                kind: 'view',
+                view: command.name,
+                status: 'ok',
+                clanTag: null,
+                ...botUsernameField,
+            };
+        }
+
+        if (command.arguments.length !== 1) {
+            return {
+                kind: 'view',
+                view: command.name,
+                status: 'invalid_arguments',
+                ...botUsernameField,
+            };
+        }
+
+        const rawTag = command.arguments[0];
+        if (rawTag === undefined) {
+            return {
+                kind: 'view',
+                view: command.name,
+                status: 'invalid_arguments',
+                ...botUsernameField,
+            };
+        }
+
+        const clanTag = parseClanTag(rawTag);
+        if (clanTag === null) {
+            return {
+                kind: 'view',
+                view: command.name,
+                status: 'invalid_clan_tag',
+                rawTag,
+                ...botUsernameField,
+            };
+        }
+
+        return {
+            kind: 'view',
+            view: command.name,
+            status: 'ok',
+            clanTag,
+            ...botUsernameField,
+        };
     }
 
     if (command.name === 'link' || command.name === 'unlink') {

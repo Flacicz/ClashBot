@@ -14,6 +14,8 @@ export {
     WAR_TYPES,
     WarTypes,
     calculateClanwarOutcome,
+    type ActiveWarMemberAttackCount,
+    type ActiveWarSnapshot,
     type BestAttack,
     type ClanSide,
     type Clanwar,
@@ -34,6 +36,8 @@ export {
     type ClanwarResultReportData,
     type ClanwarSlacker,
     type ClanwarWarStats,
+    type CompletedRegularWarSummary,
+    type LatestCompletedRegularWarReference,
     type NotMirrorAttack,
     type WarRoundDetails,
     type WarType,
@@ -44,6 +48,7 @@ export {
     type CWLRoundInfo,
     type ClanwarsLeagueMember,
     type ClanwarsLeagueSeason,
+    type CwlSeasonProgressSummary,
 } from './clanwarsLeagueRepo.js';
 export {
     DEFAULT_PENDING_DESTINATIONS_LIMIT,
@@ -62,7 +67,12 @@ export {
     type NotificationStatus,
     type PendingNotification,
 } from './notificationRepo.js';
-export { RaidRepo } from './raidRepo.js';
+export {
+    RaidRepo,
+    type ActiveRaidEligibleMember,
+    type ActiveRaidSnapshot,
+    type CompletedRaidSummary,
+} from './raidRepo.js';
 export {
     GENERAL_CHAT_THREAD_ID,
     SubscriptionRepo,

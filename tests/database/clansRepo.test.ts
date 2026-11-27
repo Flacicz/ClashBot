@@ -529,6 +529,123 @@ describe('ClansRepo', () => {
         ).toEqual(['#P1', '#P2']);
     });
 
+    it('loads latest clan snapshot and active roster with latest roles/TH while excluding leavers', () => {
+        const { db, tx, repo } = createMigratedDb();
+
+        expect(repo.getLatestClanSnapshot('#CLAN1')).toBeNull();
+        expect(repo.getActiveRoster('#CLAN1')).toEqual([]);
+
+        repo.saveClan(makeClan({ tag: '#CLAN1', name: 'Test Clan' }));
+        repo.saveClanSnapshot(
+            makeClanSnapshot({
+                clanTag: '#CLAN1',
+                membersCount: 18,
+                clanLevel: 14,
+                isWarLogPublic: true,
+                warLeagueId: 48000012,
+            }),
+        );
+        repo.saveClanSnapshot(
+            makeClanSnapshot({
+                clanTag: '#CLAN1',
+                membersCount: 22,
+                clanLevel: 15,
+                isWarLogPublic: false,
+                warLeagueId: 48000015,
+            }),
+        );
+        db.connection
+            .prepare(`UPDATE clan_snapshots SET created_at = 1700000500 WHERE clan_tag = '#CLAN1';`)
+            .run();
+
+        expect(repo.getLatestClanSnapshot('#CLAN1')).toEqual({
+            clanTag: '#CLAN1',
+            membersCount: 22,
+            clanLevel: 15,
+            isWarLogPublic: false,
+            warLeagueId: 48000015,
+            createdAt: 1700000500,
+        });
+
+        // Players: leader, promoted member, leaver (must be excluded), member without snapshot
+        const players: Player[] = [
+            { tag: '#P1', name: 'LeaderOne', clanTag: '#CLAN1' },
+            { tag: '#P2', name: 'Promoted', clanTag: '#CLAN1' },
+            { tag: '#P3', name: 'Leaver', clanTag: '#CLAN1' },
+            { tag: '#P4', name: 'NoSnapshot', clanTag: '#CLAN1' },
+        ];
+        repo.savePlayers(players);
+        tx.retryInTransaction(() => {
+            repo.saveMembershipChanges({ leftPlayers: [], joinedPlayers: players });
+            repo.savePlayerSnapshots([
+                makePlayerSnapshot({
+                    playerTag: '#P1',
+                    clanTag: '#CLAN1',
+                    role: 'leader',
+                    townHallLevel: 17,
+                    clanRank: 1,
+                }),
+                makePlayerSnapshot({
+                    playerTag: '#P2',
+                    clanTag: '#CLAN1',
+                    role: 'member',
+                    townHallLevel: 15,
+                    clanRank: 3,
+                }),
+                makePlayerSnapshot({
+                    playerTag: '#P3',
+                    clanTag: '#CLAN1',
+                    role: 'coLeader',
+                    townHallLevel: 16,
+                    clanRank: 2,
+                }),
+            ]);
+            // Second snapshot updates #P2 role/TH/rank; #P3 leaves the clan
+            repo.savePlayerSnapshots([
+                makePlayerSnapshot({
+                    playerTag: '#P2',
+                    clanTag: '#CLAN1',
+                    role: 'admin',
+                    townHallLevel: 16,
+                    clanRank: 2,
+                }),
+            ]);
+            repo.registerPlayerLeave('#P3', '#CLAN1');
+        });
+        db.connection
+            .prepare(
+                `UPDATE player_snapshots SET created_at = 1700000600 WHERE clan_tag = '#CLAN1';`,
+            )
+            .run();
+
+        expect(repo.getActiveRoster('#CLAN1')).toEqual([
+            {
+                playerTag: '#P1',
+                playerName: 'LeaderOne',
+                role: 'leader',
+                townHallLevel: 17,
+                clanRank: 1,
+                snapshotCreatedAt: 1700000600,
+            },
+            {
+                playerTag: '#P2',
+                playerName: 'Promoted',
+                role: 'admin',
+                townHallLevel: 16,
+                clanRank: 2,
+                snapshotCreatedAt: 1700000600,
+            },
+            {
+                playerTag: '#P4',
+                playerName: 'NoSnapshot',
+                role: 'member',
+                townHallLevel: null,
+                clanRank: null,
+                snapshotCreatedAt: null,
+            },
+        ]);
+    });
+
     it('rolls back repository writes cleanly when enclosing TransactionManager transaction fails', () => {
         const { tx, repo } = createMigratedDb();
 

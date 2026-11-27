@@ -179,6 +179,112 @@ describe('DomainEventPayloadDeserializer', () => {
         expect(deserializeDomainEventRecord(serializer.serialize(raidWithRemaining))).toEqual(
             raidWithRemaining,
         );
+
+        const warWithCounterSnapshot: ApplicationEvent = {
+            type: APPLICATION_EVENT_TYPES.warReminder,
+            clanTag: CLAN_TAG,
+            warId: 102,
+            endTime: 1704067200,
+            warKind: WAR_REMINDER_WAR_KINDS.regular,
+            kind: WAR_REMINDER_KINDS.sixHoursLeft,
+            remainingSeconds: 21600,
+            attackSnapshot: {
+                snapshotAt: 1704045600,
+                totalParticipants: 30,
+                pendingParticipantsCount: 12,
+            },
+        };
+        expect(deserializeDomainEventRecord(serializer.serialize(warWithCounterSnapshot))).toEqual(
+            warWithCounterSnapshot,
+        );
+
+        const warWithListSnapshot: ApplicationEvent = {
+            type: APPLICATION_EVENT_TYPES.warReminder,
+            clanTag: CLAN_TAG,
+            warId: 103,
+            endTime: 1704067200,
+            warKind: WAR_REMINDER_WAR_KINDS.cwl,
+            kind: WAR_REMINDER_KINDS.oneHourLeft,
+            remainingSeconds: 3600,
+            attackSnapshot: {
+                snapshotAt: 1704063600,
+                totalParticipants: 15,
+                pendingParticipantsCount: 1,
+                pendingPlayers: [
+                    {
+                        playerTag: '#P1',
+                        playerName: 'Alice & <Bob>',
+                        attacksUsed: 0,
+                        maxAttacks: 1,
+                    },
+                ],
+            },
+        };
+        expect(deserializeDomainEventRecord(serializer.serialize(warWithListSnapshot))).toEqual(
+            warWithListSnapshot,
+        );
+
+        const raidWithAllUsedSnapshot: ApplicationEvent = {
+            type: APPLICATION_EVENT_TYPES.raidReminder,
+            clanTag: CLAN_TAG,
+            raidReference: { raidId: 202 },
+            endTime: 1704067200,
+            kind: RAID_REMINDER_KINDS.oneHourLeft,
+            remainingSeconds: 3600,
+            attackSnapshot: {
+                snapshotAt: 1704063600,
+                totalParticipants: 35,
+                pendingParticipantsCount: 0,
+                pendingPlayers: [],
+            },
+        };
+        expect(deserializeDomainEventRecord(serializer.serialize(raidWithAllUsedSnapshot))).toEqual(
+            raidWithAllUsedSnapshot,
+        );
+    });
+
+    it('keeps full backward compatibility when deserializing historical war_reminder and raid_reminder payloads without attack_snapshot or remaining_seconds', () => {
+        const legacyWar = deserializeDomainEvent(
+            CLAN_TAG,
+            APPLICATION_EVENT_TYPES.warReminder,
+            JSON.stringify({
+                war_id: 99,
+                end_time: 1704067200,
+                war_kind: 'regular',
+                reminder_kind: 'one_hour_left',
+            }),
+            CURRENT_DOMAIN_EVENT_PAYLOAD_VERSION,
+        );
+        expect(legacyWar).toEqual({
+            type: APPLICATION_EVENT_TYPES.warReminder,
+            clanTag: CLAN_TAG,
+            warId: 99,
+            endTime: 1704067200,
+            warKind: WAR_REMINDER_WAR_KINDS.regular,
+            kind: WAR_REMINDER_KINDS.oneHourLeft,
+        });
+        expect('attackSnapshot' in legacyWar).toBe(false);
+
+        const legacyRaid = deserializeDomainEvent(
+            CLAN_TAG,
+            APPLICATION_EVENT_TYPES.raidReminder,
+            JSON.stringify({
+                raid_reference: { raid_id: 88 },
+                end_time: 1704067200,
+                reminder_kind: 'six_hours_left',
+                remaining_seconds: 18000,
+            }),
+            CURRENT_DOMAIN_EVENT_PAYLOAD_VERSION,
+        );
+        expect(legacyRaid).toEqual({
+            type: APPLICATION_EVENT_TYPES.raidReminder,
+            clanTag: CLAN_TAG,
+            raidReference: { raidId: 88 },
+            endTime: 1704067200,
+            kind: RAID_REMINDER_KINDS.sixHoursLeft,
+            remainingSeconds: 18000,
+        });
+        expect('attackSnapshot' in legacyRaid).toBe(false);
     });
 
     it('is deterministic across repeated deserializations of the same payload', () => {
@@ -351,6 +457,57 @@ describe('DomainEventPayloadDeserializer', () => {
                         end_time: 1704067200,
                         reminder_kind: 'one_hour_left',
                         remaining_seconds: badRemaining,
+                    }),
+                    CURRENT_DOMAIN_EVENT_PAYLOAD_VERSION,
+                ),
+            ).toThrow(ValidationError);
+        }
+
+        // Invalid attack_snapshot variants
+        const invalidSnapshots: readonly Record<string, unknown>[] = [
+            { snapshot_at: -1, total_participants: 10, pending_participants_count: 2 },
+            { snapshot_at: 1000, total_participants: 5, pending_participants_count: 6 },
+            {
+                snapshot_at: 1000,
+                total_participants: 10,
+                pending_participants_count: 1,
+                pending_players: [
+                    { player_tag: '#P1', player_name: 'Alice', attacks_used: 2, max_attacks: 2 },
+                ],
+            },
+            {
+                snapshot_at: 1000,
+                total_participants: 10,
+                pending_participants_count: 1,
+                pending_players: [
+                    { player_tag: '#P1', player_name: 'Alice', attacks_used: 0, max_attacks: 0 },
+                ],
+            },
+        ];
+        for (const badSnapshot of invalidSnapshots) {
+            expect(() =>
+                deserializeDomainEvent(
+                    CLAN_TAG,
+                    APPLICATION_EVENT_TYPES.warReminder,
+                    JSON.stringify({
+                        war_id: 1,
+                        end_time: 1704067200,
+                        war_kind: 'regular',
+                        reminder_kind: 'one_hour_left',
+                        attack_snapshot: badSnapshot,
+                    }),
+                    CURRENT_DOMAIN_EVENT_PAYLOAD_VERSION,
+                ),
+            ).toThrow(ValidationError);
+            expect(() =>
+                deserializeDomainEvent(
+                    CLAN_TAG,
+                    APPLICATION_EVENT_TYPES.raidReminder,
+                    JSON.stringify({
+                        raid_reference: { raid_id: 1 },
+                        end_time: 1704067200,
+                        reminder_kind: 'one_hour_left',
+                        attack_snapshot: badSnapshot,
                     }),
                     CURRENT_DOMAIN_EVENT_PAYLOAD_VERSION,
                 ),

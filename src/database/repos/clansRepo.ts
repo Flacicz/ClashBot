@@ -1,7 +1,9 @@
 import type {
+    ActiveClanMember,
     ActiveMembership,
     Clan,
     ClanSnapshot,
+    LatestClanSnapshot,
     LatestPlayerState,
     MembershipChangeIds,
     MembershipChanges,
@@ -101,6 +103,119 @@ export class ClansRepo extends BaseRepository {
             'load clan name',
             `clan_tag = ${clanTag}`,
             (row) => getString(row, 'name'),
+            clanTag,
+        );
+    }
+
+    getLatestSnapshotCreatedAt(clanTag: string): number | null {
+        const sql = `
+            SELECT created_at
+            FROM clan_snapshots
+            WHERE clan_tag = ?
+            ORDER BY id DESC
+            LIMIT 1;
+        `;
+
+        const rows = this.query(
+            sql,
+            'load latest clan snapshot timestamp',
+            `clan_tag = ${clanTag}`,
+            (row) => getNumber(row, 'created_at'),
+            clanTag,
+        );
+        return rows[0] ?? null;
+    }
+
+    getLatestClanSnapshot(clanTag: string): LatestClanSnapshot | null {
+        const sql = `
+            SELECT
+                clan_tag,
+                members_count,
+                clan_level,
+                is_war_log_public,
+                war_league_id,
+                created_at
+            FROM clan_snapshots
+            WHERE clan_tag = ?
+            ORDER BY id DESC
+            LIMIT 1;
+        `;
+
+        const rows = this.query(
+            sql,
+            'load latest clan snapshot',
+            `clan_tag = ${clanTag}`,
+            (row): LatestClanSnapshot => ({
+                clanTag: getString(row, 'clan_tag'),
+                membersCount: getNumber(row, 'members_count'),
+                clanLevel: getNumber(row, 'clan_level'),
+                isWarLogPublic: getNumber(row, 'is_war_log_public') !== 0,
+                warLeagueId:
+                    row.war_league_id === null || row.war_league_id === undefined
+                        ? null
+                        : getNumber(row, 'war_league_id'),
+                createdAt: getNumber(row, 'created_at'),
+            }),
+            clanTag,
+        );
+        return rows[0] ?? null;
+    }
+
+    getActiveRoster(clanTag: string): ActiveClanMember[] {
+        const sql = `
+            SELECT
+                cm.player_tag,
+                p.name AS player_name,
+                ps.role,
+                ps.th_level,
+                ps.clan_rank,
+                ps.created_at AS snapshot_created_at
+            FROM clan_memberships cm
+            JOIN players p
+                ON p.tag = cm.player_tag
+            LEFT JOIN (
+                SELECT
+                    player_tag,
+                    MAX(id) AS last_snapshot_id
+                FROM player_snapshots
+                WHERE clan_tag = ?
+                GROUP BY player_tag
+            ) latest
+                ON latest.player_tag = cm.player_tag
+            LEFT JOIN player_snapshots ps
+                ON ps.id = latest.last_snapshot_id
+            WHERE cm.clan_tag = ?
+              AND cm.left_at IS NULL
+            ORDER BY
+                CASE WHEN ps.clan_rank IS NULL OR ps.clan_rank <= 0 THEN 1 ELSE 0 END ASC,
+                ps.clan_rank ASC,
+                p.name COLLATE NOCASE ASC,
+                cm.player_tag ASC;
+        `;
+
+        return this.query(
+            sql,
+            'load active clan roster',
+            `clan_tag = ${clanTag}`,
+            (row): ActiveClanMember => ({
+                playerTag: getString(row, 'player_tag'),
+                playerName: getString(row, 'player_name'),
+                role:
+                    row.role === null || row.role === undefined ? 'member' : getString(row, 'role'),
+                townHallLevel:
+                    row.th_level === null || row.th_level === undefined
+                        ? null
+                        : getNumber(row, 'th_level'),
+                clanRank:
+                    row.clan_rank === null || row.clan_rank === undefined
+                        ? null
+                        : getNumber(row, 'clan_rank'),
+                snapshotCreatedAt:
+                    row.snapshot_created_at === null || row.snapshot_created_at === undefined
+                        ? null
+                        : getNumber(row, 'snapshot_created_at'),
+            }),
+            clanTag,
             clanTag,
         );
     }

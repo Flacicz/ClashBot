@@ -30,6 +30,13 @@ export interface RaidSlacker {
     readonly bonusAttacks: number;
 }
 
+export interface RaidMemberAttackState {
+    readonly playerTag: string;
+    readonly playerName: string;
+    readonly attacksCount: number;
+    readonly bonusAttacks: number;
+}
+
 export interface RaidReportData {
     readonly clanTag: string;
     readonly clanName: string;
@@ -52,4 +59,37 @@ export interface RaidComparisonStats {
     readonly enemyDistrictsDestroyed: number;
     readonly offensiveReward: number;
     readonly defensiveReward: number;
+}
+
+export interface ActiveRaidEligibleMember {
+    readonly playerTag: string;
+    readonly playerName: string;
+    readonly attacksCount: number;
+    readonly bonusAttacks: number;
+}
+
+export interface ActiveRaidSnapshot {
+    readonly raidId: number;
+    readonly clanTag: string;
+    readonly startTime: number;
+    readonly endTime: number;
+    readonly state: string;
+    readonly totalLoot: number;
+    readonly raidsCompleted: number;
+    readonly totalAttacks: number;
+    readonly enemyDistrictsDestroyed: number;
+    readonly lastObservedAt: number;
+    readonly eligibleMembers: readonly ActiveRaidEligibleMember[];
+}
+
+export interface CompletedRaidSummary {
+    readonly raidId: number;
+    readonly clanTag: string;
+    readonly startTime: number;
+    readonly endTime: number;
+    readonly totalLoot: number;
+    readonly raidsCompleted: number;
+    readonly totalAttacks: number;
+    readonly enemyDistrictsDestroyed: number;
+    readonly lastObservedAt: number;
 }

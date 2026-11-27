@@ -1,11 +1,16 @@
+import type { ActiveWarMemberAttackCount } from '../database/repos/clanwarRepo.js';
 import {
     RAID_REMINDER_KINDS,
     WAR_REMINDER_KINDS,
     type RaidReminderKind,
+    type ReminderAttackSnapshot,
+    type ReminderPendingPlayer,
     type WarReminderKind,
 } from '../events/applicationEvents.js';
+import type { RaidMemberAttackState } from '../models/raid.js';
 
 export const SECONDS_PER_HOUR = 60 * 60;
+export const RAID_BASE_ATTACKS_PER_MEMBER = 5;
 
 export const WAR_REMINDER_SIX_HOURS_SECONDS = 6 * SECONDS_PER_HOUR;
 export const WAR_REMINDER_ONE_HOUR_SECONDS = 1 * SECONDS_PER_HOUR;
@@ -207,4 +212,78 @@ export function getRaidReminderExpiresAt(endTime: number, kind: RaidReminderKind
         default:
             return assertNeverReminderKind(kind);
     }
+}
+
+/**
+ * Builds an attack snapshot for countdown war/CWL reminders from the current war roster.
+ * Returns `undefined` when the roster is empty so formatters avoid false "all used" output.
+ */
+export function buildWarReminderAttackSnapshot(
+    members: readonly ActiveWarMemberAttackCount[],
+    attacksPerMember: number,
+    snapshotAt: number,
+    includePlayers: boolean,
+): ReminderAttackSnapshot | undefined {
+    if (members.length === 0) {
+        return undefined;
+    }
+
+    const maxAttacks = Math.max(1, Math.trunc(attacksPerMember));
+    const pendingPlayers: ReminderPendingPlayer[] = [];
+
+    for (const member of members) {
+        const attacksUsed = Math.max(0, Math.trunc(member.attacksUsed));
+        if (attacksUsed < maxAttacks) {
+            pendingPlayers.push({
+                playerTag: member.playerTag,
+                playerName: member.playerName,
+                attacksUsed,
+                maxAttacks,
+            });
+        }
+    }
+
+    return {
+        snapshotAt: Math.max(0, Math.trunc(snapshotAt)),
+        totalParticipants: members.length,
+        pendingParticipantsCount: pendingPlayers.length,
+        ...(includePlayers ? { pendingPlayers } : {}),
+    };
+}
+
+/**
+ * Builds an attack snapshot for countdown raid reminders from the #47 eligible cohort.
+ * Returns `undefined` when no eligible members exist at raid start.
+ */
+export function buildRaidReminderAttackSnapshot(
+    members: readonly RaidMemberAttackState[],
+    snapshotAt: number,
+    includePlayers: boolean,
+): ReminderAttackSnapshot | undefined {
+    if (members.length === 0) {
+        return undefined;
+    }
+
+    const pendingPlayers: ReminderPendingPlayer[] = [];
+
+    for (const member of members) {
+        const attacksUsed = Math.max(0, Math.trunc(member.attacksCount));
+        const bonusAttacks = Math.max(0, Math.trunc(member.bonusAttacks));
+        const maxAttacks = RAID_BASE_ATTACKS_PER_MEMBER + bonusAttacks;
+        if (attacksUsed < maxAttacks) {
+            pendingPlayers.push({
+                playerTag: member.playerTag,
+                playerName: member.playerName,
+                attacksUsed,
+                maxAttacks,
+            });
+        }
+    }
+
+    return {
+        snapshotAt: Math.max(0, Math.trunc(snapshotAt)),
+        totalParticipants: members.length,
+        pendingParticipantsCount: pendingPlayers.length,
+        ...(includePlayers ? { pendingPlayers } : {}),
+    };
 }

@@ -178,6 +178,46 @@ export interface WarRoundDetails {
     readonly bestAttacks: readonly BestAttack[];
 }
 
+export interface ActiveWarMemberAttackCount {
+    readonly playerTag: string;
+    readonly playerName: string;
+    readonly mapPosition: number;
+    readonly attacksUsed: number;
+}
+
+export interface ActiveWarSnapshot {
+    readonly warId: number;
+    readonly clanTag: string;
+    readonly state: string;
+    readonly warType: WarType;
+    readonly teamSize: number;
+    readonly attacksPerMember: number;
+    readonly preparationStartTime: number;
+    readonly startTime: number;
+    readonly endTime: number;
+    readonly seasonId: number | null;
+    readonly roundNumber: number | null;
+    readonly lastObservedAt: number;
+    readonly home: ClanwarOverview;
+    readonly opponent: ClanwarOverview;
+    readonly homeMembers: readonly ActiveWarMemberAttackCount[];
+}
+
+export interface CompletedRegularWarSummary {
+    readonly warId: number;
+    readonly clanTag: string;
+    readonly endTime: number;
+    readonly lastObservedAt: number;
+    readonly home: ClanwarOverview;
+    readonly opponent: ClanwarOverview;
+    readonly outcome: ClanwarOutcomeValue;
+}
+
+export interface LatestCompletedRegularWarReference {
+    readonly reference: ClanwarReference;
+    readonly lastObservedAt: number;
+}
+
 const SAVE_CLANWAR_SQL = `
     INSERT INTO wars(
         war_uid, clan_tag, state, war_type, team_size,
@@ -590,6 +630,115 @@ const GET_HOME_ATTACK_RESULTS_SQL = `
     FROM attacks
     WHERE war_id = ?
       AND attacker_war_clan_id = ?;
+`;
+
+const GET_ACTIVE_WAR_SQL = `
+    SELECT
+        w.war_id,
+        w.clan_tag,
+        w.state,
+        w.war_type,
+        w.team_size,
+        w.attacks_per_member,
+        w.preparation_start_time,
+        w.start_time,
+        w.end_time,
+        w.season_id,
+        w.round_number,
+        COALESCE(w.last_observed_at, w.created_at) AS last_observed_at,
+        home.war_clan_id AS home_war_clan_id,
+        home.clan_tag AS home_clan_tag,
+        home.clan_name AS home_clan_name,
+        home.stars AS home_stars,
+        home.destruction_percentage AS home_destruction_percentage,
+        opp.clan_tag AS opponent_clan_tag,
+        opp.clan_name AS opponent_clan_name,
+        opp.stars AS opponent_stars,
+        opp.destruction_percentage AS opponent_destruction_percentage
+    FROM wars AS w
+    JOIN war_clans AS home
+        ON home.war_id = w.war_id
+       AND home.side = 'home'
+    JOIN war_clans AS opp
+        ON opp.war_id = w.war_id
+       AND opp.side = 'opponent'
+    WHERE w.clan_tag = ?
+      AND w.war_type = ?
+      AND w.state IN ('inWar', 'preparation')
+      AND w.end_time > ?
+    ORDER BY
+        CASE WHEN w.state = 'inWar' THEN 0 ELSE 1 END ASC,
+        w.preparation_start_time DESC,
+        w.war_id DESC
+    LIMIT 1;
+`;
+
+const GET_ACTIVE_WAR_HOME_MEMBER_ATTACK_COUNTS_SQL = `
+    SELECT
+        wm.player_tag,
+        wm.player_name,
+        wm.map_position,
+        COUNT(a.attack_id) AS attacks_used
+    FROM war_members AS wm
+    LEFT JOIN attacks AS a
+        ON a.war_id = wm.war_id
+       AND a.attacker_war_clan_id = wm.war_clan_id
+       AND a.attacker_tag = wm.player_tag
+    WHERE wm.war_id = ?
+      AND wm.war_clan_id = ?
+    GROUP BY wm.war_member_id, wm.player_tag, wm.player_name, wm.map_position
+    ORDER BY wm.map_position ASC, wm.player_tag ASC;
+`;
+
+const GET_LATEST_COMPLETED_REGULAR_WAR_SQL = `
+    SELECT
+        w.war_id,
+        w.clan_tag,
+        w.end_time,
+        COALESCE(w.last_observed_at, w.created_at) AS last_observed_at,
+        home.clan_tag AS home_clan_tag,
+        home.clan_name AS home_clan_name,
+        home.stars AS home_stars,
+        home.destruction_percentage AS home_destruction_percentage,
+        opp.clan_tag AS opponent_clan_tag,
+        opp.clan_name AS opponent_clan_name,
+        opp.stars AS opponent_stars,
+        opp.destruction_percentage AS opponent_destruction_percentage
+    FROM wars AS w
+    JOIN war_clans AS home
+        ON home.war_id = w.war_id
+       AND home.side = 'home'
+    JOIN war_clans AS opp
+        ON opp.war_id = w.war_id
+       AND opp.side = 'opponent'
+    WHERE w.clan_tag = ?
+      AND w.war_type = 'regular'
+      AND w.state = 'warEnded'
+      AND w.is_complete = 1
+    ORDER BY w.end_time DESC, w.preparation_start_time DESC, w.war_id DESC
+    LIMIT 1;
+`;
+
+const GET_LATEST_COMPLETED_REGULAR_WAR_REFERENCE_SQL = `
+    SELECT
+        w.war_id,
+        w.clan_tag,
+        COALESCE(w.last_observed_at, w.created_at) AS last_observed_at,
+        home.war_clan_id AS home_clan_id,
+        opponent.war_clan_id AS opponent_clan_id
+    FROM wars AS w
+    JOIN war_clans AS home
+        ON home.war_id = w.war_id
+       AND home.side = 'home'
+    JOIN war_clans AS opponent
+        ON opponent.war_id = w.war_id
+       AND opponent.side = 'opponent'
+    WHERE w.clan_tag = ?
+      AND w.war_type = 'regular'
+      AND w.state = 'warEnded'
+      AND w.is_complete = 1
+    ORDER BY w.preparation_start_time DESC, w.war_id DESC
+    LIMIT 1;
 `;
 
 export class ClanwarRepo {
@@ -1234,5 +1383,224 @@ export class ClanwarRepo {
             attackStats,
             bestAttacks,
         };
+    }
+
+    getWarMemberAttackCounts(reference: ClanwarReference): ActiveWarMemberAttackCount[] {
+        try {
+            const memberRows = this.connection
+                .prepare<
+                    [number, number],
+                    {
+                        player_tag: string;
+                        player_name: string;
+                        map_position: number;
+                        attacks_used: number;
+                    }
+                >(GET_ACTIVE_WAR_HOME_MEMBER_ATTACK_COUNTS_SQL)
+                .all(reference.warId, reference.homeClanId);
+
+            return memberRows.map((member) => ({
+                playerTag: member.player_tag,
+                playerName: member.player_name,
+                mapPosition: member.map_position,
+                attacksUsed: member.attacks_used,
+            }));
+        } catch (error: unknown) {
+            throw toDatabaseError(
+                error,
+                `[ClanwarRepo] Failed to load home war member attack counts (war_id = ${String(reference.warId)}, war_clan_id = ${String(reference.homeClanId)})`,
+                { warId: reference.warId, warClanId: reference.homeClanId },
+            );
+        }
+    }
+
+    getActiveWar(
+        clanTag: string,
+        warType: WarType,
+        nowEpochSeconds: number,
+    ): ActiveWarSnapshot | null {
+        try {
+            const row = this.connection
+                .prepare<
+                    [string, string, number],
+                    {
+                        war_id: number;
+                        clan_tag: string;
+                        state: string;
+                        war_type: WarType;
+                        team_size: number;
+                        attacks_per_member: number;
+                        preparation_start_time: number;
+                        start_time: number;
+                        end_time: number;
+                        season_id: number | null;
+                        round_number: number | null;
+                        last_observed_at: number;
+                        home_war_clan_id: number;
+                        home_clan_tag: string;
+                        home_clan_name: string;
+                        home_stars: number;
+                        home_destruction_percentage: number;
+                        opponent_clan_tag: string;
+                        opponent_clan_name: string;
+                        opponent_stars: number;
+                        opponent_destruction_percentage: number;
+                    }
+                >(GET_ACTIVE_WAR_SQL)
+                .get(clanTag, warType, Math.trunc(nowEpochSeconds));
+
+            if (row === undefined) {
+                return null;
+            }
+
+            const memberRows = this.connection
+                .prepare<
+                    [number, number],
+                    {
+                        player_tag: string;
+                        player_name: string;
+                        map_position: number;
+                        attacks_used: number;
+                    }
+                >(GET_ACTIVE_WAR_HOME_MEMBER_ATTACK_COUNTS_SQL)
+                .all(row.war_id, row.home_war_clan_id);
+
+            return {
+                warId: row.war_id,
+                clanTag: row.clan_tag,
+                state: row.state,
+                warType: row.war_type,
+                teamSize: row.team_size,
+                attacksPerMember: row.attacks_per_member,
+                preparationStartTime: row.preparation_start_time,
+                startTime: row.start_time,
+                endTime: row.end_time,
+                seasonId: row.season_id,
+                roundNumber: row.round_number,
+                lastObservedAt: row.last_observed_at,
+                home: {
+                    clanTag: row.home_clan_tag,
+                    clanName: row.home_clan_name,
+                    stars: row.home_stars,
+                    destructionPercentage: row.home_destruction_percentage,
+                },
+                opponent: {
+                    clanTag: row.opponent_clan_tag,
+                    clanName: row.opponent_clan_name,
+                    stars: row.opponent_stars,
+                    destructionPercentage: row.opponent_destruction_percentage,
+                },
+                homeMembers: memberRows.map((member) => ({
+                    playerTag: member.player_tag,
+                    playerName: member.player_name,
+                    mapPosition: member.map_position,
+                    attacksUsed: member.attacks_used,
+                })),
+            };
+        } catch (error: unknown) {
+            throw toDatabaseError(
+                error,
+                `[ClanwarRepo] Failed to load active war snapshot (clan_tag = ${clanTag}, war_type = ${warType})`,
+                { clanTag, warType },
+            );
+        }
+    }
+
+    getLatestCompletedRegularWar(clanTag: string): CompletedRegularWarSummary | null {
+        try {
+            const row = this.connection
+                .prepare<
+                    [string],
+                    {
+                        war_id: number;
+                        clan_tag: string;
+                        end_time: number;
+                        last_observed_at: number;
+                        home_clan_tag: string;
+                        home_clan_name: string;
+                        home_stars: number;
+                        home_destruction_percentage: number;
+                        opponent_clan_tag: string;
+                        opponent_clan_name: string;
+                        opponent_stars: number;
+                        opponent_destruction_percentage: number;
+                    }
+                >(GET_LATEST_COMPLETED_REGULAR_WAR_SQL)
+                .get(clanTag);
+
+            if (row === undefined) {
+                return null;
+            }
+
+            return {
+                warId: row.war_id,
+                clanTag: row.clan_tag,
+                endTime: row.end_time,
+                lastObservedAt: row.last_observed_at,
+                home: {
+                    clanTag: row.home_clan_tag,
+                    clanName: row.home_clan_name,
+                    stars: row.home_stars,
+                    destructionPercentage: row.home_destruction_percentage,
+                },
+                opponent: {
+                    clanTag: row.opponent_clan_tag,
+                    clanName: row.opponent_clan_name,
+                    stars: row.opponent_stars,
+                    destructionPercentage: row.opponent_destruction_percentage,
+                },
+                outcome: calculateClanwarOutcome(
+                    row.home_stars,
+                    row.opponent_stars,
+                    row.home_destruction_percentage,
+                    row.opponent_destruction_percentage,
+                ),
+            };
+        } catch (error: unknown) {
+            throw toDatabaseError(
+                error,
+                `[ClanwarRepo] Failed to load latest completed regular war (clan_tag = ${clanTag})`,
+                { clanTag },
+            );
+        }
+    }
+
+    getLatestCompletedRegularWarReference(
+        clanTag: string,
+    ): LatestCompletedRegularWarReference | null {
+        try {
+            const row = this.connection
+                .prepare<
+                    [string],
+                    {
+                        war_id: number;
+                        clan_tag: string;
+                        last_observed_at: number;
+                        home_clan_id: number;
+                        opponent_clan_id: number;
+                    }
+                >(GET_LATEST_COMPLETED_REGULAR_WAR_REFERENCE_SQL)
+                .get(clanTag);
+
+            if (row === undefined) {
+                return null;
+            }
+
+            return {
+                reference: {
+                    clanTag: row.clan_tag,
+                    warId: row.war_id,
+                    homeClanId: row.home_clan_id,
+                    opponentClanId: row.opponent_clan_id,
+                },
+                lastObservedAt: row.last_observed_at,
+            };
+        } catch (error: unknown) {
+            throw toDatabaseError(
+                error,
+                `[ClanwarRepo] Failed to load latest completed regular war reference (clan_tag = ${clanTag})`,
+                { clanTag },
+            );
+        }
     }
 }

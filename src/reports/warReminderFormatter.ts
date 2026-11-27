@@ -9,6 +9,7 @@ import {
     type WarReminderEvent,
 } from '../events/applicationEvents.js';
 import { DEFAULT_TIMEZONE_OFFSET_HOURS } from '../models/subscription.js';
+import { formatCountdownReminderBody } from './reminderFormatParts.js';
 
 const SECONDS_PER_HOUR = 60 * 60;
 const NOMINAL_SIX_HOURS_SECONDS = 6 * SECONDS_PER_HOUR;
@@ -72,7 +73,13 @@ export class WarReminderFormatter {
         return (
             `⏳ <b>До окончания войны ${remaining}</b>\n\n` +
             formatWarDetails(event, timezoneOffsetHours) +
-            '📢 Участники войны, используйте оставшиеся атаки, пока есть время!'
+            formatCountdownReminderBody({
+                callToAction: '📢 Участники войны, используйте оставшиеся атаки, пока есть время!',
+                commandHint: '/war',
+                mode: 'counter',
+                attackSnapshot: event.attackSnapshot,
+                timezoneOffsetHours,
+            })
         );
     }
 
@@ -86,7 +93,13 @@ export class WarReminderFormatter {
         return (
             `🚨 <b>До окончания войны ${remaining}</b>\n\n` +
             formatWarDetails(event, timezoneOffsetHours) +
-            '⏰ Участники войны, завершите все оставшиеся атаки!'
+            formatCountdownReminderBody({
+                callToAction: '⏰ Участники войны, завершите все оставшиеся атаки!',
+                commandHint: '/war',
+                mode: 'regular_war_list',
+                attackSnapshot: event.attackSnapshot,
+                timezoneOffsetHours,
+            })
         );
     }
 
@@ -111,7 +124,14 @@ export class WarReminderFormatter {
         return (
             `⏳ <b>До окончания раунда ЛВК ${remaining}</b>\n\n` +
             formatWarDetails(event, timezoneOffsetHours) +
-            '📢 Участники раунда ЛВК, используйте оставшиеся атаки, пока есть время!'
+            formatCountdownReminderBody({
+                callToAction:
+                    '📢 Участники раунда ЛВК, используйте оставшиеся атаки, пока есть время!',
+                commandHint: '/cwl',
+                mode: 'counter',
+                attackSnapshot: event.attackSnapshot,
+                timezoneOffsetHours,
+            })
         );
     }
 
@@ -125,7 +145,13 @@ export class WarReminderFormatter {
         return (
             `🚨 <b>До окончания раунда ЛВК ${remaining}</b>\n\n` +
             formatWarDetails(event, timezoneOffsetHours) +
-            '⏰ Участники раунда ЛВК, завершите все оставшиеся атаки!'
+            formatCountdownReminderBody({
+                callToAction: '⏰ Участники раунда ЛВК, завершите все оставшиеся атаки!',
+                commandHint: '/cwl',
+                mode: 'cwl_list',
+                attackSnapshot: event.attackSnapshot,
+                timezoneOffsetHours,
+            })
         );
     }
 }

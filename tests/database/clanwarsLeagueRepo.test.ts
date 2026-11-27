@@ -293,4 +293,251 @@ describe('ClanwarsLeagueRepo', () => {
         expect(rowCount(db, 'cwl_seasons')).toBe(0);
         expect(rowCount(db, 'cwl_season_members')).toBe(0);
     });
+
+    it('computes season progress summary over completed rounds only, respects round gaps and clan isolation, and reports latest CWL observation time', () => {
+        const { db, warRepo, cwlRepo } = setup();
+        db.exec("INSERT INTO clans(tag, name) VALUES ('#HOME', 'Home Clan');");
+        db.exec("INSERT INTO clans(tag, name) VALUES ('#OTHER', 'Other Clan');");
+
+        expect(cwlRepo.getLatestCwlObservedAt('#HOME')).toBeNull();
+
+        const seasonId = cwlRepo.saveCWLSeason({ clanTag: '#HOME', seasonId: '2026-11' });
+        const otherSeasonId = cwlRepo.saveCWLSeason({ clanTag: '#OTHER', seasonId: '2026-11' });
+
+        // Empty season before any completed rounds
+        expect(cwlRepo.getSeasonProgressSummary('#HOME', seasonId)).toEqual({
+            seasonLabel: '2026-11',
+            completedRounds: 0,
+            victories: 0,
+            defeats: 0,
+            draws: 0,
+            totalStars: 0,
+        });
+
+        // Round 1: victory by destruction percentage on equal stars
+        warRepo.saveCompleteClanwarData(
+            {
+                warUID: '#HOME_#HOME_#OPP1_1',
+                clanTag: '#HOME',
+                state: 'warEnded',
+                warType: WarTypes.CWL,
+                teamSize: 15,
+                attacksPerMember: 1,
+                preparationStartTime: 1_700_000_000,
+                startTime: 1_700_050_000,
+                endTime: 1_700_100_000,
+                seasonId,
+                roundNumber: 1,
+            },
+            {
+                home: {
+                    side: ClanType.Home,
+                    clanTag: '#HOME',
+                    clanName: 'Home Clan',
+                    clanLevel: 15,
+                    attacksCount: 15,
+                    stars: 35,
+                    destructionPercentage: 90.5,
+                },
+                opponent: {
+                    side: ClanType.Opponent,
+                    clanTag: '#OPP1',
+                    clanName: 'Opp 1',
+                    clanLevel: 15,
+                    attacksCount: 15,
+                    stars: 35,
+                    destructionPercentage: 88.2,
+                },
+            },
+            [],
+            { home: [], opponent: [] },
+            1_700_100_500,
+        );
+
+        // Round 2 skipped (#43); Round 3: defeat
+        warRepo.saveCompleteClanwarData(
+            {
+                warUID: '#HOME_#HOME_#OPP3_3',
+                clanTag: '#HOME',
+                state: 'warEnded',
+                warType: WarTypes.CWL,
+                teamSize: 15,
+                attacksPerMember: 1,
+                preparationStartTime: 1_700_200_000,
+                startTime: 1_700_250_000,
+                endTime: 1_700_300_000,
+                seasonId,
+                roundNumber: 3,
+            },
+            {
+                home: {
+                    side: ClanType.Home,
+                    clanTag: '#HOME',
+                    clanName: 'Home Clan',
+                    clanLevel: 15,
+                    attacksCount: 15,
+                    stars: 30,
+                    destructionPercentage: 80.0,
+                },
+                opponent: {
+                    side: ClanType.Opponent,
+                    clanTag: '#OPP3',
+                    clanName: 'Opp 3',
+                    clanLevel: 15,
+                    attacksCount: 15,
+                    stars: 33,
+                    destructionPercentage: 85.0,
+                },
+            },
+            [],
+            { home: [], opponent: [] },
+            1_700_300_500,
+        );
+
+        // Round 4: exact draw
+        warRepo.saveCompleteClanwarData(
+            {
+                warUID: '#HOME_#HOME_#OPP4_4',
+                clanTag: '#HOME',
+                state: 'warEnded',
+                warType: WarTypes.CWL,
+                teamSize: 15,
+                attacksPerMember: 1,
+                preparationStartTime: 1_700_400_000,
+                startTime: 1_700_450_000,
+                endTime: 1_700_500_000,
+                seasonId,
+                roundNumber: 4,
+            },
+            {
+                home: {
+                    side: ClanType.Home,
+                    clanTag: '#HOME',
+                    clanName: 'Home Clan',
+                    clanLevel: 15,
+                    attacksCount: 15,
+                    stars: 32,
+                    destructionPercentage: 82.0,
+                },
+                opponent: {
+                    side: ClanType.Opponent,
+                    clanTag: '#OPP4',
+                    clanName: 'Opp 4',
+                    clanLevel: 15,
+                    attacksCount: 15,
+                    stars: 32,
+                    destructionPercentage: 82.0,
+                },
+            },
+            [],
+            { home: [], opponent: [] },
+            1_700_500_500,
+        );
+
+        // Round 5: active inWar (must NOT be counted in completed rounds)
+        warRepo.saveCompleteClanwarData(
+            {
+                warUID: '#HOME_#HOME_#OPP5_5',
+                clanTag: '#HOME',
+                state: 'inWar',
+                warType: WarTypes.CWL,
+                teamSize: 15,
+                attacksPerMember: 1,
+                preparationStartTime: 1_700_600_000,
+                startTime: 1_700_650_000,
+                endTime: 1_700_700_000,
+                seasonId,
+                roundNumber: 5,
+            },
+            {
+                home: {
+                    side: ClanType.Home,
+                    clanTag: '#HOME',
+                    clanName: 'Home Clan',
+                    clanLevel: 15,
+                    attacksCount: 5,
+                    stars: 14,
+                    destructionPercentage: 30.0,
+                },
+                opponent: {
+                    side: ClanType.Opponent,
+                    clanTag: '#OPP5',
+                    clanName: 'Opp 5',
+                    clanLevel: 15,
+                    attacksCount: 4,
+                    stars: 10,
+                    destructionPercentage: 25.0,
+                },
+            },
+            [],
+            { home: [], opponent: [] },
+            1_700_660_000,
+        );
+
+        // Incomplete ended round (is_complete = 0) must be excluded
+        db.connection
+            .prepare(
+                `INSERT INTO wars(war_uid, clan_tag, state, war_type, team_size, attacks_per_member, preparation_start_time, start_time, end_time, season_id, round_number, is_complete, last_observed_at)
+                 VALUES ('#HOME_incomplete_r2', '#HOME', 'warEnded', 'cwl', 15, 1, 1700100000, 1700150000, 1700200000, ?, 2, 0, 1700200100);`,
+            )
+            .run(seasonId);
+
+        // Other clan's completed round in its own season must not leak
+        warRepo.saveCompleteClanwarData(
+            {
+                warUID: '#OTHER_#OTHER_#OPP9_1',
+                clanTag: '#OTHER',
+                state: 'warEnded',
+                warType: WarTypes.CWL,
+                teamSize: 15,
+                attacksPerMember: 1,
+                preparationStartTime: 1_700_000_000,
+                startTime: 1_700_050_000,
+                endTime: 1_700_100_000,
+                seasonId: otherSeasonId,
+                roundNumber: 1,
+            },
+            {
+                home: {
+                    side: ClanType.Home,
+                    clanTag: '#OTHER',
+                    clanName: 'Other Clan',
+                    clanLevel: 10,
+                    attacksCount: 15,
+                    stars: 45,
+                    destructionPercentage: 100,
+                },
+                opponent: {
+                    side: ClanType.Opponent,
+                    clanTag: '#OPP9',
+                    clanName: 'Opp 9',
+                    clanLevel: 10,
+                    attacksCount: 10,
+                    stars: 20,
+                    destructionPercentage: 50,
+                },
+            },
+            [],
+            { home: [], opponent: [] },
+            1_700_999_000,
+        );
+
+        expect(cwlRepo.getSeasonProgressSummary('#HOME', seasonId)).toEqual({
+            seasonLabel: '2026-11',
+            completedRounds: 3,
+            victories: 1,
+            defeats: 1,
+            draws: 1,
+            totalStars: 97,
+        });
+        expect(cwlRepo.getSeasonProgressSummary('#HOME', 999999)).toEqual({
+            seasonLabel: null,
+            completedRounds: 0,
+            victories: 0,
+            defeats: 0,
+            draws: 0,
+            totalStars: 0,
+        });
+        expect(cwlRepo.getLatestCwlObservedAt('#HOME')).toBe(1_700_660_000);
+    });
 });

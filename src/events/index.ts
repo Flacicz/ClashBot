@@ -13,6 +13,8 @@ export {
     type RaidReminderEvent,
     type RaidReminderKind,
     type RaidsEndedEvent,
+    type ReminderAttackSnapshot,
+    type ReminderPendingPlayer,
     type SyncFailureEvent,
     type SyncRecoveryEvent,
     type WarEndedEvent,

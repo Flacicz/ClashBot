@@ -16,6 +16,8 @@ import {
     buildClanUnlinkCancelCallbackData,
     buildClanUnlinkConfirmCallbackData,
     buildClanUnlinkListCallbackData,
+    buildClanViewReliabilityCallbackData,
+    buildClanViewRosterCallbackData,
     buildGuideCallbackData,
     buildSettingsCategoryCallbackData,
     buildSettingsMirrorCallbackData,
@@ -26,9 +28,12 @@ import {
     buildSettingsTimezoneSetCallbackData,
     buildStrategyCallbackData,
     buildTownHallCallbackData,
+    buildViewClanCallbackData,
+    buildViewEntryCallbackData,
     CALLBACK_COMMANDS,
     type UnlinkCallbackSource,
 } from './callbackData.js';
+import type { ViewCallbackSource, ViewCommandName } from './viewCommon.js';
 import {
     CLAN_TRACKING_STATUS_ICONS,
     formatClanButtonLabel,
@@ -70,8 +75,18 @@ export interface ClanUnlinkKeyboardItem {
     readonly clanName?: string | null;
 }
 
+export interface ViewClanPickerItem {
+    readonly clanTag: string;
+    readonly clanName?: string | null;
+}
+
 const MAIN_MENU_BUTTON: InlineKeyboardButton = {
     text: '🏠 В главное меню',
+    callback_data: CALLBACK_COMMANDS.MENU_START,
+};
+
+const BACK_TO_START_MENU_BUTTON: InlineKeyboardButton = {
+    text: '⬅️ Назад',
     callback_data: CALLBACK_COMMANDS.MENU_START,
 };
 
@@ -83,15 +98,152 @@ const DEFAULT_SETTINGS_BACK_BUTTON: InlineKeyboardButton = {
 const TOWN_HALL_BUTTONS_PER_ROW = 3;
 const TIMEZONE_GRID_BUTTONS_PER_ROW = 3;
 
+/**
+ * Ряд кнопок просмотра в главном меню `/start`:
+ * `⚔️ КВ` (#91), `🏆 ЛВК` (#92), `🏰 Рейд` (#93), `🛡 Клан` (#94).
+ */
+const START_MENU_VIEW_ROW: readonly InlineKeyboardButton[] = [
+    { text: '⚔️ КВ', callback_data: buildViewEntryCallbackData('war') },
+    { text: '🏆 ЛВК', callback_data: buildViewEntryCallbackData('cwl') },
+    { text: '🏰 Рейд', callback_data: buildViewEntryCallbackData('raid') },
+    { text: '🛡 Клан', callback_data: buildViewEntryCallbackData('clan') },
+];
+
 export function makeStartMenuKeyboard(): InlineKeyboardMarkup {
     return {
         inline_keyboard: [
+            [...START_MENU_VIEW_ROW],
             [{ text: '🎥 Гайды по атакам', callback_data: CALLBACK_COMMANDS.GUIDES_TOWNHALLS }],
             [{ text: '🔗 Подключить клан', callback_data: CALLBACK_COMMANDS.CLANS_LINK }],
             [{ text: '📋 Мои кланы', callback_data: CALLBACK_COMMANDS.CLANS_LIST }],
             [{ text: '❌ Отключить клан', callback_data: CALLBACK_COMMANDS.CLANS_UNLINK }],
             [{ text: '❓ Помощь', callback_data: CALLBACK_COMMANDS.HELP_MAIN }],
         ],
+    };
+}
+
+export function makeViewBackToMenuKeyboard(): InlineKeyboardMarkup {
+    return {
+        inline_keyboard: [[BACK_TO_START_MENU_BUTTON]],
+    };
+}
+
+export function makeViewResultKeyboard(
+    view: ViewCommandName,
+    clanTag: string,
+    source: ViewCallbackSource,
+): InlineKeyboardMarkup {
+    const refreshButton: InlineKeyboardButton = {
+        text: '🔄 Обновить',
+        callback_data: buildViewClanCallbackData(view, clanTag, source),
+    };
+
+    if (source === 'menu') {
+        return {
+            inline_keyboard: [[refreshButton, BACK_TO_START_MENU_BUTTON]],
+        };
+    }
+
+    return {
+        inline_keyboard: [[refreshButton]],
+    };
+}
+
+export function makeClanViewKeyboard(
+    clanTag: string,
+    source: ViewCallbackSource,
+    canViewDiscipline: boolean,
+): InlineKeyboardMarkup {
+    const rows: InlineKeyboardButton[][] = [
+        [
+            {
+                text: '👥 Состав',
+                callback_data: buildClanViewRosterCallbackData(clanTag, source),
+            },
+        ],
+    ];
+
+    if (canViewDiscipline) {
+        rows.push([
+            {
+                text: '📊 Надёжность состава',
+                callback_data: buildClanViewReliabilityCallbackData(clanTag, source),
+            },
+        ]);
+    }
+
+    const refreshButton: InlineKeyboardButton = {
+        text: '🔄 Обновить',
+        callback_data: buildViewClanCallbackData('clan', clanTag, source),
+    };
+
+    if (source === 'menu') {
+        rows.push([refreshButton, BACK_TO_START_MENU_BUTTON]);
+    } else {
+        rows.push([refreshButton]);
+    }
+
+    return { inline_keyboard: rows };
+}
+
+export function makeClanRosterViewKeyboard(
+    clanTag: string,
+    source: ViewCallbackSource,
+): InlineKeyboardMarkup {
+    return {
+        inline_keyboard: [
+            [
+                {
+                    text: '🔄 Обновить',
+                    callback_data: buildClanViewRosterCallbackData(clanTag, source),
+                },
+                {
+                    text: '⬅️ Назад',
+                    callback_data: buildViewClanCallbackData('clan', clanTag, source),
+                },
+            ],
+        ],
+    };
+}
+
+export function makeClanReliabilityViewKeyboard(
+    clanTag: string,
+    source: ViewCallbackSource,
+): InlineKeyboardMarkup {
+    return {
+        inline_keyboard: [
+            [
+                {
+                    text: '🔄 Обновить',
+                    callback_data: buildClanViewReliabilityCallbackData(clanTag, source),
+                },
+                {
+                    text: '⬅️ Назад',
+                    callback_data: buildViewClanCallbackData('clan', clanTag, source),
+                },
+            ],
+        ],
+    };
+}
+
+export function makeViewClanPickerKeyboard(
+    view: ViewCommandName,
+    clans: readonly ViewClanPickerItem[],
+    source: ViewCallbackSource,
+): InlineKeyboardMarkup {
+    const rows: InlineKeyboardButton[][] = clans.map((clan) => [
+        {
+            text: formatClanButtonLabel(clan.clanTag, clan.clanName),
+            callback_data: buildViewClanCallbackData(view, clan.clanTag, source),
+        },
+    ]);
+
+    if (source === 'menu') {
+        rows.push([BACK_TO_START_MENU_BUTTON]);
+    }
+
+    return {
+        inline_keyboard: rows,
     };
 }
 

@@ -4,6 +4,7 @@ import {
     APPLICATION_EVENT_TYPES,
     getApplicationEventKey,
     type ApplicationEvent,
+    type ReminderAttackSnapshot,
 } from '../events/applicationEvents.js';
 
 export const CURRENT_DOMAIN_EVENT_PAYLOAD_VERSION = 1;
@@ -14,6 +15,26 @@ function serializeClanwarReference(reference: ClanwarReference): Record<string, 
         war_id: reference.warId,
         home_clan_id: reference.homeClanId,
         opponent_clan_id: reference.opponentClanId,
+    };
+}
+
+function serializeReminderAttackSnapshot(
+    snapshot: ReminderAttackSnapshot,
+): Record<string, unknown> {
+    return {
+        snapshot_at: snapshot.snapshotAt,
+        total_participants: snapshot.totalParticipants,
+        pending_participants_count: snapshot.pendingParticipantsCount,
+        ...(snapshot.pendingPlayers !== undefined
+            ? {
+                  pending_players: snapshot.pendingPlayers.map((player) => ({
+                      player_tag: player.playerTag,
+                      player_name: player.playerName,
+                      attacks_used: player.attacksUsed,
+                      max_attacks: player.maxAttacks,
+                  })),
+              }
+            : {}),
     };
 }
 
@@ -79,6 +100,9 @@ function buildPayload(event: ApplicationEvent): Record<string, unknown> {
                 ...(event.remainingSeconds !== undefined
                     ? { remaining_seconds: event.remainingSeconds }
                     : {}),
+                ...(event.attackSnapshot !== undefined
+                    ? { attack_snapshot: serializeReminderAttackSnapshot(event.attackSnapshot) }
+                    : {}),
             };
         case APPLICATION_EVENT_TYPES.raidReminder:
             return {
@@ -89,6 +113,9 @@ function buildPayload(event: ApplicationEvent): Record<string, unknown> {
                 reminder_kind: event.kind,
                 ...(event.remainingSeconds !== undefined
                     ? { remaining_seconds: event.remainingSeconds }
+                    : {}),
+                ...(event.attackSnapshot !== undefined
+                    ? { attack_snapshot: serializeReminderAttackSnapshot(event.attackSnapshot) }
                     : {}),
             };
         default:

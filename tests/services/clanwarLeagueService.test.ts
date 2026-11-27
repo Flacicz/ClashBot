@@ -1382,4 +1382,131 @@ describe('ClanwarLeagueService', () => {
             'До окончания раунда ЛВК осталось 4 часа 10 минут',
         );
     });
+
+    it('captures CWL attack snapshots (counter with /cwl at 6h, compact list at 1h, and all-used) end-to-end', async () => {
+        const startTime = 1_703_980_800;
+        const endTime = 1_704_067_200;
+        const {
+            db,
+            clock,
+            clansRepo,
+            clanwarRepo,
+            leagueRepo,
+            subscriptionRepo,
+            domainEventsRepo,
+            apiClient,
+            service,
+        } = setup(endTime - 6 * SECONDS_PER_HOUR);
+
+        clansRepo.insertMinimalClan(CLAN_TAG);
+        subscriptionRepo.saveTelegramChat(-1001, 0, 'Players');
+        subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
+
+        const baseRound = makeCwlWar({
+            opponentTag: '#OPP1',
+            warUID: 'cwl-snap-r1',
+            state: 'inWar',
+            roundNumber: 1,
+            preparationStartTime: startTime - 24 * SECONDS_PER_HOUR,
+            startTime,
+            endTime,
+            withDetails: true,
+        });
+        const roundWithMembers: CompleteClanwarsLeagueRoundData = {
+            ...baseRound,
+            clanwar: { ...baseRound.clanwar, teamSize: 3, attacksPerMember: 1 },
+            members: [
+                [
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P1',
+                        playerName: 'Alice',
+                        townhallLevel: 16,
+                        mapPosition: 1,
+                    },
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P2',
+                        playerName: 'Bob',
+                        townhallLevel: 15,
+                        mapPosition: 2,
+                    },
+                    {
+                        clanTag: CLAN_TAG,
+                        playerTag: '#P3',
+                        playerName: 'Bob',
+                        townhallLevel: 14,
+                        mapPosition: 3,
+                    },
+                ],
+                baseRound.members[1],
+            ],
+        };
+
+        apiClient.leagueData = {
+            clanwarsLeagueSeason: { clanTag: CLAN_TAG, seasonId: '2026-09' },
+            clanwarsLeagueMembers: [],
+            warDetails: [roundWithMembers],
+        };
+
+        // 6h left -> counter with /cwl (2 of 3 pending: #P1 attacked, #P2 & #P3 pending)
+        const sixHours = await service.updateData(CLAN_TAG);
+        expect(sixHours.events).toHaveLength(1);
+        const sixHoursEvent = sixHours.events[0];
+        if (sixHoursEvent?.type !== APPLICATION_EVENT_TYPES.warReminder) {
+            throw new Error('Expected CWL six_hours_left WarReminderEvent');
+        }
+        expect(sixHoursEvent.attackSnapshot).toEqual({
+            snapshotAt: endTime - 6 * SECONDS_PER_HOUR,
+            totalParticipants: 3,
+            pendingParticipantsCount: 2,
+        });
+
+        // 1h left -> compact list with duplicate nicks disambiguated
+        clock.setNow((endTime - SECONDS_PER_HOUR) * 1000);
+        const oneHour = await service.updateData(CLAN_TAG);
+        const oneHourEvent = oneHour.events[0];
+        if (oneHourEvent?.type !== APPLICATION_EVENT_TYPES.warReminder) {
+            throw new Error('Expected CWL one_hour_left WarReminderEvent');
+        }
+        expect(oneHourEvent.attackSnapshot).toEqual({
+            snapshotAt: endTime - SECONDS_PER_HOUR,
+            totalParticipants: 3,
+            pendingParticipantsCount: 2,
+            pendingPlayers: [
+                { playerTag: '#P2', playerName: 'Bob', attacksUsed: 0, maxAttacks: 1 },
+                { playerTag: '#P3', playerName: 'Bob', attacksUsed: 0, maxAttacks: 1 },
+            ],
+        });
+
+        const txManager = new TransactionManager(db);
+        const notificationRepo = new NotificationRepo(db);
+        const notificationService = new NotificationService({
+            notificationRepo,
+            clansRepo,
+            clanwarRepo,
+            clanwarsLeagueRepo: leagueRepo,
+            raidRepo: new RaidRepo(db),
+            subscriptionRepo,
+        });
+        const worker = new DomainEventWorker({
+            domainEventsRepo,
+            transactionManager: txManager,
+            deserializer: new DomainEventPayloadDeserializer(),
+            materializer: notificationService,
+            clock,
+        });
+        worker.processPending();
+
+        const rows = db.connection
+            .prepare<[], { message_text: string }>(
+                'SELECT message_text FROM notifications ORDER BY id;',
+            )
+            .all();
+        expect(rows).toHaveLength(2);
+        expect(rows[0]?.message_text).toContain('Ещё не атаковали: 2 из 3 — список: /cwl');
+        expect(rows[0]?.message_text).toContain('по данным на 21:00 (UTC+3)');
+        expect(rows[1]?.message_text).toContain('Ещё не атаковали (2): Bob (#P2), Bob (#P3)');
+        expect(rows[1]?.message_text).toContain('по данным на 02:00 (UTC+3)');
+    });
 });

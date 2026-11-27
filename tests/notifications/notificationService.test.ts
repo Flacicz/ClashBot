@@ -2059,4 +2059,106 @@ describe('NotificationService & DomainEventMaterializer', () => {
             '01.01.2024 14:00 (UTC+14)',
         );
     });
+
+    it('splits long one_hour_left war and raid reminder player lists via htmlMessageSplitter while preserving expires_at, HTML escaping, and idempotency', () => {
+        const ctx = setup();
+        const endTime = 1_704_067_200;
+        const snapshotAt = endTime - 3600;
+
+        // Generate 160 pending players with long nicknames + HTML characters to exceed 3900 visible chars
+        const longWarPending = Array.from({ length: 160 }, (_, index) => ({
+            playerTag: `#W${String(index + 1).padStart(4, '0')}`,
+            playerName: `VeryLongWarPlayerName_${String(index + 1).padStart(3, '0')} <Clan&>`,
+            attacksUsed: index % 2,
+            maxAttacks: 2,
+        }));
+        const longRaidPending = Array.from({ length: 160 }, (_, index) => ({
+            playerTag: `#R${String(index + 1).padStart(4, '0')}`,
+            playerName: `VeryLongRaidPlayerName_${String(index + 1).padStart(3, '0')} <Cap&>`,
+            attacksUsed: index % 2 === 0 ? 0 : 3,
+            maxAttacks: 6,
+        }));
+
+        const events: ApplicationEvent[] = [
+            {
+                type: APPLICATION_EVENT_TYPES.warReminder,
+                clanTag: CLAN_TAG,
+                warId: 701,
+                endTime,
+                warKind: WAR_REMINDER_WAR_KINDS.regular,
+                kind: WAR_REMINDER_KINDS.oneHourLeft,
+                remainingSeconds: 3600,
+                attackSnapshot: {
+                    snapshotAt,
+                    totalParticipants: 160,
+                    pendingParticipantsCount: 160,
+                    pendingPlayers: longWarPending,
+                },
+            },
+            {
+                type: APPLICATION_EVENT_TYPES.raidReminder,
+                clanTag: CLAN_TAG,
+                raidReference: { raidId: 702 },
+                endTime,
+                kind: RAID_REMINDER_KINDS.oneHourLeft,
+                remainingSeconds: 3600,
+                attackSnapshot: {
+                    snapshotAt,
+                    totalParticipants: 160,
+                    pendingParticipantsCount: 160,
+                    pendingPlayers: longRaidPending,
+                },
+            },
+        ];
+
+        ctx.recorder.recordAll(events);
+        const destinations = ctx.domainEventsRepo.getPendingDestinations(20);
+        expect(destinations).toHaveLength(2);
+
+        for (const dest of destinations) {
+            const event = events.find((e) => e.type === dest.eventType);
+            expect(event).toBeDefined();
+            if (event !== undefined) {
+                ctx.notificationService.materialize(event, dest);
+                // Re-materializing the same destination is idempotent across all parts
+                ctx.notificationService.materialize(event, dest);
+            }
+        }
+
+        const rows = getAllNotificationRows(ctx.db);
+        const warParts = rows.filter((r) => r.event_type === NOTIFICATION_EVENT_TYPES.warReminder);
+        const raidParts = rows.filter(
+            (r) => r.event_type === NOTIFICATION_EVENT_TYPES.raidReminder,
+        );
+
+        expect(warParts.length).toBeGreaterThan(1);
+        expect(raidParts.length).toBeGreaterThan(1);
+
+        for (const group of [warParts, raidParts]) {
+            group.forEach((part, idx) => {
+                expect(part.part_index).toBe(idx + 1);
+                expect(part.part_count).toBe(group.length);
+                expect(part.expires_at).toBe(endTime);
+                const visibleLen = countTelegramHtmlVisibleLength(part.message_text);
+                expect(visibleLen).toBeLessThanOrEqual(DEFAULT_TELEGRAM_MAX_VISIBLE_LENGTH);
+                expect(visibleLen).toBeLessThanOrEqual(TELEGRAM_HARD_MAX_VISIBLE_LENGTH);
+                expect(part.message_text).toContain(
+                    `<i>Часть ${String(idx + 1)}/${String(group.length)}</i>`,
+                );
+                // Escaped HTML entities must never contain raw unescaped `<Clan` or `<Cap`
+                expect(part.message_text).not.toContain('<Clan');
+                expect(part.message_text).not.toContain('<Cap');
+            });
+
+            const combined = group.map((p) => p.message_text).join('\n');
+            expect(combined).toContain('по данным на 02:00 (UTC+3)');
+        }
+
+        expect(warParts.map((p) => p.message_text).join('\n')).toContain(
+            'VeryLongWarPlayerName_160 &lt;Clan&amp;&gt;',
+        );
+        expect(raidParts.map((p) => p.message_text).join('\n')).toContain(
+            'VeryLongRaidPlayerName_160 &lt;Cap&amp;&gt; 3/6',
+        );
+    });
 });

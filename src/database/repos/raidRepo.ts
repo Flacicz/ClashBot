@@ -1,7 +1,11 @@
 import type {
+    ActiveRaidEligibleMember,
+    ActiveRaidSnapshot,
     ClanRaid,
+    CompletedRaidSummary,
     PlayerRaidSnapshot,
     RaidComparisonStats,
+    RaidMemberAttackState,
     RaidMemberStats,
     RaidReference,
     RaidSlacker,
@@ -9,6 +13,8 @@ import type {
 } from '../../models/raid.js';
 import { type Database, type SqliteConnection } from '../database.js';
 import { BaseRepository, getNumber, getString } from './baseRepository.js';
+
+export type { ActiveRaidEligibleMember, ActiveRaidSnapshot, CompletedRaidSummary };
 
 export class RaidRepo extends BaseRepository {
     constructor(connectionOrDb: Database | SqliteConnection) {
@@ -201,6 +207,53 @@ export class RaidRepo extends BaseRepository {
             'load raid slackers',
             `raid_id = ${String(reference.raidId)}`,
             (row): RaidSlacker => ({
+                playerTag: getString(row, 'tag'),
+                playerName: getString(row, 'name'),
+                attacksCount: getNumber(row, 'attacks_done'),
+                bonusAttacks: getNumber(row, 'bonus_attacks'),
+            }),
+            reference.raidId,
+        );
+    }
+
+    getRaidEligibleMemberAttackStates(reference: RaidReference): RaidMemberAttackState[] {
+        // Matches the exact #47 eligible cohort: clan members present at raid start_time
+        // who have not left before end_time. Late joiners and leavers are excluded.
+        const sql = `
+            WITH target_raid AS (
+                SELECT id, clan_tag, start_time, end_time
+                FROM clan_raids
+                WHERE id = ?
+            ),
+            eligible_members AS (
+                SELECT DISTINCT cm.player_tag
+                FROM target_raid AS r
+                JOIN clan_memberships AS cm
+                    ON cm.clan_tag = r.clan_tag
+                   AND cm.joined_at <= r.start_time
+                   AND (cm.left_at IS NULL OR cm.left_at >= r.end_time)
+            )
+            SELECT
+                p.tag,
+                p.name,
+                COALESCE(s.attacks_count, 0) AS attacks_done,
+                COALESCE(s.bonus_attacks, 0) AS bonus_attacks
+            FROM target_raid AS r
+            JOIN eligible_members AS em
+                ON 1 = 1
+            JOIN players AS p
+                ON p.tag = em.player_tag
+            LEFT JOIN player_raid_snapshots AS s
+                ON s.player_tag = em.player_tag
+               AND s.raid_id = r.id
+            ORDER BY attacks_done ASC, p.name ASC, p.tag ASC;
+        `;
+
+        return this.query(
+            sql,
+            'load raid eligible member attack states',
+            `raid_id = ${String(reference.raidId)}`,
+            (row): RaidMemberAttackState => ({
                 playerTag: getString(row, 'tag'),
                 playerName: getString(row, 'name'),
                 attacksCount: getNumber(row, 'attacks_done'),
@@ -438,5 +491,147 @@ export class RaidRepo extends BaseRepository {
             limit,
             limit,
         );
+    }
+
+    /**
+     * Loads the active ongoing raid weekend for a clan along with its eligible member cohort
+     * (members in clan at raid start_time who have not left before end_time, matching #47).
+     */
+    getActiveRaid(clanTag: string, nowEpochSeconds: number): ActiveRaidSnapshot | null {
+        const raidSql = `
+            SELECT
+                id,
+                clan_tag,
+                start_time,
+                end_time,
+                state,
+                total_loot,
+                raids_completed,
+                total_attacks,
+                enemy_districts_destroyed,
+                COALESCE(last_observed_at, created_at) AS last_observed_at
+            FROM clan_raids
+            WHERE clan_tag = ?
+              AND state = 'ongoing'
+              AND end_time > ?
+            ORDER BY start_time DESC, id DESC
+            LIMIT 1;
+        `;
+
+        const raid = this.queryOptional(
+            raidSql,
+            'load active raid',
+            `clan_tag = ${clanTag}`,
+            (row) => ({
+                raidId: getNumber(row, 'id'),
+                clanTag: getString(row, 'clan_tag'),
+                startTime: getNumber(row, 'start_time'),
+                endTime: getNumber(row, 'end_time'),
+                state: getString(row, 'state'),
+                totalLoot: getNumber(row, 'total_loot'),
+                raidsCompleted: getNumber(row, 'raids_completed'),
+                totalAttacks: getNumber(row, 'total_attacks'),
+                enemyDistrictsDestroyed: getNumber(row, 'enemy_districts_destroyed'),
+                lastObservedAt: getNumber(row, 'last_observed_at'),
+            }),
+            clanTag,
+            nowEpochSeconds,
+        );
+
+        if (raid === undefined) {
+            return null;
+        }
+
+        const membersSql = `
+            WITH target_raid AS (
+                SELECT id, clan_tag, start_time, end_time
+                FROM clan_raids
+                WHERE id = ?
+            ),
+            eligible_members AS (
+                SELECT DISTINCT cm.player_tag
+                FROM target_raid AS r
+                JOIN clan_memberships AS cm
+                    ON cm.clan_tag = r.clan_tag
+                   AND cm.joined_at <= r.start_time
+                   AND (cm.left_at IS NULL OR cm.left_at >= r.end_time)
+            )
+            SELECT
+                p.tag AS player_tag,
+                p.name AS player_name,
+                COALESCE(s.attacks_count, 0) AS attacks_count,
+                COALESCE(s.bonus_attacks, 0) AS bonus_attacks
+            FROM target_raid AS r
+            JOIN eligible_members AS em
+                ON 1 = 1
+            JOIN players AS p
+                ON p.tag = em.player_tag
+            LEFT JOIN player_raid_snapshots AS s
+                ON s.raid_id = r.id
+               AND s.player_tag = em.player_tag
+            ORDER BY attacks_count ASC, p.name ASC, p.tag ASC;
+        `;
+
+        const eligibleMembers = this.query(
+            membersSql,
+            'load active raid eligible members',
+            `raid_id = ${String(raid.raidId)}`,
+            (row): ActiveRaidEligibleMember => ({
+                playerTag: getString(row, 'player_tag'),
+                playerName: getString(row, 'player_name'),
+                attacksCount: getNumber(row, 'attacks_count'),
+                bonusAttacks: getNumber(row, 'bonus_attacks'),
+            }),
+            raid.raidId,
+        );
+
+        return {
+            ...raid,
+            eligibleMembers,
+        };
+    }
+
+    /**
+     * Loads the most recent completed raid weekend (`state = 'ended' AND is_complete = 1`) for a clan.
+     */
+    getLatestCompletedRaid(clanTag: string): CompletedRaidSummary | null {
+        const sql = `
+            SELECT
+                id,
+                clan_tag,
+                start_time,
+                end_time,
+                total_loot,
+                raids_completed,
+                total_attacks,
+                enemy_districts_destroyed,
+                COALESCE(last_observed_at, created_at) AS last_observed_at
+            FROM clan_raids
+            WHERE clan_tag = ?
+              AND state = 'ended'
+              AND is_complete = 1
+            ORDER BY end_time DESC, start_time DESC, id DESC
+            LIMIT 1;
+        `;
+
+        const result = this.queryOptional(
+            sql,
+            'load latest completed raid',
+            `clan_tag = ${clanTag}`,
+            (row): CompletedRaidSummary => ({
+                raidId: getNumber(row, 'id'),
+                clanTag: getString(row, 'clan_tag'),
+                startTime: getNumber(row, 'start_time'),
+                endTime: getNumber(row, 'end_time'),
+                totalLoot: getNumber(row, 'total_loot'),
+                raidsCompleted: getNumber(row, 'raids_completed'),
+                totalAttacks: getNumber(row, 'total_attacks'),
+                enemyDistrictsDestroyed: getNumber(row, 'enemy_districts_destroyed'),
+                lastObservedAt: getNumber(row, 'last_observed_at'),
+            }),
+            clanTag,
+        );
+
+        return result ?? null;
     }
 }

@@ -18,7 +18,7 @@ import {
 } from '../events/applicationEvents.js';
 import type { Logger } from '../logging/logger.js';
 import type { RaidReference } from '../models/raid.js';
-import { selectRaidReminders } from './reminders.js';
+import { buildRaidReminderAttackSnapshot, selectRaidReminders } from './reminders.js';
 import { createSyncError, createSyncSuccess, type SyncResult } from './syncResult.js';
 import type { SyncService } from './syncService.js';
 
@@ -50,6 +50,7 @@ function generateEvents(
     clanTag: string,
     clanRaid: ClanRaid,
     reference: RaidReference,
+    raidRepo: RaidRepo,
     nowEpochSeconds: number,
 ): GeneratedRaidEvents {
     const events: ApplicationEvent[] = [];
@@ -73,15 +74,23 @@ function generateEvents(
         }
 
         if (selection.activeKind !== null) {
+            const isCountdown = selection.activeKind !== RAID_REMINDER_KINDS.started;
+            const attackSnapshot = isCountdown
+                ? buildRaidReminderAttackSnapshot(
+                      raidRepo.getRaidEligibleMemberAttackStates(reference),
+                      nowEpochSeconds,
+                      selection.activeKind === RAID_REMINDER_KINDS.oneHourLeft,
+                  )
+                : undefined;
+
             events.push({
                 type: APPLICATION_EVENT_TYPES.raidReminder,
                 clanTag,
                 raidReference: reference,
                 endTime: clanRaid.endTime,
                 kind: selection.activeKind,
-                ...(selection.activeKind !== RAID_REMINDER_KINDS.started
-                    ? { remainingSeconds: selection.remainingSeconds }
-                    : {}),
+                ...(isCountdown ? { remainingSeconds: selection.remainingSeconds } : {}),
+                ...(attackSnapshot !== undefined ? { attackSnapshot } : {}),
             });
         }
     }
@@ -184,6 +193,7 @@ export class RaidService implements SyncService {
                     clanTag,
                     clanRaid,
                     reference,
+                    this.raidRepo,
                     nowEpochSeconds,
                 );
 

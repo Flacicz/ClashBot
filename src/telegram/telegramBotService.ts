@@ -10,15 +10,18 @@ import type {
 
 import { isCocApiError } from '../api/errors.js';
 import type { ClashOfClansApi, CompleteClanData } from '../api/models.js';
-import type { Clock } from '../common/clock.js';
+import { SystemClock, type Clock } from '../common/clock.js';
 import { DatabaseError, isAbortError, ValidationError } from '../common/errors.js';
 import { escapeHtml } from '../common/formatUtils.js';
 import { DEFAULT_MAX_TRACKED_CLANS } from '../config/configSchema.js';
 import type {
     ClansRepo,
     ClanSubscriptionSummary,
+    ClanwarRepo,
+    ClanwarsLeagueRepo,
     DomainEventsRepo,
     NotificationRepo,
+    RaidRepo,
     SubscriptionRecord,
     SubscriptionRepo,
     TransactionManager,
@@ -42,13 +45,25 @@ import {
     parseCallbackContext,
     parseKnownCallbackData,
 } from './callbackData.js';
+import {
+    CLAN_RELIABILITY_FORBIDDEN_TEXT,
+    formatClanCardView,
+    formatClanReliabilityView,
+    formatClanRosterView,
+    loadClanCardViewData,
+    loadClanReliabilityViewData,
+    loadClanRosterViewData,
+} from './clanView.js';
 import { CommandRateLimiter } from './commandRateLimiter.js';
 import { type BotCommand, parseBotCommand } from './commands.js';
 import {
     type InlineKeyboardMarkup,
     makeClanCardKeyboard,
+    makeClanReliabilityViewKeyboard,
+    makeClanRosterViewKeyboard,
     makeClanUnlinkConfirmKeyboard,
     makeClanUnlinkListKeyboard,
+    makeClanViewKeyboard,
     makeGuideListKeyboard,
     makeGuideNavigationKeyboard,
     makeHelpNavigationKeyboard,
@@ -63,6 +78,9 @@ import {
     makeTimezoneAllSelectKeyboard,
     makeTimezoneQuickSelectKeyboard,
     makeTownHallListKeyboard,
+    makeViewBackToMenuKeyboard,
+    makeViewClanPickerKeyboard,
+    makeViewResultKeyboard,
 } from './keyboards.js';
 import {
     COMMAND_RATE_LIMIT_EXCEEDED_TEXT,
@@ -84,6 +102,7 @@ import {
     paginateItems,
     resolveClanTrackingStatus,
 } from './myClans.js';
+import { formatRaidView, loadRaidViewData } from './raidView.js';
 import {
     formatSubscriptionSettingsText,
     formatTimezoneAllSelectText,
@@ -91,6 +110,19 @@ import {
     LAST_CATEGORY_ALERT_TEXT,
 } from './subscriptionSettings.js';
 import { isSupportedTelegramChatType, resolveDefaultPreset } from './validation.js';
+import {
+    formatViewClanNotSubscribedText,
+    formatViewClanSelectText,
+    formatViewInvalidArgumentsText,
+    formatViewInvalidTagText,
+    formatViewNoClansText,
+    resolveViewClanSubscription,
+    VIEW_LOAD_ERROR_TEXT,
+    type ViewCallbackSource,
+    type ViewCommandName,
+} from './viewCommon.js';
+import { formatCwlView, loadCwlViewData } from './cwlView.js';
+import { formatWarView, loadWarViewData } from './warView.js';
 
 export const TELEGRAM_BOT_ALLOWED_UPDATES = [
     'message',
@@ -107,6 +139,10 @@ export const SUPERCELL_FAN_CONTENT_DISCLAIMER =
 
 export const TELEGRAM_BOT_COMMANDS: readonly GrammyBotCommand[] = [
     { command: 'start', description: 'Главное меню и гайды по атакам' },
+    { command: 'war', description: 'Текущая война кланов: /war [#ТЕГ_КЛАНА]' },
+    { command: 'cwl', description: 'Текущий сезон и раунд ЛВК: /cwl [#ТЕГ_КЛАНА]' },
+    { command: 'raid', description: 'Текущий рейдовый уикенд: /raid [#ТЕГ_КЛАНА]' },
+    { command: 'clan', description: 'Карточка клана и состав: /clan [#ТЕГ_КЛАНА]' },
     { command: 'help', description: 'Справка по командам, правам и пресетам' },
     { command: 'link', description: 'Подключить клан: /link #ТЕГ_КЛАНА' },
     { command: 'unlink', description: 'Отключить клан: /unlink #ТЕГ_КЛАНА' },
@@ -127,11 +163,16 @@ const HELP_TEXT =
     '❓ Помощь\n\n' +
     '<b>Команды:</b>\n' +
     '/start — главное меню и гайды по атакам\n' +
+    '/war [#ТЕГ_КЛАНА] — текущая обычная КВ из локальной базы\n' +
+    '/cwl [#ТЕГ_КЛАНА] — текущий сезон и раунд ЛВК из локальной базы\n' +
+    '/raid [#ТЕГ_КЛАНА] — текущий рейдовый уикенд из локальной базы\n' +
+    '/clan [#ТЕГ_КЛАНА] — карточка клана, настройки чата и состав из локальной базы\n' +
     '/help — эта справка\n' +
     '/link #ТЕГ_КЛАНА — подключить клан к чату или теме форума\n' +
     '/unlink #ТЕГ_КЛАНА — отключить клан\n\n' +
     'Кнопка «📋 Мои кланы» показывает подключённые кланы.\n\n' +
     '<b>Права:</b>\n' +
+    'Команды просмотра (/war, /cwl, /raid, /clan) доступны любому участнику чата без прав администратора. ' +
     'В личном чате управлять подписками может владелец чата. В группе и супергруппе ' +
     'подключать и отключать кланы могут только администраторы и создатель группы; ' +
     'бот должен быть администратором группы.\n\n' +
@@ -164,6 +205,9 @@ export interface TelegramBotServiceDependencies {
     readonly telegramToken: string;
     readonly attackGuideCatalog: AttackGuideCatalog;
     readonly clansRepo: ClansRepo;
+    readonly clanwarRepo?: ClanwarRepo;
+    readonly clanwarsLeagueRepo?: ClanwarsLeagueRepo;
+    readonly raidRepo?: RaidRepo;
     readonly subscriptionRepo: SubscriptionRepo;
     readonly domainEventsRepo: DomainEventsRepo;
     readonly notificationRepo?: NotificationRepo;
@@ -183,6 +227,13 @@ export interface TelegramBotServiceDependencies {
 
 type GrammyAbortSignal = Parameters<Context['api']['getChatMember']>[2];
 type ClanSubscriptionCommand = Extract<BotCommand, { readonly kind: 'link' | 'unlink' }>;
+type ViewBotCommand = Extract<BotCommand, { readonly kind: 'view' }>;
+type ViewCallbackData = Extract<
+    KnownCallbackData,
+    {
+        readonly kind: 'view:open' | 'view:clan' | 'view:clan_roster' | 'view:clan_reliability';
+    }
+>;
 type UnlinkCallbackData = Extract<
     KnownCallbackData,
     {
@@ -309,12 +360,16 @@ export class TelegramBotService {
     readonly bot: Bot;
     private readonly attackGuideCatalog: AttackGuideCatalog;
     private readonly clansRepo: ClansRepo;
+    private readonly clanwarRepo?: ClanwarRepo;
+    private readonly clanwarsLeagueRepo?: ClanwarsLeagueRepo;
+    private readonly raidRepo?: RaidRepo;
     private readonly subscriptionRepo: SubscriptionRepo;
     private readonly domainEventsRepo: DomainEventsRepo;
     private readonly transactionManager: TransactionManager;
     private readonly destinationLifecycle?: TelegramDestinationLifecycle;
     private readonly cocApiClient?: ClanLookupApiClient;
     private readonly clanManager?: WakeableClanManager;
+    private readonly clock: Clock;
     private readonly maxClansPerDestination: number;
     private readonly maxTrackedClans: number;
     private readonly commandRateLimiter: CommandRateLimiter;
@@ -326,6 +381,15 @@ export class TelegramBotService {
     constructor(deps: TelegramBotServiceDependencies) {
         this.attackGuideCatalog = deps.attackGuideCatalog;
         this.clansRepo = deps.clansRepo;
+        if (deps.clanwarRepo !== undefined) {
+            this.clanwarRepo = deps.clanwarRepo;
+        }
+        if (deps.clanwarsLeagueRepo !== undefined) {
+            this.clanwarsLeagueRepo = deps.clanwarsLeagueRepo;
+        }
+        if (deps.raidRepo !== undefined) {
+            this.raidRepo = deps.raidRepo;
+        }
         this.subscriptionRepo = deps.subscriptionRepo;
         this.domainEventsRepo = deps.domainEventsRepo;
         this.transactionManager = deps.transactionManager;
@@ -346,6 +410,7 @@ export class TelegramBotService {
         if (deps.clanManager !== undefined) {
             this.clanManager = deps.clanManager;
         }
+        this.clock = deps.clock ?? new SystemClock();
         this.maxClansPerDestination = assertPositiveInteger(
             deps.maxClansPerDestination ?? DEFAULT_MAX_CLANS_PER_DESTINATION,
             'maxClansPerDestination',
@@ -355,8 +420,7 @@ export class TelegramBotService {
             'maxTrackedClans',
         );
         this.commandRateLimiter =
-            deps.commandRateLimiter ??
-            new CommandRateLimiter(deps.clock !== undefined ? { clock: deps.clock } : undefined);
+            deps.commandRateLimiter ?? new CommandRateLimiter({ clock: this.clock });
         this.logger = deps.logger ?? createLogger({ name: 'TelegramBotService' });
         this.pollingTimeoutSeconds = deps.pollingTimeoutSeconds ?? DEFAULT_POLLING_TIMEOUT_SECONDS;
         this.stopConfirmationTimeoutMs =
@@ -718,6 +782,11 @@ export class TelegramBotService {
                 COMMAND_RATE_LIMIT_EXCEEDED_TEXT,
                 messageThreadId,
             );
+            return;
+        }
+
+        if (command.kind === 'view') {
+            await this.handleViewCommand(api, chatId, messageThreadId, message.chat.type, command);
             return;
         }
 
@@ -1465,6 +1534,474 @@ export class TelegramBotService {
         );
     }
 
+    private renderViewScreen(
+        view: ViewCommandName,
+        subscription: ClanSubscriptionSummary,
+        source: ViewCallbackSource,
+    ): { readonly text: string; readonly keyboard: InlineKeyboardMarkup } {
+        const renderers: Readonly<
+            Record<
+                ViewCommandName,
+                (target: ClanSubscriptionSummary) => {
+                    readonly text: string;
+                    readonly keyboard: InlineKeyboardMarkup;
+                }
+            >
+        > = {
+            war: (target) => {
+                if (this.clanwarRepo === undefined) {
+                    throw new DatabaseError(
+                        '[TelegramBotService] ClanwarRepo is required for /war view',
+                        { context: { clanTag: target.clanTag, view } },
+                    );
+                }
+                const nowEpochSeconds = this.clock.nowEpochSeconds();
+                const warViewData = loadWarViewData(
+                    {
+                        clanwarRepo: this.clanwarRepo,
+                        clansRepo: this.clansRepo,
+                    },
+                    target,
+                    nowEpochSeconds,
+                );
+                return {
+                    text: formatWarView(warViewData, nowEpochSeconds),
+                    keyboard: makeViewResultKeyboard('war', target.clanTag, source),
+                };
+            },
+            cwl: (target) => {
+                if (this.clanwarRepo === undefined || this.clanwarsLeagueRepo === undefined) {
+                    throw new DatabaseError(
+                        '[TelegramBotService] ClanwarRepo and ClanwarsLeagueRepo are required for /cwl view',
+                        { context: { clanTag: target.clanTag, view } },
+                    );
+                }
+                const nowEpochSeconds = this.clock.nowEpochSeconds();
+                const cwlViewData = loadCwlViewData(
+                    {
+                        clanwarRepo: this.clanwarRepo,
+                        clanwarsLeagueRepo: this.clanwarsLeagueRepo,
+                        clansRepo: this.clansRepo,
+                    },
+                    target,
+                    nowEpochSeconds,
+                );
+                return {
+                    text: formatCwlView(cwlViewData, nowEpochSeconds),
+                    keyboard: makeViewResultKeyboard('cwl', target.clanTag, source),
+                };
+            },
+            raid: (target) => {
+                if (this.raidRepo === undefined) {
+                    throw new DatabaseError(
+                        '[TelegramBotService] RaidRepo is required for /raid view',
+                        { context: { clanTag: target.clanTag, view } },
+                    );
+                }
+                const nowEpochSeconds = this.clock.nowEpochSeconds();
+                const raidViewData = loadRaidViewData(
+                    {
+                        raidRepo: this.raidRepo,
+                        clansRepo: this.clansRepo,
+                    },
+                    target,
+                    nowEpochSeconds,
+                );
+                return {
+                    text: formatRaidView(raidViewData, nowEpochSeconds),
+                    keyboard: makeViewResultKeyboard('raid', target.clanTag, source),
+                };
+            },
+            clan: (target) => {
+                const nowEpochSeconds = this.clock.nowEpochSeconds();
+                const clanCardData = loadClanCardViewData({ clansRepo: this.clansRepo }, target);
+                return {
+                    text: formatClanCardView(clanCardData, nowEpochSeconds),
+                    keyboard: makeClanViewKeyboard(
+                        target.clanTag,
+                        source,
+                        target.categories.discipline,
+                    ),
+                };
+            },
+        };
+
+        return renderers[view](subscription);
+    }
+
+    private renderClanRosterScreen(
+        subscription: ClanSubscriptionSummary,
+        source: ViewCallbackSource,
+    ): { readonly text: string; readonly keyboard: InlineKeyboardMarkup } {
+        const nowEpochSeconds = this.clock.nowEpochSeconds();
+        const rosterData = loadClanRosterViewData({ clansRepo: this.clansRepo }, subscription);
+        return {
+            text: formatClanRosterView(rosterData, nowEpochSeconds),
+            keyboard: makeClanRosterViewKeyboard(subscription.clanTag, source),
+        };
+    }
+
+    private renderClanReliabilityScreen(
+        subscription: ClanSubscriptionSummary,
+        source: ViewCallbackSource,
+    ): { readonly text: string; readonly keyboard: InlineKeyboardMarkup } {
+        if (this.clanwarRepo === undefined) {
+            throw new DatabaseError(
+                '[TelegramBotService] ClanwarRepo is required for /clan reliability view',
+                { context: { clanTag: subscription.clanTag, view: 'clan_reliability' } },
+            );
+        }
+        const nowEpochSeconds = this.clock.nowEpochSeconds();
+        const reliabilityData = loadClanReliabilityViewData(
+            {
+                clansRepo: this.clansRepo,
+                clanwarRepo: this.clanwarRepo,
+            },
+            subscription,
+        );
+        return {
+            text: formatClanReliabilityView(reliabilityData, nowEpochSeconds),
+            keyboard: makeClanReliabilityViewKeyboard(subscription.clanTag, source),
+        };
+    }
+
+    private async handleViewCommand(
+        api: Context['api'],
+        chatId: number,
+        messageThreadId: number,
+        chatType: string,
+        command: ViewBotCommand,
+    ): Promise<void> {
+        if (!isSupportedTelegramChatType(chatType)) {
+            await this.sendHtmlMessage(
+                api,
+                chatId,
+                'Этот тип Telegram-чата пока не поддерживается.',
+                messageThreadId,
+            );
+            return;
+        }
+
+        if (command.status === 'invalid_arguments') {
+            await this.sendHtmlMessage(
+                api,
+                chatId,
+                formatViewInvalidArgumentsText(command.view),
+                messageThreadId,
+            );
+            return;
+        }
+
+        if (command.status === 'invalid_clan_tag') {
+            await this.sendHtmlMessage(
+                api,
+                chatId,
+                formatViewInvalidTagText(command.view),
+                messageThreadId,
+            );
+            return;
+        }
+
+        let subscriptions: ClanSubscriptionSummary[];
+        try {
+            subscriptions = this.subscriptionRepo.getSubscriptionSummariesForDestination(
+                chatId,
+                messageThreadId,
+            );
+        } catch (error: unknown) {
+            if (error instanceof DatabaseError) {
+                this.logger.error(
+                    { err: error, chatId, messageThreadId, view: command.view },
+                    'Failed to load subscriptions for view command',
+                );
+                await this.sendHtmlMessage(api, chatId, VIEW_LOAD_ERROR_TEXT, messageThreadId);
+                return;
+            }
+            throw error;
+        }
+
+        const resolution = resolveViewClanSubscription(subscriptions, command.clanTag);
+
+        if (resolution.status === 'no_clans') {
+            await this.sendHtmlMessage(api, chatId, formatViewNoClansText(), messageThreadId);
+            return;
+        }
+
+        if (resolution.status === 'not_subscribed') {
+            await this.sendHtmlMessage(
+                api,
+                chatId,
+                formatViewClanNotSubscribedText(resolution.clanTag),
+                messageThreadId,
+            );
+            return;
+        }
+
+        if (resolution.status === 'select_clan') {
+            await this.sendHtmlMessage(
+                api,
+                chatId,
+                formatViewClanSelectText(command.view),
+                messageThreadId,
+                makeViewClanPickerKeyboard(command.view, resolution.subscriptions, 'command'),
+            );
+            return;
+        }
+
+        let screen: { readonly text: string; readonly keyboard: InlineKeyboardMarkup };
+        try {
+            screen = this.renderViewScreen(command.view, resolution.subscription, 'command');
+        } catch (error: unknown) {
+            if (error instanceof DatabaseError) {
+                this.logger.error(
+                    {
+                        err: error,
+                        chatId,
+                        messageThreadId,
+                        clanTag: resolution.subscription.clanTag,
+                        view: command.view,
+                    },
+                    'Failed to render SQLite view for command',
+                );
+                await this.sendHtmlMessage(api, chatId, VIEW_LOAD_ERROR_TEXT, messageThreadId);
+                return;
+            }
+            throw error;
+        }
+
+        await this.sendHtmlMessage(api, chatId, screen.text, messageThreadId, screen.keyboard);
+    }
+
+    private async handleViewCallback(
+        api: Context['api'],
+        context: CallbackContext,
+        callbackData: ViewCallbackData,
+    ): Promise<void> {
+        if (!isSupportedTelegramChatType(context.chatType)) {
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text: 'Этот тип Telegram-чата пока не поддерживается.',
+                show_alert: true,
+            });
+            return;
+        }
+
+        const logView =
+            callbackData.kind === 'view:open' || callbackData.kind === 'view:clan'
+                ? callbackData.view
+                : callbackData.kind;
+
+        const rateLimit = this.commandRateLimiter.consume(context.userId);
+        if (!rateLimit.allowed) {
+            this.logger.info(
+                {
+                    chatId: context.chatId,
+                    messageThreadId: context.messageThreadId,
+                    userId: context.userId,
+                    callbackKind: callbackData.kind,
+                    view: logView,
+                    retryAfterMs: rateLimit.retryAfterMs,
+                },
+                'Rejected Telegram view callback due to per-user rate limit',
+            );
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text: COMMAND_RATE_LIMIT_EXCEEDED_TEXT,
+                show_alert: true,
+            });
+            return;
+        }
+
+        if (callbackData.kind === 'view:open') {
+            let subscriptions: ClanSubscriptionSummary[];
+            try {
+                subscriptions = this.subscriptionRepo.getSubscriptionSummariesForDestination(
+                    context.chatId,
+                    context.messageThreadId,
+                );
+            } catch (error: unknown) {
+                if (error instanceof DatabaseError) {
+                    this.logger.error(
+                        {
+                            err: error,
+                            chatId: context.chatId,
+                            messageThreadId: context.messageThreadId,
+                            view: callbackData.view,
+                        },
+                        'Failed to load subscriptions for view callback',
+                    );
+                    await this.safeAnswerCallbackQuery(api, context.queryId, {
+                        text: VIEW_LOAD_ERROR_TEXT,
+                        show_alert: true,
+                    });
+                    return;
+                }
+                throw error;
+            }
+
+            const resolution = resolveViewClanSubscription(subscriptions, null);
+
+            if (resolution.status === 'no_clans') {
+                await this.safeAnswerCallbackQuery(api, context.queryId);
+                if (this.activeSignal?.aborted) {
+                    return;
+                }
+                await this.editHtmlMessage(
+                    api,
+                    context.chatId,
+                    context.messageId,
+                    formatViewNoClansText(),
+                    makeViewBackToMenuKeyboard(),
+                );
+                return;
+            }
+
+            if (resolution.status === 'select_clan') {
+                await this.safeAnswerCallbackQuery(api, context.queryId);
+                if (this.activeSignal?.aborted) {
+                    return;
+                }
+                await this.editHtmlMessage(
+                    api,
+                    context.chatId,
+                    context.messageId,
+                    formatViewClanSelectText(callbackData.view),
+                    makeViewClanPickerKeyboard(callbackData.view, resolution.subscriptions, 'menu'),
+                );
+                return;
+            }
+
+            if (resolution.status !== 'ready') {
+                return;
+            }
+
+            let screen: { readonly text: string; readonly keyboard: InlineKeyboardMarkup };
+            try {
+                screen = this.renderViewScreen(callbackData.view, resolution.subscription, 'menu');
+            } catch (error: unknown) {
+                if (error instanceof DatabaseError) {
+                    this.logger.error(
+                        {
+                            err: error,
+                            chatId: context.chatId,
+                            messageThreadId: context.messageThreadId,
+                            clanTag: resolution.subscription.clanTag,
+                            view: callbackData.view,
+                        },
+                        'Failed to render SQLite view for menu callback',
+                    );
+                    await this.safeAnswerCallbackQuery(api, context.queryId, {
+                        text: VIEW_LOAD_ERROR_TEXT,
+                        show_alert: true,
+                    });
+                    return;
+                }
+                throw error;
+            }
+
+            await this.safeAnswerCallbackQuery(api, context.queryId);
+            if (this.activeSignal?.aborted) {
+                return;
+            }
+            await this.editHtmlMessage(
+                api,
+                context.chatId,
+                context.messageId,
+                screen.text,
+                screen.keyboard,
+            );
+            return;
+        }
+
+        let subscription: ClanSubscriptionSummary | null;
+        try {
+            subscription = this.subscriptionRepo.getSubscriptionSummary(
+                context.chatId,
+                context.messageThreadId,
+                callbackData.clanTag,
+            );
+        } catch (error: unknown) {
+            if (error instanceof DatabaseError) {
+                this.logger.error(
+                    {
+                        err: error,
+                        chatId: context.chatId,
+                        messageThreadId: context.messageThreadId,
+                        clanTag: callbackData.clanTag,
+                        view: logView,
+                    },
+                    'Failed to load subscription for view clan callback',
+                );
+                await this.safeAnswerCallbackQuery(api, context.queryId, {
+                    text: VIEW_LOAD_ERROR_TEXT,
+                    show_alert: true,
+                });
+                return;
+            }
+            throw error;
+        }
+
+        if (subscription === null) {
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text: formatViewClanNotSubscribedText(callbackData.clanTag),
+                show_alert: true,
+            });
+            return;
+        }
+
+        if (callbackData.kind === 'view:clan_reliability' && !subscription.categories.discipline) {
+            await this.safeAnswerCallbackQuery(api, context.queryId, {
+                text: CLAN_RELIABILITY_FORBIDDEN_TEXT,
+                show_alert: true,
+            });
+            return;
+        }
+
+        let screen: { readonly text: string; readonly keyboard: InlineKeyboardMarkup };
+        try {
+            if (callbackData.kind === 'view:clan_roster') {
+                screen = this.renderClanRosterScreen(subscription, callbackData.source);
+            } else if (callbackData.kind === 'view:clan_reliability') {
+                screen = this.renderClanReliabilityScreen(subscription, callbackData.source);
+            } else {
+                screen = this.renderViewScreen(
+                    callbackData.view,
+                    subscription,
+                    callbackData.source,
+                );
+            }
+        } catch (error: unknown) {
+            if (error instanceof DatabaseError) {
+                this.logger.error(
+                    {
+                        err: error,
+                        chatId: context.chatId,
+                        messageThreadId: context.messageThreadId,
+                        clanTag: subscription.clanTag,
+                        view: logView,
+                    },
+                    'Failed to render SQLite view for clan callback',
+                );
+                await this.safeAnswerCallbackQuery(api, context.queryId, {
+                    text: VIEW_LOAD_ERROR_TEXT,
+                    show_alert: true,
+                });
+                return;
+            }
+            throw error;
+        }
+
+        await this.safeAnswerCallbackQuery(api, context.queryId);
+        if (this.activeSignal?.aborted) {
+            return;
+        }
+        await this.editHtmlMessage(
+            api,
+            context.chatId,
+            context.messageId,
+            screen.text,
+            screen.keyboard,
+        );
+    }
+
     private async handleCallbackQuery(api: Context['api'], callbackQuery: unknown): Promise<void> {
         const context = parseCallbackContext(callbackQuery);
         if (context === null) {
@@ -1476,6 +2013,16 @@ export class TelegramBotService {
         if (callbackData === null) {
             await this.safeAnswerCallbackQuery(api, context.queryId);
             this.logger.warn({ callbackData: context.data }, 'Ignoring invalid callback data');
+            return;
+        }
+
+        if (
+            callbackData.kind === 'view:open' ||
+            callbackData.kind === 'view:clan' ||
+            callbackData.kind === 'view:clan_roster' ||
+            callbackData.kind === 'view:clan_reliability'
+        ) {
+            await this.handleViewCallback(api, context, callbackData);
             return;
         }
 

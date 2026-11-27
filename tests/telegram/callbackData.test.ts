@@ -14,6 +14,8 @@ import {
     buildClanUnlinkCancelCallbackData,
     buildClanUnlinkConfirmCallbackData,
     buildClanUnlinkListCallbackData,
+    buildClanViewReliabilityCallbackData,
+    buildClanViewRosterCallbackData,
     buildGuideCallbackData,
     buildSettingsCategoryCallbackData,
     buildSettingsMirrorCallbackData,
@@ -24,6 +26,8 @@ import {
     buildSettingsTimezoneSetCallbackData,
     buildStrategyCallbackData,
     buildTownHallCallbackData,
+    buildViewClanCallbackData,
+    buildViewEntryCallbackData,
     CALLBACK_COMMANDS,
     isWithinCallbackDataLimit,
     MAX_CALLBACK_DATA_BYTES,
@@ -121,6 +125,122 @@ describe('callback_data builders and parseKnownCallbackData', () => {
     it('round-trips all known callback actions', () => {
         expect(parseKnownCallbackData('menu:start')).toEqual({ kind: 'menu:start' });
         expect(parseKnownCallbackData('help:main')).toEqual({ kind: 'help:main' });
+        expect(parseKnownCallbackData(buildViewEntryCallbackData('war'))).toEqual({
+            kind: 'view:open',
+            view: 'war',
+        });
+        expect(parseKnownCallbackData(buildViewClanCallbackData('war', '#2PPLQ', 'menu'))).toEqual({
+            kind: 'view:clan',
+            view: 'war',
+            clanTag: '#2PPLQ',
+            source: 'menu',
+        });
+        expect(
+            parseKnownCallbackData(buildViewClanCallbackData('war', '#2PPLQ', 'command')),
+        ).toEqual({
+            kind: 'view:clan',
+            view: 'war',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
+        expect(parseKnownCallbackData('view:war:2pplq:m')).toEqual({
+            kind: 'view:clan',
+            view: 'war',
+            clanTag: '#2PPLQ',
+            source: 'menu',
+        });
+        expect(parseKnownCallbackData(buildViewEntryCallbackData('cwl'))).toEqual({
+            kind: 'view:open',
+            view: 'cwl',
+        });
+        expect(parseKnownCallbackData(buildViewClanCallbackData('cwl', '#2PPLQ', 'menu'))).toEqual({
+            kind: 'view:clan',
+            view: 'cwl',
+            clanTag: '#2PPLQ',
+            source: 'menu',
+        });
+        expect(
+            parseKnownCallbackData(buildViewClanCallbackData('cwl', '#2PPLQ', 'command')),
+        ).toEqual({
+            kind: 'view:clan',
+            view: 'cwl',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
+        expect(parseKnownCallbackData('view:cwl:2pplq:c')).toEqual({
+            kind: 'view:clan',
+            view: 'cwl',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
+        expect(parseKnownCallbackData(buildViewEntryCallbackData('raid'))).toEqual({
+            kind: 'view:open',
+            view: 'raid',
+        });
+        expect(parseKnownCallbackData(buildViewClanCallbackData('raid', '#2PPLQ', 'menu'))).toEqual(
+            {
+                kind: 'view:clan',
+                view: 'raid',
+                clanTag: '#2PPLQ',
+                source: 'menu',
+            },
+        );
+        expect(
+            parseKnownCallbackData(buildViewClanCallbackData('raid', '#2PPLQ', 'command')),
+        ).toEqual({
+            kind: 'view:clan',
+            view: 'raid',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
+        expect(parseKnownCallbackData('view:raid:2pplq:c')).toEqual({
+            kind: 'view:clan',
+            view: 'raid',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
+        expect(parseKnownCallbackData(buildViewEntryCallbackData('clan'))).toEqual({
+            kind: 'view:open',
+            view: 'clan',
+        });
+        expect(parseKnownCallbackData(buildViewClanCallbackData('clan', '#2PPLQ', 'menu'))).toEqual(
+            {
+                kind: 'view:clan',
+                view: 'clan',
+                clanTag: '#2PPLQ',
+                source: 'menu',
+            },
+        );
+        expect(
+            parseKnownCallbackData(buildViewClanCallbackData('clan', '#2PPLQ', 'command')),
+        ).toEqual({
+            kind: 'view:clan',
+            view: 'clan',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
+        expect(parseKnownCallbackData(buildClanViewRosterCallbackData('#2PPLQ', 'menu'))).toEqual({
+            kind: 'view:clan_roster',
+            clanTag: '#2PPLQ',
+            source: 'menu',
+        });
+        expect(parseKnownCallbackData('view:clan_roster:2pplq:c')).toEqual({
+            kind: 'view:clan_roster',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
+        expect(
+            parseKnownCallbackData(buildClanViewReliabilityCallbackData('#2PPLQ', 'menu')),
+        ).toEqual({
+            kind: 'view:clan_reliability',
+            clanTag: '#2PPLQ',
+            source: 'menu',
+        });
+        expect(parseKnownCallbackData('view:clan_reliability:2pplq:c')).toEqual({
+            kind: 'view:clan_reliability',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
         expect(parseKnownCallbackData('clans:link')).toEqual({ kind: 'clans:link' });
         expect(parseKnownCallbackData('clans:list')).toEqual({ kind: 'clans:list', page: 1 });
         expect(parseKnownCallbackData(buildClansListCallbackData(1))).toEqual({
@@ -264,6 +384,22 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             timezoneOffsets.push(offset);
         }
         const payloads: string[] = [
+            buildViewEntryCallbackData('war'),
+            buildViewClanCallbackData('war', longestClanTag, 'menu'),
+            buildViewClanCallbackData('war', longestClanTag, 'command'),
+            buildViewEntryCallbackData('cwl'),
+            buildViewClanCallbackData('cwl', longestClanTag, 'menu'),
+            buildViewClanCallbackData('cwl', longestClanTag, 'command'),
+            buildViewEntryCallbackData('raid'),
+            buildViewClanCallbackData('raid', longestClanTag, 'menu'),
+            buildViewClanCallbackData('raid', longestClanTag, 'command'),
+            buildViewEntryCallbackData('clan'),
+            buildViewClanCallbackData('clan', longestClanTag, 'menu'),
+            buildViewClanCallbackData('clan', longestClanTag, 'command'),
+            buildClanViewRosterCallbackData(longestClanTag, 'menu'),
+            buildClanViewRosterCallbackData(longestClanTag, 'command'),
+            buildClanViewReliabilityCallbackData(longestClanTag, 'menu'),
+            buildClanViewReliabilityCallbackData(longestClanTag, 'command'),
             buildClansListCallbackData(1),
             buildClansListCallbackData(9999),
             buildClanCardCallbackData(longestClanTag, 1),
@@ -310,6 +446,32 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             'unknown:action',
             'menu:start:extra',
             'help:main:extra',
+            'view:war:#2PPLQ',
+            'view:war:#2PPLQ:x',
+            'view:war:#BAD!:m',
+            'view:war:#2PPLQ:m:extra',
+            'view:cwl:#2PPLQ',
+            'view:cwl:#2PPLQ:x',
+            'view:cwl:#BAD!:m',
+            'view:cwl:#2PPLQ:m:extra',
+            'view:raid:#2PPLQ',
+            'view:raid:#2PPLQ:x',
+            'view:raid:#BAD!:m',
+            'view:raid:#2PPLQ:m:extra',
+            'view:clan:#2PPLQ',
+            'view:clan:#2PPLQ:x',
+            'view:clan:#BAD!:m',
+            'view:clan:#2PPLQ:m:extra',
+            'view:clan_roster',
+            'view:clan_roster:#2PPLQ',
+            'view:clan_roster:#2PPLQ:x',
+            'view:clan_roster:#BAD!:m',
+            'view:clan_roster:#2PPLQ:m:extra',
+            'view:clan_reliability',
+            'view:clan_reliability:#2PPLQ',
+            'view:clan_reliability:#2PPLQ:x',
+            'view:clan_reliability:#BAD!:c',
+            'view:clan_reliability:#2PPLQ:c:extra',
             'clans:link:extra',
             'clans:list:extra',
             'clans:list:0',
