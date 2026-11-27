@@ -97,6 +97,7 @@ export {
     type ClanwarsLeagueSeason,
     type CompletedRaidSummary,
     type CompletedRegularWarSummary,
+    type CwlSeasonProgressSummary,
     type DomainEventDestinationRecord,
     type DomainEventDestinationStatus,
     type DomainEventRecord,

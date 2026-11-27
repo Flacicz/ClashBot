@@ -52,6 +52,7 @@ describe('Telegram inline keyboards', () => {
             inline_keyboard: [
                 [
                     { text: '⚔️ КВ', callback_data: 'view:war' },
+                    { text: '🏆 ЛВК', callback_data: 'view:cwl' },
                     { text: '🏰 Рейд', callback_data: 'view:raid' },
                 ],
                 [{ text: '🎥 Гайды по атакам', callback_data: 'guides:townhalls' }],
@@ -67,6 +68,8 @@ describe('Telegram inline keyboards', () => {
         const longestTag = '#PYLQGRJCUV0289P';
         const menuResult = makeViewResultKeyboard('war', longestTag, 'menu');
         const cmdResult = makeViewResultKeyboard('war', longestTag, 'command');
+        const cwlMenuResult = makeViewResultKeyboard('cwl', longestTag, 'menu');
+        const cwlCmdResult = makeViewResultKeyboard('cwl', longestTag, 'command');
         const menuPicker = makeViewClanPickerKeyboard(
             'war',
             [
@@ -76,7 +79,7 @@ describe('Telegram inline keyboards', () => {
             'menu',
         );
         const cmdPicker = makeViewClanPickerKeyboard(
-            'war',
+            'cwl',
             [{ clanTag: '#2PPLQ', clanName: 'Beta' }],
             'command',
         );
@@ -92,6 +95,17 @@ describe('Telegram inline keyboards', () => {
         expect(cmdResult).toEqual({
             inline_keyboard: [[{ text: '🔄 Обновить', callback_data: `view:war:${longestTag}:c` }]],
         });
+        expect(cwlMenuResult).toEqual({
+            inline_keyboard: [
+                [
+                    { text: '🔄 Обновить', callback_data: `view:cwl:${longestTag}:m` },
+                    { text: '⬅️ Назад', callback_data: 'menu:start' },
+                ],
+            ],
+        });
+        expect(cwlCmdResult).toEqual({
+            inline_keyboard: [[{ text: '🔄 Обновить', callback_data: `view:cwl:${longestTag}:c` }]],
+        });
         expect(menuPicker).toEqual({
             inline_keyboard: [
                 [{ text: `Alpha (${longestTag})`, callback_data: `view:war:${longestTag}:m` }],
@@ -100,7 +114,7 @@ describe('Telegram inline keyboards', () => {
             ],
         });
         expect(cmdPicker).toEqual({
-            inline_keyboard: [[{ text: 'Beta (#2PPLQ)', callback_data: 'view:war:#2PPLQ:c' }]],
+            inline_keyboard: [[{ text: 'Beta (#2PPLQ)', callback_data: 'view:cwl:#2PPLQ:c' }]],
         });
         expect(makeViewBackToMenuKeyboard()).toEqual({
             inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu:start' }]],
@@ -125,6 +139,8 @@ describe('Telegram inline keyboards', () => {
         for (const kb of [
             menuResult,
             cmdResult,
+            cwlMenuResult,
+            cwlCmdResult,
             menuPicker,
             cmdPicker,
             raidMenuResult,

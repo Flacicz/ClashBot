@@ -47,6 +47,7 @@ export {
     type CWLRoundInfo,
     type ClanwarsLeagueMember,
     type ClanwarsLeagueSeason,
+    type CwlSeasonProgressSummary,
 } from './clanwarsLeagueRepo.js';
 export {
     DEFAULT_PENDING_DESTINATIONS_LIMIT,

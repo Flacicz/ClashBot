@@ -174,7 +174,7 @@ describe('parseBotCommand', () => {
         });
     });
 
-    it('parses /war command with optional clan tag, @bot_username, and validates arguments', () => {
+    it('parses /war, /cwl and /raid commands with optional clan tag, @bot_username, and validates arguments', () => {
         expect(parseBotCommand('/war')).toEqual({
             kind: 'view',
             view: 'war',
@@ -212,6 +212,43 @@ describe('parseBotCommand', () => {
             view: 'war',
             status: 'invalid_arguments',
         });
+        expect(parseBotCommand('/cwl')).toEqual({
+            kind: 'view',
+            view: 'cwl',
+            status: 'ok',
+            clanTag: null,
+        });
+        expect(parseBotCommand('/CWL@clash_bot')).toEqual({
+            kind: 'view',
+            view: 'cwl',
+            status: 'ok',
+            clanTag: null,
+            botUsername: 'clash_bot',
+        });
+        expect(parseBotCommand('/cwl 2pplq')).toEqual({
+            kind: 'view',
+            view: 'cwl',
+            status: 'ok',
+            clanTag: '#2PPLQ',
+        });
+        expect(parseBotCommand('/cwl@clash_bot #2PPLQ')).toEqual({
+            kind: 'view',
+            view: 'cwl',
+            status: 'ok',
+            clanTag: '#2PPLQ',
+            botUsername: 'clash_bot',
+        });
+        expect(parseBotCommand('/cwl #INVALID')).toEqual({
+            kind: 'view',
+            view: 'cwl',
+            status: 'invalid_clan_tag',
+            rawTag: '#INVALID',
+        });
+        expect(parseBotCommand('/cwl #2PPLQ extra')).toEqual({
+            kind: 'view',
+            view: 'cwl',
+            status: 'invalid_arguments',
+        });
         expect(parseBotCommand('/raid')).toEqual({
             kind: 'view',
             view: 'raid',
@@ -236,8 +273,7 @@ describe('parseBotCommand', () => {
             view: 'raid',
             status: 'invalid_arguments',
         });
-        // Future view commands remain unknown until their own tickets (#92, #94)
-        expect(parseBotCommand('/cwl')).toEqual({ kind: 'unknown', name: 'cwl' });
+        // Future view commands remain unknown until their own ticket (#94)
         expect(parseBotCommand('/clan')).toEqual({ kind: 'unknown', name: 'clan' });
     });
 

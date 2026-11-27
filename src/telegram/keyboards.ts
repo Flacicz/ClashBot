@@ -98,10 +98,11 @@ const TIMEZONE_GRID_BUTTONS_PER_ROW = 3;
 
 /**
  * Ряд кнопок просмотра в главном меню `/start`:
- * `⚔️ КВ` (#91), `🏰 Рейд` (#93); `🏆 ЛВК` (#92) и `🛡 Клан` (#94) подключаются в своих тикетах.
+ * `⚔️ КВ` (#91), `🏆 ЛВК` (#92), `🏰 Рейд` (#93); `🛡 Клан` (#94) подключается в своём тикете.
  */
 const START_MENU_VIEW_ROW: readonly InlineKeyboardButton[] = [
     { text: '⚔️ КВ', callback_data: buildViewEntryCallbackData('war') },
+    { text: '🏆 ЛВК', callback_data: buildViewEntryCallbackData('cwl') },
     { text: '🏰 Рейд', callback_data: buildViewEntryCallbackData('raid') },
 ];
 

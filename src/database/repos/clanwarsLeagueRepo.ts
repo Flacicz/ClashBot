@@ -2,13 +2,22 @@ import type { ClanwarsLeagueMember, ClanwarsLeagueSeason } from '../../api/model
 import { DatabaseError } from '../../common/errors.js';
 import { Database, type SqliteConnection } from '../database.js';
 import { toDatabaseError } from '../sqliteErrors.js';
-import { type ClanwarReference } from './clanwarRepo.js';
+import { calculateClanwarOutcome, ClanwarOutcome, type ClanwarReference } from './clanwarRepo.js';
 
 export type { ClanwarsLeagueMember, ClanwarsLeagueSeason };
 
 export interface CWLRoundInfo {
     readonly season: string;
     readonly roundNumber: number;
+}
+
+export interface CwlSeasonProgressSummary {
+    readonly seasonLabel: string | null;
+    readonly completedRounds: number;
+    readonly victories: number;
+    readonly defeats: number;
+    readonly draws: number;
+    readonly totalStars: number;
 }
 
 const SAVE_CWL_SEASON_SQL = `
@@ -30,6 +39,41 @@ const GET_ROUND_INFO_SQL = `
     SELECT season_id, round_number
     FROM wars
     WHERE war_id = ?;
+`;
+
+const GET_SEASON_LABEL_SQL = `
+    SELECT season_id
+    FROM cwl_seasons
+    WHERE cwl_season_id = ?
+      AND clan_tag = ?;
+`;
+
+const GET_COMPLETED_SEASON_ROUND_SCORES_SQL = `
+    SELECT
+        home.stars AS home_stars,
+        home.destruction_percentage AS home_destruction_percentage,
+        opp.stars AS opponent_stars,
+        opp.destruction_percentage AS opponent_destruction_percentage
+    FROM wars AS w
+    JOIN war_clans AS home
+        ON home.war_id = w.war_id
+       AND home.side = 'home'
+    JOIN war_clans AS opp
+        ON opp.war_id = w.war_id
+       AND opp.side = 'opponent'
+    WHERE w.clan_tag = ?
+      AND w.war_type = 'cwl'
+      AND w.season_id = ?
+      AND w.state = 'warEnded'
+      AND w.is_complete = 1
+    ORDER BY w.round_number ASC, w.preparation_start_time ASC, w.war_id ASC;
+`;
+
+const GET_LATEST_CWL_OBSERVED_AT_SQL = `
+    SELECT MAX(COALESCE(last_observed_at, created_at)) AS last_observed_at
+    FROM wars
+    WHERE clan_tag = ?
+      AND war_type = 'cwl';
 `;
 
 export class ClanwarsLeagueRepo {
@@ -136,6 +180,81 @@ export class ClanwarsLeagueRepo {
                 error,
                 `[ClanwarsLeagueRepo] Failed to load clanwars league round info (war_id = ${String(reference.warId)})`,
                 { warId: reference.warId },
+            );
+        }
+    }
+
+    getSeasonProgressSummary(clanTag: string, cwlSeasonId: number): CwlSeasonProgressSummary {
+        try {
+            const seasonRow = this.connection
+                .prepare<[number, string], { season_id: string }>(GET_SEASON_LABEL_SQL)
+                .get(cwlSeasonId, clanTag);
+
+            const roundRows = this.connection
+                .prepare<
+                    [string, number],
+                    {
+                        home_stars: number;
+                        home_destruction_percentage: number;
+                        opponent_stars: number;
+                        opponent_destruction_percentage: number;
+                    }
+                >(GET_COMPLETED_SEASON_ROUND_SCORES_SQL)
+                .all(clanTag, cwlSeasonId);
+
+            let victories = 0;
+            let defeats = 0;
+            let draws = 0;
+            let totalStars = 0;
+
+            for (const round of roundRows) {
+                totalStars += round.home_stars;
+                const outcome = calculateClanwarOutcome(
+                    round.home_stars,
+                    round.opponent_stars,
+                    round.home_destruction_percentage,
+                    round.opponent_destruction_percentage,
+                );
+                if (outcome === ClanwarOutcome.Victory) {
+                    victories += 1;
+                } else if (outcome === ClanwarOutcome.Defeat) {
+                    defeats += 1;
+                } else {
+                    draws += 1;
+                }
+            }
+
+            return {
+                seasonLabel: seasonRow?.season_id ?? null,
+                completedRounds: roundRows.length,
+                victories,
+                defeats,
+                draws,
+                totalStars,
+            };
+        } catch (error: unknown) {
+            throw toDatabaseError(
+                error,
+                `[ClanwarsLeagueRepo] Failed to load CWL season progress summary (clan_tag = ${clanTag}, cwl_season_id = ${String(cwlSeasonId)})`,
+                { clanTag, cwlSeasonId },
+            );
+        }
+    }
+
+    getLatestCwlObservedAt(clanTag: string): number | null {
+        try {
+            const row = this.connection
+                .prepare<[string], { last_observed_at: number | null }>(
+                    GET_LATEST_CWL_OBSERVED_AT_SQL,
+                )
+                .get(clanTag);
+
+            return row?.last_observed_at ?? null;
+        } catch (error: unknown) {
+            throw toDatabaseError(
+                error,
+                `[ClanwarsLeagueRepo] Failed to load latest CWL observation timestamp (clan_tag = ${clanTag})`,
+                { clanTag },
             );
         }
     }

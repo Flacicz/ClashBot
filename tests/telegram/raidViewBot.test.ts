@@ -457,6 +457,7 @@ describe('TelegramBotService /raid command and inline view flow', () => {
         expect(String(h.editedMessages()[2]?.text)).toContain('Добро пожаловать');
         expect(getInlineKeyboard(h.editedMessages()[2])[0]).toEqual([
             { text: '⚔️ КВ', callback_data: 'view:war' },
+            { text: '🏆 ЛВК', callback_data: 'view:cwl' },
             { text: '🏰 Рейд', callback_data: 'view:raid' },
         ]);
 

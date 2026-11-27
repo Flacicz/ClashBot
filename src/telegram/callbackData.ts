@@ -17,6 +17,7 @@ export const CALLBACK_COMMANDS = {
     MENU_START: 'menu:start',
     HELP_MAIN: 'help:main',
     VIEW_WAR: 'view:war',
+    VIEW_CWL: 'view:cwl',
     VIEW_RAID: 'view:raid',
     CLANS_LINK: 'clans:link',
     CLANS_LIST: 'clans:list',
@@ -332,9 +333,14 @@ export function parseKnownCallbackData(data: string): KnownCallbackData | null {
         case CALLBACK_COMMANDS.HELP_MAIN:
             return args.length === 0 ? { kind: 'help:main' } : null;
         case CALLBACK_COMMANDS.VIEW_WAR:
+        case CALLBACK_COMMANDS.VIEW_CWL:
         case CALLBACK_COMMANDS.VIEW_RAID: {
             const view: ViewCommandName =
-                parsed.command === CALLBACK_COMMANDS.VIEW_WAR ? 'war' : 'raid';
+                parsed.command === CALLBACK_COMMANDS.VIEW_WAR
+                    ? 'war'
+                    : parsed.command === CALLBACK_COMMANDS.VIEW_CWL
+                      ? 'cwl'
+                      : 'raid';
             if (args.length === 0) {
                 return { kind: 'view:open', view };
             }

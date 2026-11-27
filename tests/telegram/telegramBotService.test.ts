@@ -645,6 +645,8 @@ describe('TelegramBotService', () => {
             expect(text).not.toContain('fan-content-policy');
             const keyboard = getInlineKeyboard(sent[0]);
             expect(keyboard[0]?.[0]?.callback_data).toBe('view:war');
+            expect(keyboard[0]?.[1]?.callback_data).toBe('view:cwl');
+            expect(keyboard[0]?.[2]?.callback_data).toBe('view:raid');
             expect(keyboard[1]?.[0]?.callback_data).toBe('guides:townhalls');
             expect(keyboard[2]?.[0]?.callback_data).toBe('clans:link');
             expect(keyboard[3]?.[0]?.callback_data).toBe('clans:list');
@@ -724,6 +726,7 @@ describe('TelegramBotService', () => {
             expect(helpText).toContain('Помощь');
             expect(helpText).toContain('/start');
             expect(helpText).toContain('/war');
+            expect(helpText).toContain('/cwl');
             expect(helpText).toContain('/raid');
             expect(helpText).toContain('/help');
             expect(helpText).toContain('/link #ТЕГ_КЛАНА');
@@ -4049,7 +4052,7 @@ describe('TelegramBotService', () => {
             expect(commandsCall?.payload.commands).toEqual(TELEGRAM_BOT_COMMANDS);
             expect(
                 (commandsCall?.payload.commands as { command: string }[]).map((c) => c.command),
-            ).toEqual(['start', 'war', 'raid', 'help', 'link', 'unlink']);
+            ).toEqual(['start', 'war', 'cwl', 'raid', 'help', 'link', 'unlink']);
 
             expect(descriptionCall?.payload.description).toBe(TELEGRAM_BOT_DESCRIPTION);
             expect(String(descriptionCall?.payload.description)).toContain(

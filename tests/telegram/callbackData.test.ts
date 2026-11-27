@@ -147,6 +147,30 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             clanTag: '#2PPLQ',
             source: 'menu',
         });
+        expect(parseKnownCallbackData(buildViewEntryCallbackData('cwl'))).toEqual({
+            kind: 'view:open',
+            view: 'cwl',
+        });
+        expect(parseKnownCallbackData(buildViewClanCallbackData('cwl', '#2PPLQ', 'menu'))).toEqual({
+            kind: 'view:clan',
+            view: 'cwl',
+            clanTag: '#2PPLQ',
+            source: 'menu',
+        });
+        expect(
+            parseKnownCallbackData(buildViewClanCallbackData('cwl', '#2PPLQ', 'command')),
+        ).toEqual({
+            kind: 'view:clan',
+            view: 'cwl',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
+        expect(parseKnownCallbackData('view:cwl:2pplq:c')).toEqual({
+            kind: 'view:clan',
+            view: 'cwl',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
         expect(parseKnownCallbackData(buildViewEntryCallbackData('raid'))).toEqual({
             kind: 'view:open',
             view: 'raid',
@@ -319,6 +343,9 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             buildViewEntryCallbackData('war'),
             buildViewClanCallbackData('war', longestClanTag, 'menu'),
             buildViewClanCallbackData('war', longestClanTag, 'command'),
+            buildViewEntryCallbackData('cwl'),
+            buildViewClanCallbackData('cwl', longestClanTag, 'menu'),
+            buildViewClanCallbackData('cwl', longestClanTag, 'command'),
             buildViewEntryCallbackData('raid'),
             buildViewClanCallbackData('raid', longestClanTag, 'menu'),
             buildViewClanCallbackData('raid', longestClanTag, 'command'),
@@ -372,11 +399,15 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             'view:war:#2PPLQ:x',
             'view:war:#BAD!:m',
             'view:war:#2PPLQ:m:extra',
+            'view:cwl:#2PPLQ',
+            'view:cwl:#2PPLQ:x',
+            'view:cwl:#BAD!:m',
+            'view:cwl:#2PPLQ:m:extra',
             'view:raid:#2PPLQ',
             'view:raid:#2PPLQ:x',
             'view:raid:#BAD!:m',
             'view:raid:#2PPLQ:m:extra',
-            'view:cwl',
+            'view:clan',
             'clans:link:extra',
             'clans:list:extra',
             'clans:list:0',

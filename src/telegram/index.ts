@@ -2,6 +2,7 @@ export * from './attackGuideCatalog.js';
 export * from './callbackData.js';
 export * from './commandRateLimiter.js';
 export * from './commands.js';
+export * from './cwlView.js';
 export * from './keyboards.js';
 export * from './linkOnboarding.js';
 export * from './myClans.js';
