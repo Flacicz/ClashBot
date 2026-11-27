@@ -24,6 +24,8 @@ import {
     buildSettingsTimezoneSetCallbackData,
     buildStrategyCallbackData,
     buildTownHallCallbackData,
+    buildViewClanCallbackData,
+    buildViewEntryCallbackData,
     CALLBACK_COMMANDS,
     isWithinCallbackDataLimit,
     MAX_CALLBACK_DATA_BYTES,
@@ -121,6 +123,30 @@ describe('callback_data builders and parseKnownCallbackData', () => {
     it('round-trips all known callback actions', () => {
         expect(parseKnownCallbackData('menu:start')).toEqual({ kind: 'menu:start' });
         expect(parseKnownCallbackData('help:main')).toEqual({ kind: 'help:main' });
+        expect(parseKnownCallbackData(buildViewEntryCallbackData('war'))).toEqual({
+            kind: 'view:open',
+            view: 'war',
+        });
+        expect(parseKnownCallbackData(buildViewClanCallbackData('war', '#2PPLQ', 'menu'))).toEqual({
+            kind: 'view:clan',
+            view: 'war',
+            clanTag: '#2PPLQ',
+            source: 'menu',
+        });
+        expect(
+            parseKnownCallbackData(buildViewClanCallbackData('war', '#2PPLQ', 'command')),
+        ).toEqual({
+            kind: 'view:clan',
+            view: 'war',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
+        expect(parseKnownCallbackData('view:war:2pplq:m')).toEqual({
+            kind: 'view:clan',
+            view: 'war',
+            clanTag: '#2PPLQ',
+            source: 'menu',
+        });
         expect(parseKnownCallbackData('clans:link')).toEqual({ kind: 'clans:link' });
         expect(parseKnownCallbackData('clans:list')).toEqual({ kind: 'clans:list', page: 1 });
         expect(parseKnownCallbackData(buildClansListCallbackData(1))).toEqual({
@@ -264,6 +290,9 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             timezoneOffsets.push(offset);
         }
         const payloads: string[] = [
+            buildViewEntryCallbackData('war'),
+            buildViewClanCallbackData('war', longestClanTag, 'menu'),
+            buildViewClanCallbackData('war', longestClanTag, 'command'),
             buildClansListCallbackData(1),
             buildClansListCallbackData(9999),
             buildClanCardCallbackData(longestClanTag, 1),
@@ -310,6 +339,11 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             'unknown:action',
             'menu:start:extra',
             'help:main:extra',
+            'view:war:#2PPLQ',
+            'view:war:#2PPLQ:x',
+            'view:war:#BAD!:m',
+            'view:war:#2PPLQ:m:extra',
+            'view:cwl',
             'clans:link:extra',
             'clans:list:extra',
             'clans:list:0',

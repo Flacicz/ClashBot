@@ -105,6 +105,25 @@ export class ClansRepo extends BaseRepository {
         );
     }
 
+    getLatestSnapshotCreatedAt(clanTag: string): number | null {
+        const sql = `
+            SELECT created_at
+            FROM clan_snapshots
+            WHERE clan_tag = ?
+            ORDER BY id DESC
+            LIMIT 1;
+        `;
+
+        const rows = this.query(
+            sql,
+            'load latest clan snapshot timestamp',
+            `clan_tag = ${clanTag}`,
+            (row) => getNumber(row, 'created_at'),
+            clanTag,
+        );
+        return rows[0] ?? null;
+    }
+
     insertMinimal(tag: string, name?: string): void {
         const normalizedName = name?.trim();
         if (normalizedName !== undefined && normalizedName.length > 0) {

@@ -9,12 +9,14 @@ import {
 } from '../models/subscription.js';
 import { parseClanTag } from './commands.js';
 import { parseTownHall } from './validation.js';
+import { type ViewCallbackSource, type ViewCommandName } from './viewCommon.js';
 
 export const MAX_CALLBACK_DATA_BYTES = 64;
 
 export const CALLBACK_COMMANDS = {
     MENU_START: 'menu:start',
     HELP_MAIN: 'help:main',
+    VIEW_WAR: 'view:war',
     CLANS_LINK: 'clans:link',
     CLANS_LIST: 'clans:list',
     CLANS_CARD: 'clans:card',
@@ -46,6 +48,13 @@ export interface CallbackData {
 export type KnownCallbackData =
     | { readonly kind: 'menu:start' }
     | { readonly kind: 'help:main' }
+    | { readonly kind: 'view:open'; readonly view: ViewCommandName }
+    | {
+          readonly kind: 'view:clan';
+          readonly view: ViewCommandName;
+          readonly clanTag: string;
+          readonly source: ViewCallbackSource;
+      }
     | { readonly kind: 'clans:link' }
     | { readonly kind: 'clans:list'; readonly page: number }
     | { readonly kind: 'clans:card'; readonly clanTag: string; readonly page: number }
@@ -145,6 +154,32 @@ function parseUnlinkSource(raw: string): UnlinkCallbackSource | null {
         return 'unlink';
     }
     return null;
+}
+
+function encodeViewSource(source: ViewCallbackSource): 'm' | 'c' {
+    return source === 'menu' ? 'm' : 'c';
+}
+
+function parseViewSource(raw: string): ViewCallbackSource | null {
+    if (raw === 'm') {
+        return 'menu';
+    }
+    if (raw === 'c') {
+        return 'command';
+    }
+    return null;
+}
+
+export function buildViewEntryCallbackData(view: ViewCommandName): string {
+    return `view:${view}`;
+}
+
+export function buildViewClanCallbackData(
+    view: ViewCommandName,
+    clanTag: string,
+    source: ViewCallbackSource,
+): string {
+    return `view:${view}:${clanTag}:${encodeViewSource(source)}`;
 }
 
 export function buildClansListCallbackData(page = 1): string {
@@ -295,6 +330,20 @@ export function parseKnownCallbackData(data: string): KnownCallbackData | null {
             return args.length === 0 ? { kind: 'menu:start' } : null;
         case CALLBACK_COMMANDS.HELP_MAIN:
             return args.length === 0 ? { kind: 'help:main' } : null;
+        case CALLBACK_COMMANDS.VIEW_WAR: {
+            if (args.length === 0) {
+                return { kind: 'view:open', view: 'war' };
+            }
+            if (args.length === 2 && args[0] !== undefined && args[1] !== undefined) {
+                const clanTag = parseClanTag(args[0]);
+                const source = parseViewSource(args[1]);
+                if (clanTag === null || source === null) {
+                    return null;
+                }
+                return { kind: 'view:clan', view: 'war', clanTag, source };
+            }
+            return null;
+        }
         case CALLBACK_COMMANDS.CLANS_LINK:
             return args.length === 0 ? { kind: 'clans:link' } : null;
         case CALLBACK_COMMANDS.CLANS_LIST: {

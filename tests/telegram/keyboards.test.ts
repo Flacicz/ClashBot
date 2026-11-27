@@ -24,6 +24,9 @@ import {
     makeTimezoneAllSelectKeyboard,
     makeTimezoneQuickSelectKeyboard,
     makeTownHallListKeyboard,
+    makeViewBackToMenuKeyboard,
+    makeViewClanPickerKeyboard,
+    makeViewResultKeyboard,
 } from '../../src/telegram/keyboards.js';
 import { paginateItems } from '../../src/telegram/myClans.js';
 import { PENDING_CLAN_SYNC_NAME } from '../../src/telegram/subscriptionSettings.js';
@@ -44,9 +47,10 @@ function makeGuide(id: string, title: string): AttackGuide {
 }
 
 describe('Telegram inline keyboards', () => {
-    it('builds exact start menu keyboard JSON', () => {
+    it('builds exact start menu keyboard JSON with active view row', () => {
         expect(makeStartMenuKeyboard()).toEqual({
             inline_keyboard: [
+                [{ text: '⚔️ КВ', callback_data: 'view:war' }],
                 [{ text: '🎥 Гайды по атакам', callback_data: 'guides:townhalls' }],
                 [{ text: '🔗 Подключить клан', callback_data: 'clans:link' }],
                 [{ text: '📋 Мои кланы', callback_data: 'clans:list' }],
@@ -54,6 +58,60 @@ describe('Telegram inline keyboards', () => {
                 [{ text: '❓ Помощь', callback_data: 'help:main' }],
             ],
         });
+    });
+
+    it('builds view result, clan picker, and back keyboards within 64-byte callback limit', () => {
+        const longestTag = '#PYLQGRJCUV0289P';
+        const menuResult = makeViewResultKeyboard('war', longestTag, 'menu');
+        const cmdResult = makeViewResultKeyboard('war', longestTag, 'command');
+        const menuPicker = makeViewClanPickerKeyboard(
+            'war',
+            [
+                { clanTag: longestTag, clanName: 'Alpha' },
+                { clanTag: '#2PPLQ', clanName: PENDING_CLAN_SYNC_NAME },
+            ],
+            'menu',
+        );
+        const cmdPicker = makeViewClanPickerKeyboard(
+            'war',
+            [{ clanTag: '#2PPLQ', clanName: 'Beta' }],
+            'command',
+        );
+
+        expect(menuResult).toEqual({
+            inline_keyboard: [
+                [
+                    { text: '🔄 Обновить', callback_data: `view:war:${longestTag}:m` },
+                    { text: '⬅️ Назад', callback_data: 'menu:start' },
+                ],
+            ],
+        });
+        expect(cmdResult).toEqual({
+            inline_keyboard: [[{ text: '🔄 Обновить', callback_data: `view:war:${longestTag}:c` }]],
+        });
+        expect(menuPicker).toEqual({
+            inline_keyboard: [
+                [{ text: `Alpha (${longestTag})`, callback_data: `view:war:${longestTag}:m` }],
+                [{ text: '#2PPLQ', callback_data: 'view:war:#2PPLQ:m' }],
+                [{ text: '⬅️ Назад', callback_data: 'menu:start' }],
+            ],
+        });
+        expect(cmdPicker).toEqual({
+            inline_keyboard: [[{ text: 'Beta (#2PPLQ)', callback_data: 'view:war:#2PPLQ:c' }]],
+        });
+        expect(makeViewBackToMenuKeyboard()).toEqual({
+            inline_keyboard: [[{ text: '⬅️ Назад', callback_data: 'menu:start' }]],
+        });
+
+        for (const kb of [menuResult, cmdResult, menuPicker, cmdPicker]) {
+            for (const row of kb.inline_keyboard) {
+                for (const button of row) {
+                    expect(Buffer.byteLength(button.callback_data, 'utf8')).toBeLessThanOrEqual(
+                        MAX_CALLBACK_DATA_BYTES,
+                    );
+                }
+            }
+        }
     });
 
     it('builds clan and help navigation keyboards with main menu button', () => {

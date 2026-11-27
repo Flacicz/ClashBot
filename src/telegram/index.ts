@@ -8,3 +8,5 @@ export * from './myClans.js';
 export * from './subscriptionSettings.js';
 export * from './telegramBotService.js';
 export * from './validation.js';
+export * from './viewCommon.js';
+export * from './warView.js';

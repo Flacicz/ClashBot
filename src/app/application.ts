@@ -216,6 +216,7 @@ export async function createApplication(
                 telegramToken: config.telegramToken,
                 attackGuideCatalog,
                 clansRepo,
+                clanwarRepo,
                 subscriptionRepo,
                 domainEventsRepo,
                 notificationRepo,
