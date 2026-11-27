@@ -19,6 +19,9 @@ export const CALLBACK_COMMANDS = {
     VIEW_WAR: 'view:war',
     VIEW_CWL: 'view:cwl',
     VIEW_RAID: 'view:raid',
+    VIEW_CLAN: 'view:clan',
+    VIEW_CLAN_ROSTER: 'view:clan_roster',
+    VIEW_CLAN_RELIABILITY: 'view:clan_reliability',
     CLANS_LINK: 'clans:link',
     CLANS_LIST: 'clans:list',
     CLANS_CARD: 'clans:card',
@@ -54,6 +57,16 @@ export type KnownCallbackData =
     | {
           readonly kind: 'view:clan';
           readonly view: ViewCommandName;
+          readonly clanTag: string;
+          readonly source: ViewCallbackSource;
+      }
+    | {
+          readonly kind: 'view:clan_roster';
+          readonly clanTag: string;
+          readonly source: ViewCallbackSource;
+      }
+    | {
+          readonly kind: 'view:clan_reliability';
           readonly clanTag: string;
           readonly source: ViewCallbackSource;
       }
@@ -182,6 +195,20 @@ export function buildViewClanCallbackData(
     source: ViewCallbackSource,
 ): string {
     return `view:${view}:${clanTag}:${encodeViewSource(source)}`;
+}
+
+export function buildClanViewRosterCallbackData(
+    clanTag: string,
+    source: ViewCallbackSource,
+): string {
+    return `${CALLBACK_COMMANDS.VIEW_CLAN_ROSTER}:${clanTag}:${encodeViewSource(source)}`;
+}
+
+export function buildClanViewReliabilityCallbackData(
+    clanTag: string,
+    source: ViewCallbackSource,
+): string {
+    return `${CALLBACK_COMMANDS.VIEW_CLAN_RELIABILITY}:${clanTag}:${encodeViewSource(source)}`;
 }
 
 export function buildClansListCallbackData(page = 1): string {
@@ -334,13 +361,16 @@ export function parseKnownCallbackData(data: string): KnownCallbackData | null {
             return args.length === 0 ? { kind: 'help:main' } : null;
         case CALLBACK_COMMANDS.VIEW_WAR:
         case CALLBACK_COMMANDS.VIEW_CWL:
-        case CALLBACK_COMMANDS.VIEW_RAID: {
+        case CALLBACK_COMMANDS.VIEW_RAID:
+        case CALLBACK_COMMANDS.VIEW_CLAN: {
             const view: ViewCommandName =
                 parsed.command === CALLBACK_COMMANDS.VIEW_WAR
                     ? 'war'
                     : parsed.command === CALLBACK_COMMANDS.VIEW_CWL
                       ? 'cwl'
-                      : 'raid';
+                      : parsed.command === CALLBACK_COMMANDS.VIEW_RAID
+                        ? 'raid'
+                        : 'clan';
             if (args.length === 0) {
                 return { kind: 'view:open', view };
             }
@@ -353,6 +383,18 @@ export function parseKnownCallbackData(data: string): KnownCallbackData | null {
                 return { kind: 'view:clan', view, clanTag, source };
             }
             return null;
+        }
+        case CALLBACK_COMMANDS.VIEW_CLAN_ROSTER:
+        case CALLBACK_COMMANDS.VIEW_CLAN_RELIABILITY: {
+            if (args.length !== 2 || args[0] === undefined || args[1] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            const source = parseViewSource(args[1]);
+            if (clanTag === null || source === null) {
+                return null;
+            }
+            return { kind: parsed.command, clanTag, source };
         }
         case CALLBACK_COMMANDS.CLANS_LINK:
             return args.length === 0 ? { kind: 'clans:link' } : null;

@@ -647,6 +647,7 @@ describe('TelegramBotService', () => {
             expect(keyboard[0]?.[0]?.callback_data).toBe('view:war');
             expect(keyboard[0]?.[1]?.callback_data).toBe('view:cwl');
             expect(keyboard[0]?.[2]?.callback_data).toBe('view:raid');
+            expect(keyboard[0]?.[3]?.callback_data).toBe('view:clan');
             expect(keyboard[1]?.[0]?.callback_data).toBe('guides:townhalls');
             expect(keyboard[2]?.[0]?.callback_data).toBe('clans:link');
             expect(keyboard[3]?.[0]?.callback_data).toBe('clans:list');
@@ -4052,7 +4053,7 @@ describe('TelegramBotService', () => {
             expect(commandsCall?.payload.commands).toEqual(TELEGRAM_BOT_COMMANDS);
             expect(
                 (commandsCall?.payload.commands as { command: string }[]).map((c) => c.command),
-            ).toEqual(['start', 'war', 'cwl', 'raid', 'help', 'link', 'unlink']);
+            ).toEqual(['start', 'war', 'cwl', 'raid', 'clan', 'help', 'link', 'unlink']);
 
             expect(descriptionCall?.payload.description).toBe(TELEGRAM_BOT_DESCRIPTION);
             expect(String(descriptionCall?.payload.description)).toContain(

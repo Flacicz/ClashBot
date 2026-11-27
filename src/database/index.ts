@@ -98,6 +98,7 @@ export {
     type CompletedRaidSummary,
     type CompletedRegularWarSummary,
     type CwlSeasonProgressSummary,
+    type LatestCompletedRegularWarReference,
     type DomainEventDestinationRecord,
     type DomainEventDestinationStatus,
     type DomainEventRecord,

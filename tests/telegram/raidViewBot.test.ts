@@ -459,6 +459,7 @@ describe('TelegramBotService /raid command and inline view flow', () => {
             { text: '⚔️ КВ', callback_data: 'view:war' },
             { text: '🏆 ЛВК', callback_data: 'view:cwl' },
             { text: '🏰 Рейд', callback_data: 'view:raid' },
+            { text: '🛡 Клан', callback_data: 'view:clan' },
         ]);
 
         expect(h.getCompleteClanDataSpy).not.toHaveBeenCalled();

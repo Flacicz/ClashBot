@@ -589,6 +589,7 @@ describe('TelegramBotService /cwl view command and menu integration', () => {
             { text: '⚔️ КВ', callback_data: 'view:war' },
             { text: '🏆 ЛВК', callback_data: 'view:cwl' },
             { text: '🏰 Рейд', callback_data: 'view:raid' },
+            { text: '🛡 Клан', callback_data: 'view:clan' },
         ]);
 
         expect(h.getCompleteClanDataSpy).not.toHaveBeenCalled();

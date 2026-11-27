@@ -5,9 +5,12 @@ import type { AttackGuide, AttackStrategy } from '../../src/telegram/attackGuide
 import { MAX_CALLBACK_DATA_BYTES } from '../../src/telegram/callbackData.js';
 import {
     makeClanCardKeyboard,
+    makeClanReliabilityViewKeyboard,
+    makeClanRosterViewKeyboard,
     makeClanUnlinkConfirmKeyboard,
     makeClanUnlinkKeyboard,
     makeClanUnlinkListKeyboard,
+    makeClanViewKeyboard,
     makeGuideListKeyboard,
     makeGuideNavigationKeyboard,
     makeHelpNavigationKeyboard,
@@ -54,6 +57,7 @@ describe('Telegram inline keyboards', () => {
                     { text: '⚔️ КВ', callback_data: 'view:war' },
                     { text: '🏆 ЛВК', callback_data: 'view:cwl' },
                     { text: '🏰 Рейд', callback_data: 'view:raid' },
+                    { text: '🛡 Клан', callback_data: 'view:clan' },
                 ],
                 [{ text: '🎥 Гайды по атакам', callback_data: 'guides:townhalls' }],
                 [{ text: '🔗 Подключить клан', callback_data: 'clans:link' }],
@@ -122,6 +126,10 @@ describe('Telegram inline keyboards', () => {
 
         const raidMenuResult = makeViewResultKeyboard('raid', longestTag, 'menu');
         const raidCmdResult = makeViewResultKeyboard('raid', longestTag, 'command');
+        const clanMenuWithoutDiscipline = makeClanViewKeyboard(longestTag, 'menu', false);
+        const clanCmdWithDiscipline = makeClanViewKeyboard(longestTag, 'command', true);
+        const clanRosterMenu = makeClanRosterViewKeyboard(longestTag, 'menu');
+        const clanReliabilityCmd = makeClanReliabilityViewKeyboard(longestTag, 'command');
         expect(raidMenuResult).toEqual({
             inline_keyboard: [
                 [
@@ -135,6 +143,46 @@ describe('Telegram inline keyboards', () => {
                 [{ text: '🔄 Обновить', callback_data: `view:raid:${longestTag}:c` }],
             ],
         });
+        expect(clanMenuWithoutDiscipline).toEqual({
+            inline_keyboard: [
+                [{ text: '👥 Состав', callback_data: `view:clan_roster:${longestTag}:m` }],
+                [
+                    { text: '🔄 Обновить', callback_data: `view:clan:${longestTag}:m` },
+                    { text: '⬅️ Назад', callback_data: 'menu:start' },
+                ],
+            ],
+        });
+        expect(clanCmdWithDiscipline).toEqual({
+            inline_keyboard: [
+                [{ text: '👥 Состав', callback_data: `view:clan_roster:${longestTag}:c` }],
+                [
+                    {
+                        text: '📊 Надёжность состава',
+                        callback_data: `view:clan_reliability:${longestTag}:c`,
+                    },
+                ],
+                [{ text: '🔄 Обновить', callback_data: `view:clan:${longestTag}:c` }],
+            ],
+        });
+        expect(clanRosterMenu).toEqual({
+            inline_keyboard: [
+                [
+                    { text: '🔄 Обновить', callback_data: `view:clan_roster:${longestTag}:m` },
+                    { text: '⬅️ Назад', callback_data: `view:clan:${longestTag}:m` },
+                ],
+            ],
+        });
+        expect(clanReliabilityCmd).toEqual({
+            inline_keyboard: [
+                [
+                    {
+                        text: '🔄 Обновить',
+                        callback_data: `view:clan_reliability:${longestTag}:c`,
+                    },
+                    { text: '⬅️ Назад', callback_data: `view:clan:${longestTag}:c` },
+                ],
+            ],
+        });
 
         for (const kb of [
             menuResult,
@@ -145,6 +193,10 @@ describe('Telegram inline keyboards', () => {
             cmdPicker,
             raidMenuResult,
             raidCmdResult,
+            clanMenuWithoutDiscipline,
+            clanCmdWithDiscipline,
+            clanRosterMenu,
+            clanReliabilityCmd,
         ]) {
             for (const row of kb.inline_keyboard) {
                 for (const button of row) {

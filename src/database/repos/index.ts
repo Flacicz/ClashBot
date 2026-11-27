@@ -37,6 +37,7 @@ export {
     type ClanwarSlacker,
     type ClanwarWarStats,
     type CompletedRegularWarSummary,
+    type LatestCompletedRegularWarReference,
     type NotMirrorAttack,
     type WarRoundDetails,
     type WarType,

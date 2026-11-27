@@ -14,6 +14,24 @@ export interface SavedClanData {
     readonly snapshotIds: PlayerSnapshotIds;
 }
 
+export interface LatestClanSnapshot {
+    readonly clanTag: string;
+    readonly membersCount: number;
+    readonly clanLevel: number;
+    readonly isWarLogPublic: boolean;
+    readonly warLeagueId: number | null;
+    readonly createdAt: number;
+}
+
+export interface ActiveClanMember {
+    readonly playerTag: string;
+    readonly playerName: string;
+    readonly role: string;
+    readonly townHallLevel: number | null;
+    readonly clanRank: number | null;
+    readonly snapshotCreatedAt: number | null;
+}
+
 export interface ActiveMembership {
     readonly membershipId: number;
     readonly player: Player;

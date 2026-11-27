@@ -14,6 +14,8 @@ import {
     buildClanUnlinkCancelCallbackData,
     buildClanUnlinkConfirmCallbackData,
     buildClanUnlinkListCallbackData,
+    buildClanViewReliabilityCallbackData,
+    buildClanViewRosterCallbackData,
     buildGuideCallbackData,
     buildSettingsCategoryCallbackData,
     buildSettingsMirrorCallbackData,
@@ -197,6 +199,48 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             clanTag: '#2PPLQ',
             source: 'command',
         });
+        expect(parseKnownCallbackData(buildViewEntryCallbackData('clan'))).toEqual({
+            kind: 'view:open',
+            view: 'clan',
+        });
+        expect(parseKnownCallbackData(buildViewClanCallbackData('clan', '#2PPLQ', 'menu'))).toEqual(
+            {
+                kind: 'view:clan',
+                view: 'clan',
+                clanTag: '#2PPLQ',
+                source: 'menu',
+            },
+        );
+        expect(
+            parseKnownCallbackData(buildViewClanCallbackData('clan', '#2PPLQ', 'command')),
+        ).toEqual({
+            kind: 'view:clan',
+            view: 'clan',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
+        expect(parseKnownCallbackData(buildClanViewRosterCallbackData('#2PPLQ', 'menu'))).toEqual({
+            kind: 'view:clan_roster',
+            clanTag: '#2PPLQ',
+            source: 'menu',
+        });
+        expect(parseKnownCallbackData('view:clan_roster:2pplq:c')).toEqual({
+            kind: 'view:clan_roster',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
+        expect(
+            parseKnownCallbackData(buildClanViewReliabilityCallbackData('#2PPLQ', 'menu')),
+        ).toEqual({
+            kind: 'view:clan_reliability',
+            clanTag: '#2PPLQ',
+            source: 'menu',
+        });
+        expect(parseKnownCallbackData('view:clan_reliability:2pplq:c')).toEqual({
+            kind: 'view:clan_reliability',
+            clanTag: '#2PPLQ',
+            source: 'command',
+        });
         expect(parseKnownCallbackData('clans:link')).toEqual({ kind: 'clans:link' });
         expect(parseKnownCallbackData('clans:list')).toEqual({ kind: 'clans:list', page: 1 });
         expect(parseKnownCallbackData(buildClansListCallbackData(1))).toEqual({
@@ -349,6 +393,13 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             buildViewEntryCallbackData('raid'),
             buildViewClanCallbackData('raid', longestClanTag, 'menu'),
             buildViewClanCallbackData('raid', longestClanTag, 'command'),
+            buildViewEntryCallbackData('clan'),
+            buildViewClanCallbackData('clan', longestClanTag, 'menu'),
+            buildViewClanCallbackData('clan', longestClanTag, 'command'),
+            buildClanViewRosterCallbackData(longestClanTag, 'menu'),
+            buildClanViewRosterCallbackData(longestClanTag, 'command'),
+            buildClanViewReliabilityCallbackData(longestClanTag, 'menu'),
+            buildClanViewReliabilityCallbackData(longestClanTag, 'command'),
             buildClansListCallbackData(1),
             buildClansListCallbackData(9999),
             buildClanCardCallbackData(longestClanTag, 1),
@@ -407,7 +458,20 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             'view:raid:#2PPLQ:x',
             'view:raid:#BAD!:m',
             'view:raid:#2PPLQ:m:extra',
-            'view:clan',
+            'view:clan:#2PPLQ',
+            'view:clan:#2PPLQ:x',
+            'view:clan:#BAD!:m',
+            'view:clan:#2PPLQ:m:extra',
+            'view:clan_roster',
+            'view:clan_roster:#2PPLQ',
+            'view:clan_roster:#2PPLQ:x',
+            'view:clan_roster:#BAD!:m',
+            'view:clan_roster:#2PPLQ:m:extra',
+            'view:clan_reliability',
+            'view:clan_reliability:#2PPLQ',
+            'view:clan_reliability:#2PPLQ:x',
+            'view:clan_reliability:#BAD!:c',
+            'view:clan_reliability:#2PPLQ:c:extra',
             'clans:link:extra',
             'clans:list:extra',
             'clans:list:0',

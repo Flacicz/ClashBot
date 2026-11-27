@@ -3,9 +3,8 @@ import type { ClanSubscriptionSummary } from '../database/repos/subscriptionRepo
 
 /**
  * Active read-only SQLite view commands.
- * #94 adds `'clan'`.
  */
-export const VIEW_COMMAND_NAMES = ['war', 'cwl', 'raid'] as const;
+export const VIEW_COMMAND_NAMES = ['war', 'cwl', 'raid', 'clan'] as const;
 
 export type ViewCommandName = (typeof VIEW_COMMAND_NAMES)[number];
 
@@ -15,6 +14,7 @@ export const VIEW_COMMAND_TITLES: Readonly<Record<ViewCommandName, string>> = {
     war: 'КВ',
     cwl: 'ЛВК',
     raid: 'Рейд',
+    clan: 'Клан',
 };
 
 export const VIEW_LOAD_ERROR_TEXT = 'Не удалось загрузить данные. Попробуйте ещё раз позже.';

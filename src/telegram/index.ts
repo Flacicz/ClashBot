@@ -1,5 +1,6 @@
 export * from './attackGuideCatalog.js';
 export * from './callbackData.js';
+export * from './clanView.js';
 export * from './commandRateLimiter.js';
 export * from './commands.js';
 export * from './cwlView.js';

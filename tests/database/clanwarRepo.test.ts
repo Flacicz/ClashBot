@@ -859,6 +859,83 @@ describe('ClanwarRepo', () => {
         expect(() => repo.getClanwarResultReportData(missingRef)).toThrow(DatabaseError);
     });
 
+    it('returns the latest completed regular war reference while ignoring incomplete and CWL wars', () => {
+        const { repo } = setup();
+
+        expect(repo.getLatestCompletedRegularWarReference('#HOME')).toBeNull();
+
+        // Older completed regular war
+        const olderRef = repo.saveCompleteClanwarData(
+            makeWar({
+                warUID: 'w-old',
+                state: 'warEnded',
+                warType: 'regular',
+                preparationStartTime: 1000,
+                startTime: 2000,
+                endTime: 3000,
+            }),
+            { home: makeHomeClan(), opponent: makeOpponentClan() },
+            [],
+            { home: [], opponent: [] },
+            3100,
+        );
+        expect(repo.getLatestCompletedRegularWarReference('#HOME')).toEqual({
+            reference: olderRef,
+            lastObservedAt: 3100,
+        });
+
+        // Newer completed regular war -> becomes latest
+        const newerRef = repo.saveCompleteClanwarData(
+            makeWar({
+                warUID: 'w-new',
+                state: 'warEnded',
+                warType: 'regular',
+                preparationStartTime: 4000,
+                startTime: 5000,
+                endTime: 6000,
+            }),
+            { home: makeHomeClan(), opponent: makeOpponentClan() },
+            [],
+            { home: [], opponent: [] },
+            6200,
+        );
+
+        // Even newer active/incomplete regular war and completed CWL war -> must be ignored
+        repo.saveCompleteClanwarData(
+            makeWar({
+                warUID: 'w-active',
+                state: 'inWar',
+                warType: 'regular',
+                preparationStartTime: 7000,
+                startTime: 8000,
+                endTime: 9000,
+            }),
+            { home: makeHomeClan(), opponent: makeOpponentClan() },
+            [],
+            { home: [], opponent: [] },
+            8500,
+        );
+        repo.saveCompleteClanwarData(
+            makeWar({
+                warUID: 'w-cwl',
+                state: 'warEnded',
+                warType: 'cwl',
+                preparationStartTime: 10000,
+                startTime: 11000,
+                endTime: 12000,
+            }),
+            { home: makeHomeClan(), opponent: makeOpponentClan() },
+            [],
+            { home: [], opponent: [] },
+            12100,
+        );
+
+        expect(repo.getLatestCompletedRegularWarReference('#HOME')).toEqual({
+            reference: newerRef,
+            lastObservedAt: 6200,
+        });
+    });
+
     it('rolls back partial writes atomically when an error occurs inside TransactionManager', () => {
         const { db, transactions, repo } = setup();
 

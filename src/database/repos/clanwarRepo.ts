@@ -213,6 +213,11 @@ export interface CompletedRegularWarSummary {
     readonly outcome: ClanwarOutcomeValue;
 }
 
+export interface LatestCompletedRegularWarReference {
+    readonly reference: ClanwarReference;
+    readonly lastObservedAt: number;
+}
+
 const SAVE_CLANWAR_SQL = `
     INSERT INTO wars(
         war_uid, clan_tag, state, war_type, team_size,
@@ -711,6 +716,28 @@ const GET_LATEST_COMPLETED_REGULAR_WAR_SQL = `
       AND w.state = 'warEnded'
       AND w.is_complete = 1
     ORDER BY w.end_time DESC, w.preparation_start_time DESC, w.war_id DESC
+    LIMIT 1;
+`;
+
+const GET_LATEST_COMPLETED_REGULAR_WAR_REFERENCE_SQL = `
+    SELECT
+        w.war_id,
+        w.clan_tag,
+        COALESCE(w.last_observed_at, w.created_at) AS last_observed_at,
+        home.war_clan_id AS home_clan_id,
+        opponent.war_clan_id AS opponent_clan_id
+    FROM wars AS w
+    JOIN war_clans AS home
+        ON home.war_id = w.war_id
+       AND home.side = 'home'
+    JOIN war_clans AS opponent
+        ON opponent.war_id = w.war_id
+       AND opponent.side = 'opponent'
+    WHERE w.clan_tag = ?
+      AND w.war_type = 'regular'
+      AND w.state = 'warEnded'
+      AND w.is_complete = 1
+    ORDER BY w.preparation_start_time DESC, w.war_id DESC
     LIMIT 1;
 `;
 
@@ -1533,6 +1560,45 @@ export class ClanwarRepo {
             throw toDatabaseError(
                 error,
                 `[ClanwarRepo] Failed to load latest completed regular war (clan_tag = ${clanTag})`,
+                { clanTag },
+            );
+        }
+    }
+
+    getLatestCompletedRegularWarReference(
+        clanTag: string,
+    ): LatestCompletedRegularWarReference | null {
+        try {
+            const row = this.connection
+                .prepare<
+                    [string],
+                    {
+                        war_id: number;
+                        clan_tag: string;
+                        last_observed_at: number;
+                        home_clan_id: number;
+                        opponent_clan_id: number;
+                    }
+                >(GET_LATEST_COMPLETED_REGULAR_WAR_REFERENCE_SQL)
+                .get(clanTag);
+
+            if (row === undefined) {
+                return null;
+            }
+
+            return {
+                reference: {
+                    clanTag: row.clan_tag,
+                    warId: row.war_id,
+                    homeClanId: row.home_clan_id,
+                    opponentClanId: row.opponent_clan_id,
+                },
+                lastObservedAt: row.last_observed_at,
+            };
+        } catch (error: unknown) {
+            throw toDatabaseError(
+                error,
+                `[ClanwarRepo] Failed to load latest completed regular war reference (clan_tag = ${clanTag})`,
                 { clanTag },
             );
         }
