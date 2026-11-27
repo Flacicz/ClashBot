@@ -24,6 +24,12 @@ import {
 } from '../events/applicationEvents.js';
 import type { Logger } from '../logging/logger.js';
 import {
+    DEFAULT_NEW_SUBSCRIPTION_MIRROR_RULE_ENABLED,
+    DEFAULT_TIMEZONE_OFFSET_HOURS,
+    NOTIFICATION_CATEGORIES,
+    type NotificationCategory,
+} from '../models/subscription.js';
+import {
     ClanwarComparisonFormatter,
     ClanwarEndedFormatter,
     ClanwarRosterFormatter,
@@ -39,9 +45,12 @@ import {
     RaidsViolationsFormatter,
     SystemAlertReportFormatter,
     WarReminderFormatter,
+    type ClanwarComparisonFormatOptions,
+    type ClanwarRosterFormatOptions,
+    type ClanwarViolationsFormatOptions,
+    type CwlRoundViolationsFormatOptions,
 } from '../reports/index.js';
 import { getRaidReminderExpiresAt, getWarReminderExpiresAt } from '../services/reminders.js';
-import type { Audience } from '../telegram/validation.js';
 import { DEFAULT_TELEGRAM_MAX_VISIBLE_LENGTH, splitHtmlMessage } from './htmlMessageSplitter.js';
 
 export const DEFAULT_NOTIFICATION_PART_INDEX = 1;
@@ -69,8 +78,12 @@ export const NOTIFICATION_EVENT_TYPES = {
 export type NotificationEventType =
     (typeof NOTIFICATION_EVENT_TYPES)[keyof typeof NOTIFICATION_EVENT_TYPES];
 
-export interface EventFormatter<TEvent> {
-    format(event: TEvent): string;
+export interface EventFormatter<TEvent, TOptions = undefined> {
+    format(event: TEvent, options?: TOptions): string;
+}
+
+export interface TimezoneAwareEventFormatter<TEvent> {
+    format(event: TEvent, timezoneOffsetHours?: number): string;
 }
 
 export interface DomainEventMaterializer {
@@ -94,14 +107,23 @@ export interface NotificationServiceDependencies {
     readonly playerLeftFormatter?: EventFormatter<PlayerLeftClanEvent>;
     readonly playerRoleChangedFormatter?: EventFormatter<PlayerRoleChangedEvent>;
     readonly raidsEndedFormatter?: EventFormatter<RaidsEndedEvent>;
-    readonly raidsComparisonFormatter?: EventFormatter<RaidsEndedEvent>;
+    readonly raidsComparisonFormatter?: TimezoneAwareEventFormatter<RaidsEndedEvent>;
     readonly raidsViolationsFormatter?: EventFormatter<RaidsEndedEvent>;
     readonly clanwarEndedFormatter?: EventFormatter<WarEndedEvent>;
-    readonly clanwarViolationsFormatter?: EventFormatter<WarEndedEvent>;
-    readonly clanwarComparisonFormatter?: EventFormatter<WarEndedEvent>;
-    readonly clanwarRosterFormatter?: EventFormatter<WarEndedEvent>;
+    readonly clanwarViolationsFormatter?: EventFormatter<
+        WarEndedEvent,
+        ClanwarViolationsFormatOptions
+    >;
+    readonly clanwarComparisonFormatter?: EventFormatter<
+        WarEndedEvent,
+        ClanwarComparisonFormatOptions
+    >;
+    readonly clanwarRosterFormatter?: EventFormatter<WarEndedEvent, ClanwarRosterFormatOptions>;
     readonly clanwarsLeagueRoundEndedFormatter?: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
-    readonly clanwarsLeagueRoundViolationsFormatter?: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
+    readonly clanwarsLeagueRoundViolationsFormatter?: EventFormatter<
+        ClanwarsLeagueRoundEndedEvent,
+        CwlRoundViolationsFormatOptions
+    >;
     readonly maxMessageLength?: number;
     readonly logger?: Logger;
 }
@@ -126,14 +148,26 @@ export class NotificationService implements DomainEventMaterializer {
     private readonly playerLeftFormatter: EventFormatter<PlayerLeftClanEvent>;
     private readonly playerRoleChangedFormatter: EventFormatter<PlayerRoleChangedEvent>;
     private readonly raidsEndedFormatter: EventFormatter<RaidsEndedEvent>;
-    private readonly raidsComparisonFormatter: EventFormatter<RaidsEndedEvent>;
+    private readonly raidsComparisonFormatter: TimezoneAwareEventFormatter<RaidsEndedEvent>;
     private readonly raidsViolationsFormatter: EventFormatter<RaidsEndedEvent>;
     private readonly clanwarEndedFormatter: EventFormatter<WarEndedEvent>;
-    private readonly clanwarViolationsFormatter: EventFormatter<WarEndedEvent>;
-    private readonly clanwarComparisonFormatter: EventFormatter<WarEndedEvent>;
-    private readonly clanwarRosterFormatter: EventFormatter<WarEndedEvent>;
+    private readonly clanwarViolationsFormatter: EventFormatter<
+        WarEndedEvent,
+        ClanwarViolationsFormatOptions
+    >;
+    private readonly clanwarComparisonFormatter: EventFormatter<
+        WarEndedEvent,
+        ClanwarComparisonFormatOptions
+    >;
+    private readonly clanwarRosterFormatter: EventFormatter<
+        WarEndedEvent,
+        ClanwarRosterFormatOptions
+    >;
     private readonly clanwarsLeagueRoundEndedFormatter: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
-    private readonly clanwarsLeagueRoundViolationsFormatter: EventFormatter<ClanwarsLeagueRoundEndedEvent>;
+    private readonly clanwarsLeagueRoundViolationsFormatter: EventFormatter<
+        ClanwarsLeagueRoundEndedEvent,
+        CwlRoundViolationsFormatOptions
+    >;
     private readonly maxMessageLength: number;
     private readonly logger?: Logger;
 
@@ -260,7 +294,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'PlayerJoinedClanEvent',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.roster,
                 );
                 return;
             }
@@ -272,7 +306,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'PlayerLeftClanEvent',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.roster,
                 );
                 return;
             }
@@ -284,7 +318,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'PlayerRoleChangedEvent',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.roster,
                 );
                 return;
             }
@@ -296,20 +330,18 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'RaidsReport',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.summaries,
                 );
 
-                const comparisonMessage = this.raidsComparisonFormatter.format(event);
-                if (comparisonMessage.length > 0) {
-                    this.enqueueToDestinations(
-                        event.clanTag,
-                        NOTIFICATION_EVENT_TYPES.raidsComparison,
-                        eventId,
-                        'RaidsComparisonReport',
-                        comparisonMessage,
-                        'players',
-                    );
-                }
+                this.enqueueToDestinations(
+                    event.clanTag,
+                    NOTIFICATION_EVENT_TYPES.raidsComparison,
+                    eventId,
+                    'RaidsComparisonReport',
+                    (timezoneOffsetHours) =>
+                        this.raidsComparisonFormatter.format(event, timezoneOffsetHours),
+                    NOTIFICATION_CATEGORIES.summaries,
+                );
 
                 const violationsMessage = this.raidsViolationsFormatter.format(event);
                 this.enqueueToDestinations(
@@ -318,7 +350,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'RaidsViolationsReport',
                     violationsMessage,
-                    'management',
+                    NOTIFICATION_CATEGORIES.discipline,
                 );
                 return;
             }
@@ -330,7 +362,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'WarReport',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.summaries,
                 );
 
                 const violationsMessage = this.clanwarViolationsFormatter.format(event);
@@ -340,7 +372,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'WarViolationsReport',
                     violationsMessage,
-                    'management',
+                    NOTIFICATION_CATEGORIES.discipline,
                 );
 
                 const comparisonMessage = this.clanwarComparisonFormatter.format(event);
@@ -351,7 +383,7 @@ export class NotificationService implements DomainEventMaterializer {
                         eventId,
                         'WarComparisonReport',
                         comparisonMessage,
-                        'players',
+                        NOTIFICATION_CATEGORIES.summaries,
                     );
                 }
 
@@ -363,7 +395,7 @@ export class NotificationService implements DomainEventMaterializer {
                         eventId,
                         'WarRosterReport',
                         rosterMessage,
-                        'management',
+                        NOTIFICATION_CATEGORIES.discipline,
                     );
                 }
                 return;
@@ -376,7 +408,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'CwlRoundReport',
                     message,
-                    'players',
+                    NOTIFICATION_CATEGORIES.summaries,
                 );
 
                 const violationsMessage = this.clanwarsLeagueRoundViolationsFormatter.format(event);
@@ -386,7 +418,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'CwlRoundViolationsReport',
                     violationsMessage,
-                    'management',
+                    NOTIFICATION_CATEGORIES.discipline,
                 );
                 return;
             }
@@ -398,7 +430,7 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'SyncFailureEvent',
                     message,
-                    'management',
+                    NOTIFICATION_CATEGORIES.system,
                 );
                 return;
             }
@@ -410,34 +442,34 @@ export class NotificationService implements DomainEventMaterializer {
                     eventId,
                     'SyncRecoveryEvent',
                     message,
-                    'management',
+                    NOTIFICATION_CATEGORIES.system,
                 );
                 return;
             }
             case APPLICATION_EVENT_TYPES.warReminder: {
-                const message = WarReminderFormatter.format(event);
                 const expiresAt = getWarReminderExpiresAt(event.endTime, event.kind);
                 this.enqueueToDestinations(
                     event.clanTag,
                     NOTIFICATION_EVENT_TYPES.warReminder,
                     eventId,
                     'WarReminderEvent',
-                    message,
-                    'players',
+                    (timezoneOffsetHours) =>
+                        WarReminderFormatter.format(event, timezoneOffsetHours),
+                    NOTIFICATION_CATEGORIES.reminders,
                     expiresAt,
                 );
                 return;
             }
             case APPLICATION_EVENT_TYPES.raidReminder: {
-                const message = RaidReminderFormatter.format(event);
                 const expiresAt = getRaidReminderExpiresAt(event.endTime, event.kind);
                 this.enqueueToDestinations(
                     event.clanTag,
                     NOTIFICATION_EVENT_TYPES.raidReminder,
                     eventId,
                     'RaidReminderEvent',
-                    message,
-                    'players',
+                    (timezoneOffsetHours) =>
+                        RaidReminderFormatter.format(event, timezoneOffsetHours),
+                    NOTIFICATION_CATEGORIES.reminders,
                     expiresAt,
                 );
                 return;
@@ -451,7 +483,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: PlayerJoinedClanEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'players') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.roster) {
             return;
         }
 
@@ -463,7 +495,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: PlayerLeftClanEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'players') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.roster) {
             return;
         }
 
@@ -475,7 +507,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: PlayerRoleChangedEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'players') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.roster) {
             return;
         }
 
@@ -483,15 +515,26 @@ export class NotificationService implements DomainEventMaterializer {
         this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.playerRoleChanged);
     }
 
+    private resolveMirrorRuleEnabled(destination: PendingDomainEventDestination): boolean {
+        if (this.subscriptionRepo === undefined) {
+            return DEFAULT_NEW_SUBSCRIPTION_MIRROR_RULE_ENABLED;
+        }
+        const subscription = this.subscriptionRepo.getSubscriptionById(destination.subscriptionId);
+        return subscription?.mirrorRuleEnabled ?? DEFAULT_NEW_SUBSCRIPTION_MIRROR_RULE_ENABLED;
+    }
+
     private materializeWarEnded(
         event: WarEndedEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience === 'players') {
+        if (destination.category === NOTIFICATION_CATEGORIES.summaries) {
             const message = this.clanwarEndedFormatter.format(event);
             this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.warEnded);
 
-            const comparisonMessage = this.clanwarComparisonFormatter.format(event);
+            const mirrorRuleEnabled = this.resolveMirrorRuleEnabled(destination);
+            const comparisonMessage = this.clanwarComparisonFormatter.format(event, {
+                mirrorRuleEnabled,
+            });
             if (comparisonMessage.length > 0) {
                 this.enqueueDomainEvent(
                     comparisonMessage,
@@ -502,14 +545,23 @@ export class NotificationService implements DomainEventMaterializer {
             return;
         }
 
-        const violationsMessage = this.clanwarViolationsFormatter.format(event);
+        if (destination.category !== NOTIFICATION_CATEGORIES.discipline) {
+            return;
+        }
+
+        const mirrorRuleEnabled = this.resolveMirrorRuleEnabled(destination);
+        const violationsMessage = this.clanwarViolationsFormatter.format(event, {
+            mirrorRuleEnabled,
+        });
         this.enqueueDomainEvent(
             violationsMessage,
             destination,
             NOTIFICATION_EVENT_TYPES.warViolations,
         );
 
-        const rosterMessage = this.clanwarRosterFormatter.format(event);
+        const rosterMessage = this.clanwarRosterFormatter.format(event, {
+            mirrorRuleEnabled,
+        });
         if (rosterMessage.length > 0) {
             this.enqueueDomainEvent(
                 rosterMessage,
@@ -523,11 +575,15 @@ export class NotificationService implements DomainEventMaterializer {
         event: RaidsEndedEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience === 'players') {
+        if (destination.category === NOTIFICATION_CATEGORIES.summaries) {
             const message = this.raidsEndedFormatter.format(event);
             this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.raidsEnded);
 
-            const comparisonMessage = this.raidsComparisonFormatter.format(event);
+            const timezoneOffsetHours = this.resolveTimezoneOffsetHours(destination.subscriptionId);
+            const comparisonMessage = this.raidsComparisonFormatter.format(
+                event,
+                timezoneOffsetHours,
+            );
             if (comparisonMessage.length > 0) {
                 this.enqueueDomainEvent(
                     comparisonMessage,
@@ -535,6 +591,10 @@ export class NotificationService implements DomainEventMaterializer {
                     NOTIFICATION_EVENT_TYPES.raidsComparison,
                 );
             }
+            return;
+        }
+
+        if (destination.category !== NOTIFICATION_CATEGORIES.discipline) {
             return;
         }
 
@@ -550,13 +610,20 @@ export class NotificationService implements DomainEventMaterializer {
         event: ClanwarsLeagueRoundEndedEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience === 'players') {
+        if (destination.category === NOTIFICATION_CATEGORIES.summaries) {
             const message = this.clanwarsLeagueRoundEndedFormatter.format(event);
             this.enqueueDomainEvent(message, destination, NOTIFICATION_EVENT_TYPES.cwlRoundEnded);
             return;
         }
 
-        const violationsMessage = this.clanwarsLeagueRoundViolationsFormatter.format(event);
+        if (destination.category !== NOTIFICATION_CATEGORIES.discipline) {
+            return;
+        }
+
+        const mirrorRuleEnabled = this.resolveMirrorRuleEnabled(destination);
+        const violationsMessage = this.clanwarsLeagueRoundViolationsFormatter.format(event, {
+            mirrorRuleEnabled,
+        });
         this.enqueueDomainEvent(
             violationsMessage,
             destination,
@@ -568,7 +635,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: SyncFailureEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'management') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.system) {
             return;
         }
 
@@ -580,7 +647,7 @@ export class NotificationService implements DomainEventMaterializer {
         event: SyncRecoveryEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'management') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.system) {
             return;
         }
 
@@ -592,11 +659,12 @@ export class NotificationService implements DomainEventMaterializer {
         event: WarReminderEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'players') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.reminders) {
             return;
         }
 
-        const message = WarReminderFormatter.format(event);
+        const timezoneOffsetHours = this.resolveTimezoneOffsetHours(destination.subscriptionId);
+        const message = WarReminderFormatter.format(event, timezoneOffsetHours);
         const expiresAt = getWarReminderExpiresAt(event.endTime, event.kind);
         this.enqueueDomainEvent(
             message,
@@ -610,11 +678,12 @@ export class NotificationService implements DomainEventMaterializer {
         event: RaidReminderEvent,
         destination: PendingDomainEventDestination,
     ): void {
-        if (destination.audience !== 'players') {
+        if (destination.category !== NOTIFICATION_CATEGORIES.reminders) {
             return;
         }
 
-        const message = RaidReminderFormatter.format(event);
+        const timezoneOffsetHours = this.resolveTimezoneOffsetHours(destination.subscriptionId);
+        const message = RaidReminderFormatter.format(event, timezoneOffsetHours);
         const expiresAt = getRaidReminderExpiresAt(event.endTime, event.kind);
         this.enqueueDomainEvent(
             message,
@@ -622,6 +691,11 @@ export class NotificationService implements DomainEventMaterializer {
             NOTIFICATION_EVENT_TYPES.raidReminder,
             expiresAt,
         );
+    }
+
+    private resolveTimezoneOffsetHours(subscriptionId: number): number {
+        const subscription = this.subscriptionRepo?.getSubscriptionById(subscriptionId);
+        return subscription?.timezoneOffsetHours ?? DEFAULT_TIMEZONE_OFFSET_HOURS;
     }
 
     private enqueueDomainEvent(
@@ -674,22 +748,39 @@ export class NotificationService implements DomainEventMaterializer {
         eventType: NotificationEventType,
         eventId: string,
         eventName: string,
-        message: string,
-        audience: Audience,
+        messageOrBuilder: string | ((timezoneOffsetHours: number) => string),
+        category: NotificationCategory,
         expiresAt: number | null = null,
     ): void {
         const subscriptionRepo = requireDep(this.subscriptionRepo, 'subscriptionRepo');
         const transactionManager = requireDep(this.transactionManager, 'transactionManager');
 
-        const destinations = subscriptionRepo.getDestinationsForClan(clanTag, audience);
-        const parts = splitHtmlMessage(message, {
-            maxVisibleLength: this.maxMessageLength,
-        });
-        const partCount = parts.length;
+        const destinations = subscriptionRepo.getSubscriptionDestinationsForClan(clanTag, category);
+        const staticParts =
+            typeof messageOrBuilder === 'string'
+                ? splitHtmlMessage(messageOrBuilder, {
+                      maxVisibleLength: this.maxMessageLength,
+                  })
+                : null;
 
         try {
             transactionManager.retryInTransaction(() => {
-                for (const { chatId, messageThreadId } of destinations) {
+                for (const { subscriptionId, chatId, messageThreadId } of destinations) {
+                    const parts =
+                        staticParts ??
+                        (() => {
+                            const timezoneOffsetHours =
+                                this.resolveTimezoneOffsetHours(subscriptionId);
+                            const built = (
+                                messageOrBuilder as (timezoneOffsetHours: number) => string
+                            )(timezoneOffsetHours);
+                            return built.length > 0
+                                ? splitHtmlMessage(built, {
+                                      maxVisibleLength: this.maxMessageLength,
+                                  })
+                                : [];
+                        })();
+                    const partCount = parts.length;
                     for (let index = 0; index < partCount; index += 1) {
                         const partText = parts[index];
                         if (partText === undefined) {

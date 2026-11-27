@@ -67,19 +67,9 @@ describe('DomainEventRecorder', () => {
         subscriptionRepo.subscribeToChat(-1001, 77, CLAN_TAG, 'players');
         subscriptionRepo.subscribeToChat(5001, 0, CLAN_TAG, 'management');
 
-        const playersGeneralSubId = subscriptionRepo.getSubscriptionId(
-            -1001,
-            0,
-            CLAN_TAG,
-            'players',
-        );
-        const playersTopicSubId = subscriptionRepo.getSubscriptionId(
-            -1001,
-            77,
-            CLAN_TAG,
-            'players',
-        );
-        const managementSubId = subscriptionRepo.getSubscriptionId(5001, 0, CLAN_TAG, 'management');
+        const playersGeneralSubId = subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG);
+        const playersTopicSubId = subscriptionRepo.getSubscriptionId(-1001, 77, CLAN_TAG);
+        const managementSubId = subscriptionRepo.getSubscriptionId(5001, 0, CLAN_TAG);
 
         expect(playersGeneralSubId).not.toBeNull();
         expect(playersTopicSubId).not.toBeNull();
@@ -129,20 +119,20 @@ describe('DomainEventRecorder', () => {
             joinedDests.map((d) => ({
                 chatId: d.chatId,
                 messageThreadId: d.messageThreadId,
-                audience: d.audience,
+                category: d.category,
                 subscriptionId: d.subscriptionId,
             })),
         ).toEqual([
             {
                 chatId: -1001,
                 messageThreadId: 0,
-                audience: 'players',
+                category: 'roster',
                 subscriptionId: playersGeneralSubId,
             },
             {
                 chatId: -1001,
                 messageThreadId: 77,
-                audience: 'players',
+                category: 'roster',
                 subscriptionId: playersTopicSubId,
             },
         ]);
@@ -153,12 +143,17 @@ describe('DomainEventRecorder', () => {
             eventId: '20',
             chatId: 5001,
             messageThreadId: 0,
-            audience: 'management',
+            category: 'system',
             subscriptionId: managementSubId,
         });
 
         const warEndedDests = pending.filter((d) => d.eventType === 'war_ended');
         expect(warEndedDests).toHaveLength(3);
+        expect(warEndedDests.map((d) => d.category)).toEqual([
+            'summaries',
+            'summaries',
+            'discipline',
+        ]);
     });
 
     it('is idempotent for duplicate events and does not retroactively deliver to subscriptions added later', () => {
@@ -205,7 +200,7 @@ describe('DomainEventRecorder', () => {
         clansRepo.insertMinimalClan(CLAN_TAG);
         subscriptionRepo.saveTelegramChat(-1001, 0, 'Players');
         subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
-        const firstSubId = subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'players');
+        const firstSubId = subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG);
 
         txManager.retryInTransaction(() => {
             recorder.recordAll([
@@ -219,11 +214,11 @@ describe('DomainEventRecorder', () => {
             ]);
         });
 
-        subscriptionRepo.unsubscribeFromChat(-1001, 0, CLAN_TAG, 'players');
+        subscriptionRepo.unsubscribeFromChat(-1001, 0, CLAN_TAG);
         clansRepo.insertMinimalClan(CLAN_TAG);
         subscriptionRepo.saveTelegramChat(-1001, 0, 'Players');
         subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
-        const secondSubId = subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'players');
+        const secondSubId = subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG);
 
         expect(secondSubId).not.toBeNull();
         expect(secondSubId).not.toBe(firstSubId);

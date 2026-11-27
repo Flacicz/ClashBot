@@ -228,8 +228,8 @@ describe('ClanwarService', () => {
         subscriptionRepo.saveTelegramChat(5001, 0, 'Management');
         subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
         subscriptionRepo.subscribeToChat(5001, 0, CLAN_TAG, 'management');
-        const playersSubId = subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'players');
-        const managementSubId = subscriptionRepo.getSubscriptionId(5001, 0, CLAN_TAG, 'management');
+        const playersSubId = subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG);
+        const managementSubId = subscriptionRepo.getSubscriptionId(5001, 0, CLAN_TAG);
 
         let wasInTransactionDuringApiCall = true;
         apiClient.onGetCompleteClanwarData = () => {
@@ -290,7 +290,7 @@ describe('ClanwarService', () => {
                     eventId: String(endedEvent.warReference.warId),
                     payloadVersion: 1,
                     chatId: -1001,
-                    audience: 'players',
+                    category: 'summaries',
                     subscriptionId: playersSubId,
                 }),
                 expect.objectContaining({
@@ -298,7 +298,7 @@ describe('ClanwarService', () => {
                     eventId: String(endedEvent.warReference.warId),
                     payloadVersion: 1,
                     chatId: 5001,
-                    audience: 'management',
+                    category: 'discipline',
                     subscriptionId: managementSubId,
                 }),
             ]),
@@ -490,7 +490,7 @@ describe('ClanwarService', () => {
         ]);
         for (const dest of pendingReminders) {
             expect(dest.eventType).toBe('war_reminder');
-            expect(dest.audience).toBe('players');
+            expect(dest.category).toBe('reminders');
             expect(dest.chatId).toBe(-1001);
         }
 

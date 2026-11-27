@@ -36,12 +36,17 @@ export interface ClanwarPerformanceComparison {
     readonly unchangedMetricsRate: number;
 }
 
+export interface ClanwarComparisonOptions {
+    readonly mirrorRuleEnabled?: boolean;
+}
+
 export interface ClanwarComparisonData {
     readonly currentWar: ClanwarWarStats;
     readonly previousWar: ClanwarWarStats | null;
     readonly previousWarsAverage: ClanwarHistoricalAverages | null;
     readonly performanceComparison: ClanwarPerformanceComparison | null;
     readonly recentWarResults: readonly ClanwarOutcomeValue[];
+    readonly mirrorRuleEnabled?: boolean;
 }
 
 const AVERAGE_WARS_COUNT = 3;
@@ -109,17 +114,14 @@ export function calculateHistoricalAverages(
 export function compareWithHistoricalAverage(
     currentWar: ClanwarWarStats,
     historicalAverages: ClanwarHistoricalAverages,
+    options?: ClanwarComparisonOptions,
 ): ClanwarPerformanceComparison {
+    const mirrorRuleEnabled = options?.mirrorRuleEnabled ?? true;
     const currentPlayersWithoutAttacks = currentWar.disciplineStats.playersWithoutAttacks;
-    const currentFirstAttacksNotOnMirror = currentWar.disciplineStats.firstAttacksNotOnMirror;
 
     const currentPlayersWithoutAttacksRate = calculateRate(
         currentPlayersWithoutAttacks,
         currentWar.teamSize,
-    );
-    const currentFirstAttacksNotOnMirrorRate = calculateRate(
-        currentFirstAttacksNotOnMirror,
-        currentWar.teamSize - currentWar.disciplineStats.playersWithoutAttacks,
     );
 
     let improvedMetrics = 0;
@@ -161,10 +163,17 @@ export function compareWithHistoricalAverage(
         currentPlayersWithoutAttacksRate,
         historicalAverages.averagePlayersWithoutAttacksRate,
     );
-    compareLowerIsBetter(
-        currentFirstAttacksNotOnMirrorRate,
-        historicalAverages.averageFirstAttacksNotOnMirrorRate,
-    );
+    if (mirrorRuleEnabled) {
+        const currentFirstAttacksNotOnMirror = currentWar.disciplineStats.firstAttacksNotOnMirror;
+        const currentFirstAttacksNotOnMirrorRate = calculateRate(
+            currentFirstAttacksNotOnMirror,
+            currentWar.teamSize - currentWar.disciplineStats.playersWithoutAttacks,
+        );
+        compareLowerIsBetter(
+            currentFirstAttacksNotOnMirrorRate,
+            historicalAverages.averageFirstAttacksNotOnMirrorRate,
+        );
+    }
 
     const totalMetrics = improvedMetrics + worsenedMetrics + unchangedMetrics;
 
@@ -190,14 +199,16 @@ export function compareWithHistoricalAverage(
 export function buildComparisonData(
     currentWar: ClanwarWarStats,
     previousWars: readonly ClanwarWarStats[],
+    options?: ClanwarComparisonOptions,
 ): ClanwarComparisonData {
+    const mirrorRuleEnabled = options?.mirrorRuleEnabled ?? true;
     const previousWar = previousWars[0] ?? null;
 
     const averageWars = previousWars.slice(0, AVERAGE_WARS_COUNT);
     const previousWarsAverage = calculateHistoricalAverages(averageWars);
     const performanceComparison =
         previousWarsAverage !== null
-            ? compareWithHistoricalAverage(currentWar, previousWarsAverage)
+            ? compareWithHistoricalAverage(currentWar, previousWarsAverage, { mirrorRuleEnabled })
             : null;
 
     const recentWarResults: ClanwarOutcomeValue[] = [];
@@ -215,5 +226,6 @@ export function buildComparisonData(
         previousWarsAverage,
         performanceComparison,
         recentWarResults,
+        mirrorRuleEnabled,
     };
 }

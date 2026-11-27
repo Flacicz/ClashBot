@@ -1,11 +1,13 @@
 export {
     ClanwarComparisonFormatter,
+    type ClanwarComparisonFormatOptions,
     type ClanwarComparisonReader,
 } from './clanwarComparisonFormatter.js';
 export { ClanwarEndedFormatter, type ClanwarResultReportReader } from './clanwarEndedFormatter.js';
 export {
     ClanwarRosterFormatter,
     type ActiveMembersReader,
+    type ClanwarRosterFormatOptions,
     type ClanwarRosterReader,
 } from './clanwarRosterFormatter.js';
 export {
@@ -16,10 +18,12 @@ export {
 } from './clanwarsLeagueRoundEndedFormatter.js';
 export {
     ClanwarsLeagueRoundViolationsFormatter,
+    type CwlRoundViolationsFormatOptions,
     type CwlRoundViolationsReader,
 } from './clanwarsLeagueRoundViolationsFormatter.js';
 export {
     ClanwarViolationsFormatter,
+    type ClanwarViolationsFormatOptions,
     type ClanwarViolationsReader,
 } from './clanwarViolationsFormatter.js';
 export { formatFixedHalfToEven } from './numberFormat.js';

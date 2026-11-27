@@ -77,6 +77,7 @@ ClashBot — автономный сервис мониторинга клано
 | `database.path` | `databasePath` | `string` | `'data/database.sqlite'` | Путь к файлу SQLite (непустой) |
 | `database.migrations_path` | `migrationPath` | `string` | `'migrations'` | Каталог `.sql`-миграций (непустой) |
 | `telegram.attack_guides_path` | `attackGuidesPath` | `string` | `'resources/telegram/attack_guides.json'` | Путь к JSON-каталогу видео-гайдов (непустой) |
+| `limits.max_tracked_clans` | `maxTrackedClans` | `number` (int `>= 1`) | `20` | Максимальное число отслеживаемых кланов на инстанс ClashBot |
 
 Относительные пути внутри `config.json` разрешаются относительно текущего рабочего каталога процесса (`process.cwd()`), а не каталога `config.json`. Шаблон файла — [`config.example.json`](../config.example.json).
 
@@ -116,7 +117,7 @@ ClashBot — автономный сервис мониторинга клано
 - **Повторяемые (`retryable: true`)**: `network`, `timeout`, `rate_limit` (HTTP `429` с разбором заголовка `Retry-After`), `server_error` (`5xx`).
 - **Неповторяемые (`retryable: false`)**: `forbidden` (`403`), `not_found` (`404`), `unexpected_status`, `invalid_json`, `invalid_schema`.
 
-Временные метки API в формате `YYYYMMDDTHHMMSS[.fff]Z` преобразуются в Unix timestamp в секундах (`src/api/timeParser.ts`). Форматирование дат для сообщений Telegram выполняется в `UTC+3` (`formatUnixToMoscowDateTime` в `src/common/formatUtils.ts`).
+Временные метки API в формате `YYYYMMDDTHHMMSS[.fff]Z` преобразуются в Unix timestamp в секундах (`src/api/timeParser.ts`). Форматирование дат и времени для сообщений Telegram выполняется в часовом поясе подписки (`timezone_offset_hours`, по умолчанию `UTC+3`) с явным указанием `(UTC+N)` / `(UTC-N)` (`formatUnixToDateTime` / `formatUnixToDate` / `formatUtcOffset` в `src/common/formatUtils.ts`).
 
 ## Цикл синхронизации (`ClanManager` и `SyncService`)
 
@@ -178,7 +179,7 @@ NotificationWorker
 - **Семантика доставки `at-least-once`**: при падении процесса или сбое БД после успешного `sendMessage`, но до `markAsSent`, запись остаётся в `'sending'` и после восстановления (при рестарте или по истечении `claimTtlSeconds`) будет поставлена в `'pending'` и отправлена повторно (если подписка всё ещё активна). Отмена подписки через `/unlink` отменяет `pending`-записи по `subscription_id` и не допускает нового захвата или новой попытки повтора; уже захваченный (`'sending'`) HTTP-запрос считается in-flight и может завершиться.
 
 Детальные контракты слоёв вынесены в SSOT-документы:
-- схема SQLite, миграции `001`–`015`, `PRAGMA` и контракты репозиториев → [`docs/database.md`](database.md);
+- схема SQLite, миграции `001`–`016`, `PRAGMA` и контракты репозиториев → [`docs/database.md`](database.md);
 - каталог `ApplicationEvent`, payload, матрица доставки по аудиториям, контрольные точки, форматтеры и дедупликация → [`docs/reports.md`](reports.md);
 - входящий бот `TelegramBotService`, команды `/start`, `/link`, `/unlink`, права, форумные темы и `TelegramGateway` → [`docs/telegram.md`](telegram.md).
 

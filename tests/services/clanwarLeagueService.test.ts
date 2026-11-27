@@ -549,7 +549,7 @@ describe('ClanwarLeagueService', () => {
             `${String(round2WarId)}:${WAR_REMINDER_KINDS.sixHoursLeft}`,
         ]);
         for (const reminderDest of pending.filter((d) => d.eventType === 'war_reminder')) {
-            expect(reminderDest.audience).toBe('players');
+            expect(reminderDest.category).toBe('reminders');
             expect(JSON.parse(reminderDest.payload)).toMatchObject({ war_kind: 'cwl' });
         }
     });
@@ -921,6 +921,7 @@ describe('ClanwarLeagueService', () => {
                 clanwarRepo,
                 clanwarsLeagueRepo: leagueRepo,
                 raidRepo,
+                subscriptionRepo,
             });
             const domainEventWorker = new DomainEventWorker({
                 domainEventsRepo,
@@ -941,8 +942,14 @@ describe('ClanwarLeagueService', () => {
             subscriptionRepo.saveTelegramChat(SHARED_MANAGEMENT_CHAT, 0, 'Shared Management');
             subscriptionRepo.subscribeToChat(SHARED_PLAYERS_CHAT, 0, CLAN_A, 'players');
             subscriptionRepo.subscribeToChat(SHARED_PLAYERS_CHAT, 0, CLAN_B, 'players');
-            subscriptionRepo.subscribeToChat(SHARED_MANAGEMENT_CHAT, 0, CLAN_A, 'management');
-            subscriptionRepo.subscribeToChat(SHARED_MANAGEMENT_CHAT, 0, CLAN_B, 'management');
+            subscriptionRepo.subscribeToChat(SHARED_MANAGEMENT_CHAT, 0, CLAN_A, {
+                preset: 'management',
+                mirrorRuleEnabled: true,
+            });
+            subscriptionRepo.subscribeToChat(SHARED_MANAGEMENT_CHAT, 0, CLAN_B, {
+                preset: 'management',
+                mirrorRuleEnabled: true,
+            });
 
             const leagueGroupBody = {
                 state: 'inWar',

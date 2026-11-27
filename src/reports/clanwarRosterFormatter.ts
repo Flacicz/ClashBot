@@ -30,22 +30,26 @@ export interface ClanwarRosterReader {
     getPlayersWithFirstAttackNotOnMirror(reference: ClanwarReference): NotMirrorAttack[];
 }
 
+export interface ClanwarRosterFormatOptions {
+    readonly mirrorRuleEnabled?: boolean;
+}
+
 const PREVIOUS_WARS_FOR_ROSTER = 4;
 
 function isRisk(player: ClanwarRosterPlayerReport): boolean {
     return player.includedWars > 0 && player.warsWithoutAttacks > 0;
 }
 
-function isAttention(player: ClanwarRosterPlayerReport): boolean {
+function isAttention(player: ClanwarRosterPlayerReport, mirrorRuleEnabled: boolean): boolean {
     return (
         player.includedWars > 0 &&
         !isRisk(player) &&
-        (player.warsWithOneAttack > 0 || player.firstAttacksNotOnMirror > 0)
+        (player.warsWithOneAttack > 0 || (mirrorRuleEnabled && player.firstAttacksNotOnMirror > 0))
     );
 }
 
-function isStable(player: ClanwarRosterPlayerReport): boolean {
-    return player.includedWars > 0 && !isRisk(player) && !isAttention(player);
+function isStable(player: ClanwarRosterPlayerReport, mirrorRuleEnabled: boolean): boolean {
+    return player.includedWars > 0 && !isRisk(player) && !isAttention(player, mirrorRuleEnabled);
 }
 
 function formatLastParticipation(player: ClanwarRosterPlayerReport): string {
@@ -68,8 +72,13 @@ function formatAttackResults(player: ClanwarRosterPlayerReport): string {
     return `атаки ${String(player.attacksUsed)} · ⭐ ${formatFixedHalfToEven(player.averageStarsPerAttack, 2)} · 💥 ${formatFixedHalfToEven(player.averageDestructionPerAttack, 2)}%`;
 }
 
-function formatViolations(player: ClanwarRosterPlayerReport): string {
-    return `без атак ${String(player.warsWithoutAttacks)} · одна атака ${String(player.warsWithOneAttack)} · не по зеркалу ${String(player.firstAttacksNotOnMirror)}`;
+function formatViolations(player: ClanwarRosterPlayerReport, mirrorRuleEnabled: boolean): string {
+    const base = `без атак ${String(player.warsWithoutAttacks)} · одна атака ${String(player.warsWithOneAttack)}`;
+    if (!mirrorRuleEnabled) {
+        return base;
+    }
+
+    return `${base} · не по зеркалу ${String(player.firstAttacksNotOnMirror)}`;
 }
 
 function formatSkippedIncompleteWarsNote(skippedCount: number): string {
@@ -103,7 +112,8 @@ export class ClanwarRosterFormatter {
         this.#clanwarRepo = clanwarRepo;
     }
 
-    format(event: WarEndedEvent): string {
+    format(event: WarEndedEvent, options?: ClanwarRosterFormatOptions): string {
+        const mirrorRuleEnabled = options?.mirrorRuleEnabled ?? true;
         const previousWars = this.#clanwarRepo.getPreviousClanwars(
             event.warReference,
             PREVIOUS_WARS_FOR_ROSTER,
@@ -124,9 +134,9 @@ export class ClanwarRosterFormatter {
         const oneAttackPlayersByWar = wars.map((war) =>
             this.#clanwarRepo.getSlackersWithOneAttack(war),
         );
-        const notMirrorAttacksByWar = wars.map((war) =>
-            this.#clanwarRepo.getPlayersWithFirstAttackNotOnMirror(war),
-        );
+        const notMirrorAttacksByWar = mirrorRuleEnabled
+            ? wars.map((war) => this.#clanwarRepo.getPlayersWithFirstAttackNotOnMirror(war))
+            : [];
 
         const playerRoster = calculateRosterStats(currentMembership, warMemberTags);
         const attacks = calculateAttackStats(currentMembership, warAttacks);
@@ -135,6 +145,7 @@ export class ClanwarRosterFormatter {
             noAttackPlayersByWar,
             oneAttackPlayersByWar,
             notMirrorAttacksByWar,
+            { mirrorRuleEnabled },
         );
 
         const players: ClanwarRosterPlayerReport[] = [];
@@ -168,10 +179,12 @@ export class ClanwarRosterFormatter {
             warsCount: warMemberTags.length,
             players,
             skippedIncompleteWarsCount,
+            mirrorRuleEnabled,
         });
     }
 
     static buildReport(reportData: ClanwarRosterReportData): string {
+        const mirrorRuleEnabled = reportData.mirrorRuleEnabled ?? true;
         let stablePlayers = 0;
         let playersRequiringAttention = 0;
         let riskPlayers = 0;
@@ -182,9 +195,9 @@ export class ClanwarRosterFormatter {
                 absentPlayers += 1;
             } else if (isRisk(player)) {
                 riskPlayers += 1;
-            } else if (isAttention(player)) {
+            } else if (isAttention(player, mirrorRuleEnabled)) {
                 playersRequiringAttention += 1;
-            } else if (isStable(player)) {
+            } else if (isStable(player, mirrorRuleEnabled)) {
                 stablePlayers += 1;
             }
         }
@@ -206,7 +219,7 @@ export class ClanwarRosterFormatter {
 
         let hasStable = false;
         for (const player of reportData.players) {
-            if (!isStable(player)) {
+            if (!isStable(player, mirrorRuleEnabled)) {
                 continue;
             }
 
@@ -220,7 +233,7 @@ export class ClanwarRosterFormatter {
 
         let hasAttention = false;
         for (const player of reportData.players) {
-            if (!isAttention(player)) {
+            if (!isAttention(player, mirrorRuleEnabled)) {
                 continue;
             }
 
@@ -230,7 +243,7 @@ export class ClanwarRosterFormatter {
             }
 
             report += `• ${escapeHtml(player.playerName)} — состав ${String(player.includedWars)}/${String(reportData.warsCount)} · ${formatAttackResults(player)}\n`;
-            report += `  ${formatViolations(player)} · ${formatLastParticipation(player)}\n`;
+            report += `  ${formatViolations(player, mirrorRuleEnabled)} · ${formatLastParticipation(player)}\n`;
         }
 
         let hasRisk = false;
@@ -245,7 +258,7 @@ export class ClanwarRosterFormatter {
             }
 
             report += `• ${escapeHtml(player.playerName)} — состав ${String(player.includedWars)}/${String(reportData.warsCount)} · ${formatAttackResults(player)}\n`;
-            report += `  ${formatViolations(player)} · ${formatLastParticipation(player)}\n`;
+            report += `  ${formatViolations(player, mirrorRuleEnabled)} · ${formatLastParticipation(player)}\n`;
         }
 
         let hasAbsent = false;

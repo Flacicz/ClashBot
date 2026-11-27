@@ -384,6 +384,24 @@ describe('WarReminderFormatter (golden parity)', () => {
             'regular-actual-remaining-under-minute',
         );
     });
+
+    it('formats war and CWL reminders in custom timezone offsets (UTC-5, UTC+0, UTC+14) without country labels', () => {
+        const utcMinus5 = WarReminderFormatter.format(baseRegular, -5);
+        expect(utcMinus5).toContain('🕒 Окончание: <b>31.12.2023 19:00 (UTC-5)</b>');
+        expect(utcMinus5).not.toContain('МСК');
+
+        const utcZero = WarReminderFormatter.format(baseCwl, 0);
+        expect(utcZero).toContain('🕒 Окончание: <b>01.01.2024 00:00 (UTC+0)</b>');
+
+        const utcPlus14 = WarReminderFormatter.format(
+            { ...baseRegular, kind: WAR_REMINDER_KINDS.sixHoursLeft },
+            14,
+        );
+        expect(utcPlus14).toContain('🕒 Окончание: <b>01.01.2024 14:00 (UTC+14)</b>');
+
+        const unknown = WarReminderFormatter.format({ ...baseRegular, endTime: -10 }, -5);
+        expect(unknown).toContain('🕒 Окончание: <b>неизвестно</b>');
+    });
 });
 
 describe('RaidReminderFormatter (golden parity)', () => {
@@ -487,6 +505,24 @@ describe('RaidReminderFormatter (golden parity)', () => {
             }),
             'raidReminder',
             'actual-remaining-minutes',
+        );
+    });
+
+    it('formats raid reminders in custom timezone offsets (UTC-5, UTC+0, UTC+14)', () => {
+        expect(RaidReminderFormatter.format(baseRaid, -5)).toContain(
+            '🕒 Окончание: <b>31.12.2023 19:00 (UTC-5)</b>',
+        );
+        expect(RaidReminderFormatter.format(baseRaid, 0)).toContain(
+            '🕒 Окончание: <b>01.01.2024 00:00 (UTC+0)</b>',
+        );
+        expect(
+            RaidReminderFormatter.format(
+                { ...baseRaid, kind: RAID_REMINDER_KINDS.sixHoursLeft },
+                14,
+            ),
+        ).toContain('🕒 Окончание: <b>01.01.2024 14:00 (UTC+14)</b>');
+        expect(RaidReminderFormatter.format({ ...baseRaid, endTime: 0 }, 14)).toContain(
+            '🕒 Окончание: <b>неизвестно</b>',
         );
     });
 });

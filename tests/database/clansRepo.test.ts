@@ -115,6 +115,15 @@ describe('ClansRepo', () => {
         expect(repo.getTrackedClans()).toEqual(['#CLAN1']);
         expect(repo.getClanNameByTag('#CLAN1')).toBe('Alpha Squad');
 
+        // Explicit disableTracking + saveClan + enableTracking re-enables tracking and updates metadata
+        repo.disableTracking('#CLAN1');
+        expect(repo.getTrackedClans()).toEqual([]);
+        repo.saveClan(makeClan({ tag: '#CLAN1', name: 'Alpha Squad v2' }));
+        expect(repo.getTrackedClans()).toEqual([]);
+        repo.enableTracking('#CLAN1');
+        expect(repo.getTrackedClans()).toEqual(['#CLAN1']);
+        expect(repo.getClanNameByTag('#CLAN1')).toBe('Alpha Squad v2');
+
         // Second clan tracked independently
         repo.insertMinimalClan('#CLAN2');
         expect(repo.getTrackedClans()).toEqual(['#CLAN1', '#CLAN2']);

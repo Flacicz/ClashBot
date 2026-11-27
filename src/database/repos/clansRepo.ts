@@ -28,6 +28,37 @@ export class ClansRepo extends BaseRepository {
         return this.query(sql, 'load tracked clans', '', (row) => getString(row, 'tag'));
     }
 
+    countTrackedClans(): number {
+        const sql = `
+            SELECT COUNT(*) AS count
+            FROM clans
+            WHERE tracking_enabled = 1;
+        `;
+
+        return this.queryOne(sql, 'count tracked clans', '', (row) => getNumber(row, 'count'));
+    }
+
+    isClanTracked(clanTag: string): boolean {
+        const sql = `
+            SELECT EXISTS(
+                SELECT 1
+                FROM clans
+                WHERE tag = ?
+                  AND tracking_enabled = 1
+            ) AS found;
+        `;
+
+        return (
+            this.queryOne(
+                sql,
+                'check tracked clan',
+                `clan_tag = ${clanTag}`,
+                (row) => getNumber(row, 'found'),
+                clanTag,
+            ) !== 0
+        );
+    }
+
     insertMinimalClan(tag: string): void {
         const sql = `
             INSERT INTO clans (tag, name)
@@ -37,6 +68,16 @@ export class ClansRepo extends BaseRepository {
         `;
 
         this.execute(sql, 'insert minimal clan', `clan_tag = ${tag}`, tag);
+    }
+
+    enableTracking(tag: string): void {
+        const sql = `
+            UPDATE clans
+            SET tracking_enabled = 1
+            WHERE tag = ?;
+        `;
+
+        this.execute(sql, 'enable tracking', `clan_tag = ${tag}`, tag);
     }
 
     disableTracking(tag: string): void {

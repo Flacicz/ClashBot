@@ -4,7 +4,10 @@ import type { Context } from 'grammy';
 import type { ApiResponse, ChatMember, Update, UserFromGetMe } from 'grammy/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DatabaseError } from '../../src/common/errors.js';
+import { CocApiError } from '../../src/api/errors.js';
+import type { CompleteClanData } from '../../src/api/models.js';
+import { type Clock, FakeClock } from '../../src/common/clock.js';
+import { DatabaseError, ValidationError } from '../../src/common/errors.js';
 import {
     ClansRepo,
     Database,
@@ -12,13 +15,26 @@ import {
     MigratorManager,
     NotificationRepo,
     SubscriptionRepo,
+    SyncOutageRepo,
     TransactionManager,
 } from '../../src/database/index.js';
-import { createLogger } from '../../src/logging/index.js';
-import type { WakeableClanManager } from '../../src/services/index.js';
+import { DomainEventPayloadSerializer, DomainEventRecorder } from '../../src/domainEvents/index.js';
+import { createLogger, type Logger } from '../../src/logging/index.js';
+import { ClanInfoService, type WakeableClanManager } from '../../src/services/index.js';
 import {
     AttackGuideCatalog,
+    type ClanLookupApiClient,
+    COMMAND_RATE_LIMIT_EXCEEDED_TEXT,
+    type CommandRateLimiter,
+    DEFERRED_SYNC_HINT_TEXT,
+    MAX_CALLBACK_DATA_BYTES,
+    PENDING_CLAN_SYNC_NAME,
+    PRIVATE_WAR_LOG_WARNING_TEXT,
+    SUPERCELL_FAN_CONTENT_DISCLAIMER,
     TELEGRAM_BOT_ALLOWED_UPDATES,
+    TELEGRAM_BOT_COMMANDS,
+    TELEGRAM_BOT_DESCRIPTION,
+    TELEGRAM_BOT_SHORT_DESCRIPTION,
     TelegramBotService,
 } from '../../src/telegram/index.js';
 import { type LoopbackServer, startLoopbackServer } from '../api/helpers/loopbackServer.js';
@@ -54,11 +70,18 @@ interface FakeTelegramTransport {
     failGetChatMember: boolean;
     failAnswerCallbackQuery: boolean;
     failSendMessage: boolean;
+    failSetMyCommands: boolean;
+    failSetMyDescription: boolean;
+    failSetMyShortDescription: boolean;
     getUpdatesResponder?: (
         payload: Record<string, unknown>,
         signal?: GrammyAbortSignal,
     ) => Promise<ApiResponse<unknown>>;
     getChatMemberResponder?: (
+        payload: Record<string, unknown>,
+        signal?: GrammyAbortSignal,
+    ) => Promise<ApiResponse<unknown>>;
+    editMessageTextResponder?: (
         payload: Record<string, unknown>,
         signal?: GrammyAbortSignal,
     ) => Promise<ApiResponse<unknown>>;
@@ -83,6 +106,9 @@ function createFakeTelegramTransport(db: Database): FakeTelegramTransport {
         failGetChatMember: false,
         failAnswerCallbackQuery: false,
         failSendMessage: false,
+        failSetMyCommands: false,
+        failSetMyDescription: false,
+        failSetMyShortDescription: false,
         install(service: TelegramBotService): void {
             service.bot.api.config.use(async (_prev, method, payload, signal) => {
                 // Pure transactions invariant: no Telegram API call may ever occur inside an open SQLite transaction.
@@ -102,6 +128,39 @@ function createFakeTelegramTransport(db: Database): FakeTelegramTransport {
                 }
 
                 if (method === 'deleteWebhook') {
+                    return { ok: true, result: true } as ApiResponse<never>;
+                }
+
+                if (method === 'setMyCommands') {
+                    if (transport.failSetMyCommands) {
+                        return {
+                            ok: false,
+                            error_code: 400,
+                            description: 'Bad Request: failed to set commands',
+                        };
+                    }
+                    return { ok: true, result: true } as ApiResponse<never>;
+                }
+
+                if (method === 'setMyDescription') {
+                    if (transport.failSetMyDescription) {
+                        return {
+                            ok: false,
+                            error_code: 400,
+                            description: 'Bad Request: failed to set description',
+                        };
+                    }
+                    return { ok: true, result: true } as ApiResponse<never>;
+                }
+
+                if (method === 'setMyShortDescription') {
+                    if (transport.failSetMyShortDescription) {
+                        return {
+                            ok: false,
+                            error_code: 400,
+                            description: 'Bad Request: failed to set short description',
+                        };
+                    }
                     return { ok: true, result: true } as ApiResponse<never>;
                 }
 
@@ -178,6 +237,12 @@ function createFakeTelegramTransport(db: Database): FakeTelegramTransport {
                 }
 
                 if (method === 'editMessageText') {
+                    if (transport.editMessageTextResponder !== undefined) {
+                        return (await transport.editMessageTextResponder(
+                            payloadRecord,
+                            signal,
+                        )) as ApiResponse<never>;
+                    }
                     return { ok: true, result: true } as ApiResponse<never>;
                 }
 
@@ -379,10 +444,91 @@ function getInlineKeyboard(payload: Record<string, unknown> | undefined): readon
     return replyMarkup.inline_keyboard;
 }
 
+function makeCompleteClanData(overrides?: {
+    readonly tag?: string;
+    readonly name?: string;
+    readonly membersCount?: number;
+    readonly isWarLogPublic?: boolean;
+}): CompleteClanData {
+    const tag = overrides?.tag ?? '#2PPLQ';
+    const name = overrides?.name ?? 'Dark Dragons';
+    const membersCount = overrides?.membersCount ?? 45;
+    const isWarLogPublic = overrides?.isWarLogPublic ?? true;
+
+    return {
+        clan: {
+            tag,
+            name,
+            description: 'Active war clan',
+            locationId: 32000193,
+            locationName: 'Russia',
+            chatLanguageId: 75000011,
+            chatLanguage: 'Russian',
+            isFamilyFriendly: false,
+        },
+        clanSnapshot: {
+            clanTag: tag,
+            type: 'inviteOnly',
+            membersCount,
+            clanLevel: 18,
+            clanPoints: 45_000,
+            clanBuilderBasePoints: 30_000,
+            clanCapitalPoints: 4_200,
+            capitalHallLevel: 10,
+            capitalLeagueId: 85000018,
+            requiredTrophies: 2_000,
+            requiredBuilderBaseTrophies: 1_000,
+            requiredTownhallLevel: 13,
+            warFrequency: 'always',
+            isWarLogPublic,
+            warWinStreak: 7,
+            warWins: 210,
+            warTies: 5,
+            warLosses: 50,
+            warLeagueId: 48000013,
+        },
+        players: [
+            { tag: '#PLAYER1', name: 'Chief One', clanTag: tag },
+            { tag: '#PLAYER2', name: 'Chief Two', clanTag: tag },
+        ],
+        playerSnapshots: [
+            {
+                playerTag: '#PLAYER1',
+                clanTag: tag,
+                role: 'leader',
+                townHallLevel: 16,
+                expLevel: 230,
+                clanRank: 1,
+                leagueId: 29000022,
+                builderBaseLeagueId: 44000010,
+                trophies: 5_400,
+                builderBaseTrophies: 4_000,
+                donations: 1_500,
+                donationsReceived: 800,
+            },
+            {
+                playerTag: '#PLAYER2',
+                clanTag: tag,
+                role: 'member',
+                townHallLevel: 15,
+                expLevel: 210,
+                clanRank: 2,
+                leagueId: 29000021,
+                builderBaseLeagueId: 44000010,
+                trophies: 5_000,
+                builderBaseTrophies: 3_500,
+                donations: 600,
+                donationsReceived: 700,
+            },
+        ],
+    };
+}
+
 interface TestHarness {
     readonly db: Database;
     readonly clansRepo: ClansRepo;
     readonly subscriptionRepo: SubscriptionRepo;
+    readonly syncOutageRepo: SyncOutageRepo;
     readonly domainEventsRepo: DomainEventsRepo;
     readonly notificationRepo: NotificationRepo;
     readonly transactionManager: TransactionManager;
@@ -398,7 +544,13 @@ describe('TelegramBotService', () => {
         readonly skipBotInfo?: boolean;
         readonly pollingTimeoutSeconds?: number;
         readonly stopConfirmationTimeoutMs?: number;
+        readonly cocApiClient?: ClanLookupApiClient;
         readonly clanManager?: WakeableClanManager;
+        readonly clock?: Clock;
+        readonly maxClansPerDestination?: number;
+        readonly maxTrackedClans?: number;
+        readonly commandRateLimiter?: CommandRateLimiter;
+        readonly logger?: Logger;
     }): TestHarness {
         const db = new Database(':memory:');
         openDatabases.push(db);
@@ -408,9 +560,10 @@ describe('TelegramBotService', () => {
 
         const clansRepo = new ClansRepo(db);
         const subscriptionRepo = new SubscriptionRepo(db);
+        const syncOutageRepo = new SyncOutageRepo(db);
         const domainEventsRepo = new DomainEventsRepo(db);
         const notificationRepo = new NotificationRepo(db);
-        const logger = createLogger({ level: 'silent' });
+        const logger = options?.logger ?? createLogger({ level: 'silent' });
         const transport = createFakeTelegramTransport(db);
 
         const service = new TelegramBotService({
@@ -422,7 +575,18 @@ describe('TelegramBotService', () => {
             notificationRepo,
             transactionManager,
             logger,
+            ...(options?.cocApiClient !== undefined ? { cocApiClient: options.cocApiClient } : {}),
             ...(options?.clanManager !== undefined ? { clanManager: options.clanManager } : {}),
+            ...(options?.clock !== undefined ? { clock: options.clock } : {}),
+            ...(options?.maxClansPerDestination !== undefined
+                ? { maxClansPerDestination: options.maxClansPerDestination }
+                : {}),
+            ...(options?.maxTrackedClans !== undefined
+                ? { maxTrackedClans: options.maxTrackedClans }
+                : {}),
+            ...(options?.commandRateLimiter !== undefined
+                ? { commandRateLimiter: options.commandRateLimiter }
+                : {}),
             ...(options?.pollingTimeoutSeconds !== undefined
                 ? { pollingTimeoutSeconds: options.pollingTimeoutSeconds }
                 : {}),
@@ -438,6 +602,7 @@ describe('TelegramBotService', () => {
             db,
             clansRepo,
             subscriptionRepo,
+            syncOutageRepo,
             domainEventsRepo,
             notificationRepo,
             transactionManager,
@@ -455,8 +620,8 @@ describe('TelegramBotService', () => {
         }
     });
 
-    describe('commands: /start and ignored messages', () => {
-        it('sends the main menu on /start preserving forum topic message_thread_id', async () => {
+    describe('commands: /start, /help, unknown commands and ignored messages', () => {
+        it('sends the main menu on /start without disclaimer, preserving forum topic message_thread_id', async () => {
             const { service, transport } = createHarness();
 
             await service.bot.handleUpdate(
@@ -474,7 +639,10 @@ describe('TelegramBotService', () => {
             expect(sent[0]?.chat_id).toBe(1011);
             expect(sent[0]?.message_thread_id).toBe(13);
             expect(sent[0]?.parse_mode).toBe('HTML');
-            expect(String(sent[0]?.text)).toContain('Добро пожаловать');
+            const text = String(sent[0]?.text);
+            expect(text).toContain('Добро пожаловать');
+            expect(text).not.toContain('Supercell');
+            expect(text).not.toContain('fan-content-policy');
             const keyboard = getInlineKeyboard(sent[0]);
             expect(keyboard[0]?.[0]?.callback_data).toBe('guides:townhalls');
             expect(keyboard[1]?.[0]?.callback_data).toBe('clans:link');
@@ -483,17 +651,26 @@ describe('TelegramBotService', () => {
             expect(keyboard[4]?.[0]?.callback_data).toBe('help:main');
         });
 
-        it('omits message_thread_id in general chats and ignores /start with args or unknown commands', async () => {
+        it('handles /start <arg> the same as /start, omits message_thread_id in general chats, and ignores non-command messages', async () => {
             const { service, transport } = createHarness();
 
             await service.bot.handleUpdate(
                 makeMessageUpdate({ chatId: 1011, chatType: 'private', text: '/start' }),
             );
             await service.bot.handleUpdate(
-                makeMessageUpdate({ chatId: 1011, chatType: 'private', text: '/start extra' }),
+                makeMessageUpdate({
+                    chatId: 1011,
+                    chatType: 'private',
+                    text: '/start deep_link_payload',
+                }),
             );
             await service.bot.handleUpdate(
-                makeMessageUpdate({ chatId: 1011, chatType: 'private', text: '/unknown #2PPLQ' }),
+                makeMessageUpdate({
+                    chatId: -1012,
+                    chatType: 'supergroup',
+                    messageThreadId: 9,
+                    text: '/start@ClashTestBot ref123 extra',
+                }),
             );
             await service.bot.handleUpdate(
                 makeMessageUpdate({ chatId: 1011, chatType: 'private', text: 'hello world' }),
@@ -503,11 +680,118 @@ describe('TelegramBotService', () => {
             );
 
             const sent = transport.sentMessages();
-            expect(sent).toHaveLength(1);
+            expect(sent).toHaveLength(3);
             expect(sent[0]?.message_thread_id).toBeUndefined();
+            expect(sent[1]?.message_thread_id).toBeUndefined();
+            expect(sent[1]?.text).toBe(sent[0]?.text);
+            expect(getInlineKeyboard(sent[1])).toEqual(getInlineKeyboard(sent[0]));
+            expect(sent[2]?.message_thread_id).toBe(9);
+            expect(sent[2]?.text).toBe(sent[0]?.text);
         });
 
-        it('ignores /start, /link, and /unlink addressed to another bot without side effects', async () => {
+        it('handles /help with commands, permissions, presets and Supercell Fan Content Policy disclaimer', async () => {
+            const { service, transport } = createHarness();
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 20,
+                    chatId: 1011,
+                    chatType: 'private',
+                    text: '/help',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 21,
+                    chatId: -1015,
+                    chatType: 'supergroup',
+                    messageThreadId: 19,
+                    text: '/help@ClashTestBot',
+                }),
+            );
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(2);
+            expect(sent[0]?.chat_id).toBe(1011);
+            expect(sent[0]?.message_thread_id).toBeUndefined();
+            expect(sent[0]?.parse_mode).toBe('HTML');
+            expect(sent[1]?.chat_id).toBe(-1015);
+            expect(sent[1]?.message_thread_id).toBe(19);
+            expect(sent[1]?.text).toBe(sent[0]?.text);
+
+            const helpText = String(sent[0]?.text);
+            expect(helpText).toContain('Помощь');
+            expect(helpText).toContain('/start');
+            expect(helpText).toContain('/help');
+            expect(helpText).toContain('/link #ТЕГ_КЛАНА');
+            expect(helpText).toContain('/unlink #ТЕГ_КЛАНА');
+            expect(helpText).toContain('администраторы');
+            expect(helpText).toContain('«Игроки»');
+            expect(helpText).toContain('«Руководство»');
+            expect(helpText).toContain('«Всё вместе»');
+            expect(helpText).toContain(SUPERCELL_FAN_CONTENT_DISCLAIMER);
+            expect(getInlineKeyboard(sent[0])[0]?.[0]?.callback_data).toBe('menu:start');
+        });
+
+        it('replies to unknown commands in private chats and stays silent in groups, supergroups and channels', async () => {
+            const { service, transport } = createHarness();
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 30,
+                    chatId: 1011,
+                    chatType: 'private',
+                    text: '/unknown #2PPLQ',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 31,
+                    chatId: 1011,
+                    chatType: 'private',
+                    messageThreadId: 5,
+                    text: '/foo@ClashTestBot',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 32,
+                    chatId: -2001,
+                    chatType: 'group',
+                    userId: 42,
+                    text: '/unknown',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 33,
+                    chatId: -2002,
+                    chatType: 'supergroup',
+                    userId: 42,
+                    text: '/unknown@ClashTestBot',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 34,
+                    chatId: -2003,
+                    chatType: 'channel',
+                    userId: 42,
+                    text: '/unknown',
+                }),
+            );
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(2);
+            expect(sent[0]?.chat_id).toBe(1011);
+            expect(sent[0]?.message_thread_id).toBeUndefined();
+            expect(sent[0]?.text).toBe('Не знаю такой команды, см. /help');
+            expect(sent[1]?.chat_id).toBe(1011);
+            expect(sent[1]?.message_thread_id).toBe(5);
+            expect(sent[1]?.text).toBe('Не знаю такой команды, см. /help');
+        });
+
+        it('ignores /start, /help, /link, /unlink and unknown commands addressed to another bot without side effects', async () => {
             const { service, transport, subscriptionRepo } = createHarness();
             const chatId = -1001;
             const userId = 42;
@@ -524,12 +808,7 @@ describe('TelegramBotService', () => {
                     text: '/link #2PPLQ',
                 }),
             );
-            const subscriptionIdBefore = subscriptionRepo.getSubscriptionId(
-                chatId,
-                0,
-                '#2PPLQ',
-                'players',
-            );
+            const subscriptionIdBefore = subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ');
             expect(subscriptionIdBefore).not.toBeNull();
 
             const callsBefore = transport.calls.length;
@@ -540,7 +819,7 @@ describe('TelegramBotService', () => {
                     chatId,
                     chatType: 'supergroup',
                     userId,
-                    text: '/start@OtherBot',
+                    text: '/start@OtherBot payload',
                 }),
             );
             await service.bot.handleUpdate(
@@ -549,16 +828,16 @@ describe('TelegramBotService', () => {
                     chatId,
                     chatType: 'supergroup',
                     userId,
-                    text: '/link@OtherBot #2PP',
+                    text: '/help@OtherBot',
                 }),
             );
             await service.bot.handleUpdate(
                 makeMessageUpdate({
                     updateId: 4,
-                    chatId,
-                    chatType: 'supergroup',
-                    userId,
-                    text: '/link@OtherBot',
+                    chatId: 1011,
+                    chatType: 'private',
+                    userId: 1011,
+                    text: '/unknown@OtherBot',
                 }),
             );
             await service.bot.handleUpdate(
@@ -567,7 +846,7 @@ describe('TelegramBotService', () => {
                     chatId,
                     chatType: 'supergroup',
                     userId,
-                    text: '/link@OtherBot #INVALID',
+                    text: '/link@OtherBot #2PP',
                 }),
             );
             await service.bot.handleUpdate(
@@ -576,7 +855,7 @@ describe('TelegramBotService', () => {
                     chatId,
                     chatType: 'supergroup',
                     userId,
-                    text: '/unlink@OtherBot #2PPLQ',
+                    text: '/link@OtherBot',
                 }),
             );
             await service.bot.handleUpdate(
@@ -585,13 +864,22 @@ describe('TelegramBotService', () => {
                     chatId,
                     chatType: 'supergroup',
                     userId,
+                    text: '/link@OtherBot #INVALID',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 8,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
                     text: '/unlink@OtherBot #2PPLQ',
                 }),
             );
 
             expect(transport.calls).toHaveLength(callsBefore);
-            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PP', 'players')).toBe(false);
-            expect(subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ', 'players')).toBe(
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PP')).toBe(false);
+            expect(subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ')).toBe(
                 subscriptionIdBefore,
             );
         });
@@ -622,7 +910,7 @@ describe('TelegramBotService', () => {
                 }),
             );
 
-            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ', 'players')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ')).toBe(true);
 
             await service.bot.handleUpdate(
                 makeMessageUpdate({
@@ -634,13 +922,13 @@ describe('TelegramBotService', () => {
                 }),
             );
 
-            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ', 'players')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ')).toBe(false);
             expect(transport.sentMessages()).toHaveLength(3);
         });
     });
 
     describe('command: /link', () => {
-        it('links a supergroup forum topic for an administrator with players audience', async () => {
+        it('links a supergroup forum topic for an administrator with players preset by default (fallback without CoC API client)', async () => {
             const { service, transport, subscriptionRepo, clansRepo, db } = createHarness();
             const chatId = -1001;
             const userId = 42;
@@ -659,12 +947,21 @@ describe('TelegramBotService', () => {
                 }),
             );
 
-            expect(subscriptionRepo.hasSubscription(chatId, threadId, '#2PPLQ', 'players')).toBe(
-                true,
-            );
-            expect(subscriptionRepo.hasSubscription(chatId, threadId, '#2PPLQ', 'management')).toBe(
-                false,
-            );
+            expect(subscriptionRepo.hasSubscription(chatId, threadId, '#2PPLQ')).toBe(true);
+            expect(subscriptionRepo.getSubscription(chatId, threadId, '#2PPLQ')).toMatchObject({
+                clanTag: '#2PPLQ',
+                chatId,
+                messageThreadId: threadId,
+                categories: {
+                    summaries: true,
+                    reminders: true,
+                    roster: true,
+                    discipline: false,
+                    system: false,
+                },
+                mirrorRuleEnabled: false,
+                timezoneOffsetHours: 3,
+            });
             expect(clansRepo.getTrackedClans()).toEqual(['#2PPLQ']);
             expect(clansRepo.getClanNameByTag('#2PPLQ')).toBe('Pending synchronization');
 
@@ -678,11 +975,15 @@ describe('TelegramBotService', () => {
             const sent = transport.sentMessages();
             expect(sent).toHaveLength(1);
             expect(sent[0]?.message_thread_id).toBe(threadId);
-            expect(String(sent[0]?.text)).toContain('Готово! Общий чат привязан к клану #2PPLQ');
-            expect(String(sent[0]?.text)).toContain('обычные отчёты и уведомления для игроков');
+            expect(String(sent[0]?.text)).toContain('Подключён клан #2PPLQ.');
+            expect(String(sent[0]?.text)).toContain(DEFERRED_SYNC_HINT_TEXT);
+            expect(String(sent[0]?.text)).toContain('«Игроки»');
+            expect(getInlineKeyboard(sent[0])).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#2PPLQ' }],
+            ]);
         });
 
-        it('links a private chat as management without calling getChatMember and resolves title fallbacks', async () => {
+        it('links a private chat with management preset without calling getChatMember and resolves title fallbacks', async () => {
             const { service, transport, subscriptionRepo, db } = createHarness();
 
             await service.bot.handleUpdate(
@@ -714,8 +1015,18 @@ describe('TelegramBotService', () => {
             );
 
             expect(transport.calls.some((call) => call.method === 'getChatMember')).toBe(false);
-            expect(subscriptionRepo.hasSubscription(1003, 0, '#2PPLQ', 'management')).toBe(true);
-            expect(subscriptionRepo.hasSubscription(1003, 0, '#2PPLQ', 'players')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(1003, 0, '#2PPLQ')).toBe(true);
+            expect(subscriptionRepo.getSubscription(1003, 0, '#2PPLQ')).toMatchObject({
+                categories: {
+                    summaries: false,
+                    reminders: false,
+                    roster: false,
+                    discipline: true,
+                    system: true,
+                },
+                mirrorRuleEnabled: false,
+                timezoneOffsetHours: 3,
+            });
 
             const getTitle = (chatId: number): string | undefined =>
                 db.connection
@@ -730,12 +1041,176 @@ describe('TelegramBotService', () => {
 
             const sent = transport.sentMessages();
             expect(sent).toHaveLength(3);
-            expect(String(sent[0]?.text)).toContain('Личный чат');
-            expect(String(sent[0]?.text)).toContain('управленческие уведомления');
+            expect(String(sent[0]?.text)).toContain('Подключён клан #2PPLQ.');
+            expect(String(sent[0]?.text)).toContain('«Руководство»');
+            expect(String(sent[1]?.text)).toContain('Клан уже отслеживается в других чатах');
+            expect(String(sent[1]?.text)).toContain('этот личный чат подключён');
+            expect(getInlineKeyboard(sent[0])).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#2PPLQ' }],
+            ]);
         });
 
-        it('is idempotent on repeated /link and preserves the existing subscription_id generation', async () => {
-            const { service, subscriptionRepo } = createHarness();
+        it('fetches clan from CoC API strictly outside SQLite transaction on /link, saves clan metadata and snapshot, replies with name, member count, preset and settings button, and preserves initial sync semantics', async () => {
+            const observedInTransaction: boolean[] = [];
+            const clanData = makeCompleteClanData({
+                tag: '#2PPLQ',
+                name: 'Dark <Dragons>',
+                membersCount: 42,
+                isWarLogPublic: true,
+            });
+            const getCompleteClanData = vi.fn<ClanLookupApiClient['getCompleteClanData']>();
+            const notify = vi.fn();
+
+            const {
+                service,
+                transport,
+                clansRepo,
+                subscriptionRepo,
+                domainEventsRepo,
+                transactionManager,
+                db,
+            } = createHarness({
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
+            getCompleteClanData.mockImplementation(async () => {
+                observedInTransaction.push(db.connection.inTransaction);
+                return await Promise.resolve(clanData);
+            });
+
+            const chatId = -1001;
+            const userId = 42;
+            transport.chatMembers.set(memberKey(chatId, userId), 'administrator');
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 1,
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Clan chat',
+                    userId,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            expect(getCompleteClanData).toHaveBeenCalledTimes(1);
+            expect(getCompleteClanData).toHaveBeenCalledWith('#2PPLQ', undefined);
+            expect(observedInTransaction).toEqual([false]);
+            expect(notify).toHaveBeenCalledTimes(1);
+
+            expect(clansRepo.getTrackedClans()).toEqual(['#2PPLQ']);
+            expect(clansRepo.getClanNameByTag('#2PPLQ')).toBe('Dark <Dragons>');
+            const snapshotRow = db.connection
+                .prepare<[string], { members_count: number; is_war_log_public: number }>(
+                    'SELECT members_count, is_war_log_public FROM clan_snapshots WHERE clan_tag = ? ORDER BY id DESC LIMIT 1;',
+                )
+                .get('#2PPLQ');
+            expect(snapshotRow).toEqual({ members_count: 42, is_war_log_public: 1 });
+            expect(clansRepo.getActiveMemberships('#2PPLQ')).toEqual([]);
+            expect(clansRepo.getLatestPlayerSnapshots('#2PPLQ')).toEqual([]);
+
+            // First background ClanInfoService sync must still treat this clan as initial sync (no spurious join events)
+            const recorder = new DomainEventRecorder(
+                new DomainEventPayloadSerializer(),
+                subscriptionRepo,
+                domainEventsRepo,
+            );
+            const clanInfoService = new ClanInfoService(
+                clansRepo,
+                { getCompleteClanData: vi.fn().mockResolvedValue(clanData) },
+                transactionManager,
+                recorder,
+            );
+            const syncResult = await clanInfoService.updateData('#2PPLQ');
+            expect(syncResult.successFlag).toBe(true);
+            expect(syncResult.events).toEqual([]);
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(1);
+            const text = String(sent[0]?.text);
+            expect(text).toContain(
+                'Подключён клан <b>Dark &lt;Dragons&gt;</b> (#2PPLQ), 42 участника.',
+            );
+            expect(text).toContain('Пресет по умолчанию: «Игроки»');
+            expect(text).not.toContain('🔒');
+            expect(text).not.toContain('⏳');
+            expect(getInlineKeyboard(sent[0])).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#2PPLQ' }],
+            ]);
+
+            // Clicking the settings entry button opens settings screen with the synchronized clan name immediately
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    updateId: 2,
+                    chatId,
+                    chatType: 'supergroup',
+                    userId,
+                    data: 'settings:open:#2PPLQ',
+                }),
+            );
+            const edited = transport.editedMessages();
+            expect(edited).toHaveLength(1);
+            expect(String(edited[0]?.text)).toContain('Клан: <b>Dark &lt;Dragons&gt;</b> (#2PPLQ)');
+        });
+
+        it('includes the exact private war log warning when isWarLogPublic is false', async () => {
+            const getCompleteClanData = vi.fn().mockResolvedValue(
+                makeCompleteClanData({
+                    tag: '#2PPLQ',
+                    name: 'Secret Clan',
+                    membersCount: 30,
+                    isWarLogPublic: false,
+                }),
+            );
+
+            const { service, transport, db } = createHarness({
+                cocApiClient: { getCompleteClanData },
+            });
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            const snapshotRow = db.connection
+                .prepare<[string], { is_war_log_public: number }>(
+                    'SELECT is_war_log_public FROM clan_snapshots WHERE clan_tag = ? ORDER BY id DESC LIMIT 1;',
+                )
+                .get('#2PPLQ');
+            expect(snapshotRow).toEqual({ is_war_log_public: 0 });
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(1);
+            const text = String(sent[0]?.text);
+            expect(text).toContain('Подключён клан <b>Secret Clan</b> (#2PPLQ), 30 участников.');
+            expect(text).toContain('Пресет по умолчанию: «Руководство»');
+            expect(text).toContain(PRIVATE_WAR_LOG_WARNING_TEXT);
+            expect(getInlineKeyboard(sent[0])).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#2PPLQ' }],
+            ]);
+        });
+
+        it('rejects /link on CoC API 404 without creating clan, chat, subscription, or notifying ClanManager', async () => {
+            const getCompleteClanData = vi
+                .fn()
+                .mockResolvedValueOnce(null)
+                .mockRejectedValueOnce(
+                    new CocApiError('HTTP 404', {
+                        kind: 'not_found',
+                        statusCode: 404,
+                        endpoint: '/clans/%23999888',
+                    }),
+                );
+            const notify = vi.fn();
+
+            const { service, transport, clansRepo, subscriptionRepo, db } = createHarness({
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
 
             await service.bot.handleUpdate(
                 makeMessageUpdate({
@@ -746,13 +1221,135 @@ describe('TelegramBotService', () => {
                     text: '/link #2PPLQ',
                 }),
             );
-            const firstSubscriptionId = subscriptionRepo.getSubscriptionId(
-                2001,
-                0,
-                '#2PPLQ',
-                'management',
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 2,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #999888',
+                }),
             );
+
+            expect(getCompleteClanData).toHaveBeenCalledTimes(2);
+            expect(notify).not.toHaveBeenCalled();
+            expect(clansRepo.getTrackedClans()).toEqual([]);
+            expect(subscriptionRepo.getClanTagsForChat(2001, 0)).toEqual([]);
+            const clansCount = db.connection
+                .prepare<[], { count: number }>('SELECT COUNT(*) AS count FROM clans;')
+                .get()?.count;
+            const chatsCount = db.connection
+                .prepare<[], { count: number }>('SELECT COUNT(*) AS count FROM telegram_chats;')
+                .get()?.count;
+            expect(clansCount).toBe(0);
+            expect(chatsCount).toBe(0);
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(2);
+            expect(String(sent[0]?.text)).toContain('Клан #2PPLQ не найден');
+            expect(sent[0]?.reply_markup).toBeUndefined();
+            expect(String(sent[1]?.text)).toContain('Клан #999888 не найден');
+            expect(sent[1]?.reply_markup).toBeUndefined();
+        });
+
+        it('falls back to deferred synchronization on CoC API timeout, 5xx, and network errors', async () => {
+            const getCompleteClanData = vi
+                .fn()
+                .mockRejectedValueOnce(
+                    new CocApiError('Request timed out', {
+                        kind: 'timeout',
+                        endpoint: '/clans/%232PPLQ',
+                    }),
+                )
+                .mockRejectedValueOnce(
+                    new CocApiError('HTTP 503', {
+                        kind: 'server_error',
+                        statusCode: 503,
+                        endpoint: '/clans/%23999888',
+                    }),
+                )
+                .mockRejectedValueOnce(
+                    new CocApiError('ECONNRESET', {
+                        kind: 'network',
+                        endpoint: '/clans/%23888222',
+                    }),
+                );
+            const notify = vi.fn();
+
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness({
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
+
+            for (const [index, tag] of ['#2PPLQ', '#999888', '#888222'].entries()) {
+                await service.bot.handleUpdate(
+                    makeMessageUpdate({
+                        updateId: index + 1,
+                        chatId: 2001,
+                        chatType: 'private',
+                        userId: 2001,
+                        text: `/link ${tag}`,
+                    }),
+                );
+            }
+
+            expect(getCompleteClanData).toHaveBeenCalledTimes(3);
+            expect(notify).toHaveBeenCalledTimes(3);
+            expect(clansRepo.getTrackedClans()).toEqual(['#2PPLQ', '#999888', '#888222']);
+            expect(subscriptionRepo.getClanTagsForChat(2001, 0)).toEqual([
+                '#2PPLQ',
+                '#999888',
+                '#888222',
+            ]);
+            expect(clansRepo.getClanNameByTag('#2PPLQ')).toBe('Pending synchronization');
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(3);
+            for (const [index, tag] of ['#2PPLQ', '#999888', '#888222'].entries()) {
+                expect(String(sent[index]?.text)).toContain(`Подключён клан ${tag}.`);
+                expect(String(sent[index]?.text)).toContain(DEFERRED_SYNC_HINT_TEXT);
+                expect(String(sent[index]?.text)).toContain('«Руководство»');
+                expect(getInlineKeyboard(sent[index])).toEqual([
+                    [{ text: '⚙️ Настройки', callback_data: `settings:open:${tag}` }],
+                ]);
+            }
+        });
+
+        it('is idempotent on repeated /link, preserves subscription_id and custom categories, skips CoC API and ClanManager wake, and replies with already-linked status', async () => {
+            const getCompleteClanData = vi.fn().mockResolvedValue(
+                makeCompleteClanData({
+                    tag: '#2PPLQ',
+                    name: 'Dark Dragons',
+                    membersCount: 45,
+                }),
+            );
+            const notify = vi.fn();
+
+            const { service, transport, subscriptionRepo } = createHarness({
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 1,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+            const firstSubscriptionId = subscriptionRepo.getSubscriptionId(2001, 0, '#2PPLQ');
             expect(firstSubscriptionId).not.toBeNull();
+
+            // Customize categories before repeated /link to prove settings are preserved
+            subscriptionRepo.updateSubscriptionCategories(2001, 0, '#2PPLQ', {
+                summaries: true,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: false,
+            });
 
             await service.bot.handleUpdate(
                 makeMessageUpdate({
@@ -763,13 +1360,164 @@ describe('TelegramBotService', () => {
                     text: '/link #2PPLQ',
                 }),
             );
-            const secondSubscriptionId = subscriptionRepo.getSubscriptionId(
-                2001,
-                0,
-                '#2PPLQ',
-                'management',
+            const secondSubscription = subscriptionRepo.getSubscription(2001, 0, '#2PPLQ');
+            expect(secondSubscription?.subscriptionId).toBe(firstSubscriptionId);
+            expect(secondSubscription?.categories).toEqual({
+                summaries: true,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: false,
+            });
+            expect(getCompleteClanData).toHaveBeenCalledTimes(1);
+            expect(notify).toHaveBeenCalledTimes(1);
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(2);
+            expect(String(sent[1]?.text)).toContain('Клан <b>Dark Dragons</b> (#2PPLQ)');
+            expect(String(sent[1]?.text)).toContain('уже подключён в этом личном чате');
+            expect(String(sent[1]?.text)).toContain('Текущий пресет: своя настройка.');
+            expect(getInlineKeyboard(sent[1])).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#2PPLQ' }],
+            ]);
+        });
+
+        it('distinguishes linking a clan already tracked by another chat and reports fresh metadata plus war log warning', async () => {
+            const getCompleteClanData = vi.fn().mockResolvedValue(
+                makeCompleteClanData({
+                    tag: '#2PPLQ',
+                    name: 'Shared Clan',
+                    membersCount: 48,
+                    isWarLogPublic: false,
+                }),
             );
-            expect(secondSubscriptionId).toBe(firstSubscriptionId);
+
+            const { service, transport, subscriptionRepo } = createHarness({
+                cocApiClient: { getCompleteClanData },
+            });
+            transport.chatMembers.set(memberKey(-1001, 42), 'administrator');
+
+            // First chat links the clan
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 1,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            // Second chat (supergroup topic) links the same already-tracked clan
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 2,
+                    chatId: -1001,
+                    chatType: 'supergroup',
+                    title: 'Clan forum',
+                    userId: 42,
+                    messageThreadId: 15,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            expect(getCompleteClanData).toHaveBeenCalledTimes(2);
+            expect(subscriptionRepo.hasSubscription(2001, 0, '#2PPLQ')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(-1001, 15, '#2PPLQ')).toBe(true);
+
+            const sent = transport.sentMessages();
+            expect(sent).toHaveLength(2);
+            expect(String(sent[0]?.text)).not.toContain('уже отслеживается');
+            expect(String(sent[1]?.text)).toContain(
+                'Подключён клан <b>Shared Clan</b> (#2PPLQ), 48 участников.',
+            );
+            expect(String(sent[1]?.text)).toContain(
+                'Клан уже отслеживается в других чатах — эта тема подключена к его обновлениям.',
+            );
+            expect(String(sent[1]?.text)).toContain('Пресет по умолчанию: «Игроки»');
+            expect(String(sent[1]?.text)).toContain(PRIVATE_WAR_LOG_WARNING_TEXT);
+            expect(getInlineKeyboard(sent[1])).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#2PPLQ' }],
+            ]);
+        });
+
+        it('re-enables tracking and refreshes clan metadata when re-linking a previously unlinked clan via CoC API', async () => {
+            const getCompleteClanData = vi.fn().mockResolvedValue(
+                makeCompleteClanData({
+                    tag: '#2PPLQ',
+                    name: 'Renamed Clan',
+                    membersCount: 35,
+                    isWarLogPublic: true,
+                }),
+            );
+
+            const { service, clansRepo, subscriptionRepo } = createHarness({
+                cocApiClient: { getCompleteClanData },
+            });
+
+            // Simulate a previously synced and then unlinked clan (tracking_enabled = 0)
+            clansRepo.insertMinimalClan('#2PPLQ');
+            clansRepo.disableTracking('#2PPLQ');
+            expect(clansRepo.getTrackedClans()).toEqual([]);
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            expect(clansRepo.getTrackedClans()).toEqual(['#2PPLQ']);
+            expect(clansRepo.getClanNameByTag('#2PPLQ')).toBe('Renamed Clan');
+            expect(subscriptionRepo.hasSubscription(2001, 0, '#2PPLQ')).toBe(true);
+        });
+
+        it('handles concurrent /link race cleanly as already_linked without changing subscription_id', async () => {
+            let resolveLookup!: (value: CompleteClanData | null) => void;
+            const lookupPromise = new Promise<CompleteClanData | null>((resolve) => {
+                resolveLookup = resolve;
+            });
+            const getCompleteClanData = vi.fn().mockReturnValue(lookupPromise);
+
+            const { service, transport, subscriptionRepo } = createHarness({
+                cocApiClient: { getCompleteClanData },
+            });
+
+            const first = service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 1,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+            const second = service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 2,
+                    chatId: 2001,
+                    chatType: 'private',
+                    userId: 2001,
+                    text: '/link #2PPLQ',
+                }),
+            );
+
+            resolveLookup(
+                makeCompleteClanData({
+                    tag: '#2PPLQ',
+                    name: 'Race Clan',
+                    membersCount: 25,
+                }),
+            );
+            await Promise.all([first, second]);
+
+            expect(subscriptionRepo.getSubscriptionId(2001, 0, '#2PPLQ')).not.toBeNull();
+            const texts = transport.sentMessages().map((m) => String(m.text));
+            expect(texts).toHaveLength(2);
+            expect(texts.some((t) => t.includes('Подключён клан <b>Race Clan</b>'))).toBe(true);
+            expect(texts.some((t) => t.includes('уже подключён'))).toBe(true);
         });
 
         it('notifies ClanManager strictly after /link transaction commits and skips notification on rejected or failed /link', async () => {
@@ -841,8 +1589,11 @@ describe('TelegramBotService', () => {
             expect(observedTrackedOnNotify).toEqual([['#2PPLQ']]);
         });
 
-        it('rejects /link from non-administrator, private chat mismatch, unsupported chat types, invalid args and invalid tags', async () => {
-            const { service, transport, clansRepo } = createHarness();
+        it('rejects /link from non-administrator, private chat mismatch, unsupported chat types, invalid args and invalid tags without calling CoC API', async () => {
+            const getCompleteClanData = vi.fn();
+            const { service, transport, clansRepo } = createHarness({
+                cocApiClient: { getCompleteClanData },
+            });
             transport.chatMembers.set(memberKey(-1002, 43), 'member');
 
             await service.bot.handleUpdate(
@@ -890,6 +1641,7 @@ describe('TelegramBotService', () => {
                 }),
             );
 
+            expect(getCompleteClanData).not.toHaveBeenCalled();
             expect(clansRepo.getTrackedClans()).toEqual([]);
             const sent = transport.sentMessages();
             expect(sent).toHaveLength(5);
@@ -900,6 +1652,7 @@ describe('TelegramBotService', () => {
             expect(String(sent[3]?.text)).toContain('Использование: /link #ТЕГ_КЛАНА');
             expect(sent[3]?.message_thread_id).toBe(5);
             expect(String(sent[4]?.text)).toContain('Некорректный тег клана');
+            expect(String(sent[4]?.text)).toContain('Например: /link #2PPLQ');
             expect(sent[4]?.message_thread_id).toBe(5);
         });
 
@@ -975,10 +1728,8 @@ describe('TelegramBotService', () => {
                 }),
             );
 
-            expect(subscriptionRepo.hasSubscription(chatId, threadId, '#2PPLQ', 'players')).toBe(
-                false,
-            );
-            expect(subscriptionRepo.getClanTagsForChat(chatId, threadId, 'players')).toEqual([]);
+            expect(subscriptionRepo.hasSubscription(chatId, threadId, '#2PPLQ')).toBe(false);
+            expect(subscriptionRepo.getClanTagsForChat(chatId, threadId)).toEqual([]);
             expect(clansRepo.getTrackedClans()).toEqual([]);
             expect(clansRepo.getClanNameByTag('#2PPLQ')).toBe('Pending synchronization');
 
@@ -1010,8 +1761,8 @@ describe('TelegramBotService', () => {
                 }),
             );
 
-            expect(subscriptionRepo.hasSubscription(-1005, 0, '#2PPLQ', 'players')).toBe(false);
-            expect(subscriptionRepo.hasSubscription(-1006, 0, '#2PPLQ', 'players')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(-1005, 0, '#2PPLQ')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(-1006, 0, '#2PPLQ')).toBe(true);
             expect(clansRepo.getTrackedClans()).toEqual(['#2PPLQ']);
         });
 
@@ -1026,29 +1777,31 @@ describe('TelegramBotService', () => {
                 db,
             } = createHarness();
             const chatId = -1001;
+            const otherChatId = 5001;
             const userId = 42;
 
             clansRepo.insertMinimalClan('#2PPLQ');
             clansRepo.insertMinimalClan('#999888');
 
             const subscribe = (
+                targetChatId: number,
                 topic: number,
                 tag: string,
-                audience: 'players' | 'management',
+                preset: 'players' | 'management' | 'all',
             ): number => {
-                subscriptionRepo.saveTelegramChat(chatId, topic, 'test chat');
-                subscriptionRepo.subscribeToChat(chatId, topic, tag, audience);
-                const id = subscriptionRepo.getSubscriptionId(chatId, topic, tag, audience);
+                subscriptionRepo.saveTelegramChat(targetChatId, topic, 'test chat');
+                subscriptionRepo.subscribeToChat(targetChatId, topic, tag, preset);
+                const id = subscriptionRepo.getSubscriptionId(targetChatId, topic, tag);
                 if (id === null) {
                     throw new Error('Expected subscription_id');
                 }
                 return id;
             };
 
-            const oldSubscription = subscribe(7, '#2PPLQ', 'players');
-            const otherTopic = subscribe(8, '#2PPLQ', 'players');
-            const management = subscribe(7, '#2PPLQ', 'management');
-            const otherClan = subscribe(7, '#999888', 'players');
+            const oldSubscription = subscribe(chatId, 7, '#2PPLQ', 'all');
+            const otherTopic = subscribe(chatId, 8, '#2PPLQ', 'players');
+            const otherChat = subscribe(otherChatId, 0, '#2PPLQ', 'management');
+            const otherClan = subscribe(chatId, 7, '#999888', 'players');
 
             domainEventsRepo.appendEvent(
                 {
@@ -1062,7 +1815,7 @@ describe('TelegramBotService', () => {
                     {
                         chatId,
                         messageThreadId: 7,
-                        audience: 'players',
+                        category: 'summaries',
                         subscriptionId: oldSubscription,
                     },
                 ],
@@ -1079,15 +1832,26 @@ describe('TelegramBotService', () => {
                     {
                         chatId,
                         messageThreadId: 7,
-                        audience: 'players',
+                        category: 'summaries',
                         subscriptionId: oldSubscription,
                     },
-                    { chatId, messageThreadId: 8, audience: 'players', subscriptionId: otherTopic },
                     {
                         chatId,
                         messageThreadId: 7,
-                        audience: 'management',
-                        subscriptionId: management,
+                        category: 'discipline',
+                        subscriptionId: oldSubscription,
+                    },
+                    {
+                        chatId,
+                        messageThreadId: 8,
+                        category: 'summaries',
+                        subscriptionId: otherTopic,
+                    },
+                    {
+                        chatId: otherChatId,
+                        messageThreadId: 0,
+                        category: 'discipline',
+                        subscriptionId: otherChat,
                     },
                 ],
             );
@@ -1099,13 +1863,16 @@ describe('TelegramBotService', () => {
                     payloadVersion: 1,
                     clanTag: '#999888',
                 },
-                [{ chatId, messageThreadId: 7, audience: 'players', subscriptionId: otherClan }],
+                [{ chatId, messageThreadId: 7, category: 'roster', subscriptionId: otherClan }],
             );
 
             const destinations = domainEventsRepo.getPendingDestinations(20);
-            const findDestination = (eventId: string, subId: number): number => {
+            const findDestination = (eventId: string, subId: number, category?: string): number => {
                 const match = destinations.find(
-                    (d) => d.eventId === eventId && d.subscriptionId === subId,
+                    (d) =>
+                        d.eventId === eventId &&
+                        d.subscriptionId === subId &&
+                        (category === undefined || d.category === category),
                 );
                 if (match === undefined) {
                     throw new Error(`Destination not found for ${eventId}/${String(subId)}`);
@@ -1113,10 +1880,11 @@ describe('TelegramBotService', () => {
                 return match.destinationId;
             };
 
-            const materializedTarget = findDestination('42', oldSubscription);
-            const pendingTarget = findDestination('43', oldSubscription);
+            const materializedTarget = findDestination('42', oldSubscription, 'summaries');
+            const pendingTargetSummaries = findDestination('43', oldSubscription, 'summaries');
+            const pendingTargetDiscipline = findDestination('43', oldSubscription, 'discipline');
             const unaffectedTopic = findDestination('43', otherTopic);
-            const unaffectedAudience = findDestination('43', management);
+            const unaffectedChat = findDestination('43', otherChat);
             const unaffectedClan = findDestination('55', otherClan);
 
             expect(
@@ -1187,12 +1955,17 @@ describe('TelegramBotService', () => {
             expect(rowStatus(db, 'domain_event_destinations', materializedTarget)).toBe(
                 'materialized',
             );
-            expect(rowStatus(db, 'domain_event_destinations', pendingTarget)).toBe('cancelled');
+            expect(rowStatus(db, 'domain_event_destinations', pendingTargetSummaries)).toBe(
+                'cancelled',
+            );
+            expect(rowStatus(db, 'domain_event_destinations', pendingTargetDiscipline)).toBe(
+                'cancelled',
+            );
             expect(rowStatus(db, 'notifications', pendingNotification)).toBe('cancelled');
             expect(rowStatus(db, 'notifications', sentNotification)).toBe('sent');
             expect(rowStatus(db, 'notifications', failedNotification)).toBe('failed');
             expect(rowStatus(db, 'domain_event_destinations', unaffectedTopic)).toBe('pending');
-            expect(rowStatus(db, 'domain_event_destinations', unaffectedAudience)).toBe('pending');
+            expect(rowStatus(db, 'domain_event_destinations', unaffectedChat)).toBe('pending');
             expect(rowStatus(db, 'domain_event_destinations', unaffectedClan)).toBe('pending');
 
             // Repeated /unlink is safe and reports missing subscription
@@ -1223,15 +1996,15 @@ describe('TelegramBotService', () => {
                     text: '/link #2PPLQ',
                 }),
             );
-            const newSubscription = subscriptionRepo.getSubscriptionId(
-                chatId,
-                7,
-                '#2PPLQ',
-                'players',
-            );
+            const newSubscription = subscriptionRepo.getSubscriptionId(chatId, 7, '#2PPLQ');
             expect(newSubscription).not.toBeNull();
             expect(newSubscription).not.toBe(oldSubscription);
-            expect(rowStatus(db, 'domain_event_destinations', pendingTarget)).toBe('cancelled');
+            expect(rowStatus(db, 'domain_event_destinations', pendingTargetSummaries)).toBe(
+                'cancelled',
+            );
+            expect(rowStatus(db, 'domain_event_destinations', pendingTargetDiscipline)).toBe(
+                'cancelled',
+            );
             expect(rowStatus(db, 'notifications', pendingNotification)).toBe('cancelled');
         });
 
@@ -1328,6 +2101,8 @@ describe('TelegramBotService', () => {
 
             expect(String(edited[1]?.text)).toContain('Помощь');
             expect(String(edited[1]?.text)).toContain('/link #ТЕГ_КЛАНА');
+            expect(String(edited[1]?.text)).toContain('«Игроки»');
+            expect(String(edited[1]?.text)).toContain(SUPERCELL_FAN_CONTENT_DISCLAIMER);
             expect(getInlineKeyboard(edited[1])[0]?.[0]?.callback_data).toBe('menu:start');
 
             expect(String(edited[2]?.text)).toContain('/link #2PPLQ');
@@ -1376,7 +2151,7 @@ describe('TelegramBotService', () => {
             expect(String(transport.editedMessages()[2]?.text)).toContain('не поддерживается');
 
             const repoSpy = vi
-                .spyOn(subscriptionRepo, 'getClanTagsForChat')
+                .spyOn(subscriptionRepo, 'getSubscriptionSummariesForDestination')
                 .mockImplementation(() => {
                     throw new DatabaseError('read failed');
                 });
@@ -1389,7 +2164,408 @@ describe('TelegramBotService', () => {
             );
         });
 
-        it('handles clans:unlink list, clan removal, repeat click, non-admin and API/DB errors', async () => {
+        it('displays clan names, all four tracking statuses, and all four preset labels in My Clans and clan cards without Pending synchronization', async () => {
+            const { service, transport, clansRepo, subscriptionRepo, syncOutageRepo } =
+                createHarness();
+            const chatId = 5100;
+            const userId = 5100;
+
+            subscriptionRepo.saveTelegramChat(chatId, 0, 'Leader Private');
+
+            // 1. Pending sync (no snapshot, Pending synchronization) -> players preset
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.subscribeToChat(chatId, 0, '#2PPLQ', 'players');
+
+            // 2. Tracked (synced name with HTML chars, public war log) -> management preset
+            const trackedData = makeCompleteClanData({
+                tag: '#999888',
+                name: 'Dark <Dragons>',
+                isWarLogPublic: true,
+            });
+            clansRepo.saveClan(trackedData.clan);
+            clansRepo.saveClanSnapshot(trackedData.clanSnapshot);
+            subscriptionRepo.subscribeToChat(chatId, 0, '#999888', 'management');
+
+            // 3. Private war log (is_war_log_public = 0, plus a recovered outage that must not trigger outage status) -> all preset
+            const privateData = makeCompleteClanData({
+                tag: '#888222',
+                name: 'Secret Clan',
+                isWarLogPublic: false,
+            });
+            clansRepo.saveClan(privateData.clan);
+            clansRepo.saveClanSnapshot(privateData.clanSnapshot);
+            const recoveredOutage = syncOutageRepo.recordFailure('#888222', 'ClanInfoService');
+            syncOutageRepo.markRecovered(recoveredOutage.id);
+            subscriptionRepo.subscribeToChat(chatId, 0, '#888222', 'all');
+
+            // 4. Sync outage (active open outage takes priority even over private war log) -> custom categories
+            const outageData = makeCompleteClanData({
+                tag: '#777111',
+                name: 'Outage Clan',
+                isWarLogPublic: false,
+            });
+            clansRepo.saveClan(outageData.clan);
+            clansRepo.saveClanSnapshot(outageData.clanSnapshot);
+            syncOutageRepo.recordFailure('#777111', 'ClanwarService');
+            subscriptionRepo.subscribeToChat(chatId, 0, '#777111', {
+                categories: {
+                    summaries: true,
+                    reminders: false,
+                    roster: false,
+                    discipline: false,
+                    system: false,
+                },
+            });
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-statuses',
+                    data: 'clans:list',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+
+            const listEdit = transport.editedMessages()[0];
+            const listText = String(listEdit?.text);
+            expect(listText).toContain('• #2PPLQ\n  ⏳ ожидает синхронизации · Пресет: Игроки');
+            expect(listText).not.toContain(PENDING_CLAN_SYNC_NAME);
+            expect(listText).toContain(
+                '• <b>Dark &lt;Dragons&gt;</b> (#999888)\n  ✅ отслеживается · Пресет: Руководство',
+            );
+            expect(listText).toContain(
+                '• <b>Secret Clan</b> (#888222)\n  🔒 журнал войн закрыт · Пресет: Всё вместе',
+            );
+            expect(listText).toContain(
+                '• <b>Outage Clan</b> (#777111)\n  ⚠️ сбой синхронизации · Пресет: своя настройка',
+            );
+
+            const listKb = getInlineKeyboard(listEdit);
+            expect(listKb).toEqual([
+                [{ text: '⏳ #2PPLQ', callback_data: 'clans:card:#2PPLQ' }],
+                [{ text: '✅ Dark <Dragons> (#999888)', callback_data: 'clans:card:#999888' }],
+                [{ text: '🔒 Secret Clan (#888222)', callback_data: 'clans:card:#888222' }],
+                [{ text: '⚠️ Outage Clan (#777111)', callback_data: 'clans:card:#777111' }],
+                [{ text: '🏠 В главное меню', callback_data: 'menu:start' }],
+            ]);
+
+            // Click clan card -> shows details, Settings button (opens settings screen), Disconnect button, Back button
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-card',
+                    data: 'clans:card:#999888',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            const cardEdit = transport.editedMessages()[1];
+            const cardText = String(cardEdit?.text);
+            expect(cardText).toContain('Клан: <b>Dark &lt;Dragons&gt;</b> (#999888)');
+            expect(cardText).toContain('Статус: ✅ отслеживается');
+            expect(cardText).toContain('Пресет: Руководство');
+            expect(getInlineKeyboard(cardEdit)).toEqual([
+                [{ text: '⚙️ Настройки', callback_data: 'settings:open:#999888' }],
+                [{ text: '❌ Отключить', callback_data: 'clans:unlink_ask:#999888:c:1' }],
+                [{ text: '⬅️ Назад', callback_data: 'clans:list' }],
+            ]);
+
+            // Clicking Settings button on the card opens the #89 settings screen
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-card-settings',
+                    data: 'settings:open:#999888',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(String(transport.editedMessages()[2]?.text)).toContain('Настройки подписки');
+            expect(String(transport.editedMessages()[2]?.text)).toContain(
+                'Клан: <b>Dark &lt;Dragons&gt;</b> (#999888)',
+            );
+        });
+
+        it('paginates My Clans and Unlink menus by 5 clans per page for 0, 5, 6 and 11 clans with <= 64 byte callbacks', async () => {
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness();
+            const chatId = 5200;
+            const userId = 5200;
+            const tags = [
+                '#2PP0',
+                '#2PP2',
+                '#2PP8',
+                '#2PP9',
+                '#2PPP',
+                '#2PPY',
+                '#2PPL',
+                '#2PPQ',
+                '#2PPG',
+                '#2PPR',
+                '#2PPJ',
+            ];
+
+            const seedCount = (count: number): void => {
+                subscriptionRepo.saveTelegramChat(chatId, 0, 'Pagination Chat');
+                for (const [idx, tag] of tags.slice(0, count).entries()) {
+                    if (!subscriptionRepo.hasSubscription(chatId, 0, tag)) {
+                        const data = makeCompleteClanData({
+                            tag,
+                            name: `Clan ${String(idx + 1)}`,
+                            isWarLogPublic: true,
+                        });
+                        clansRepo.saveClan(data.clan);
+                        clansRepo.saveClanSnapshot(data.clanSnapshot);
+                        subscriptionRepo.subscribeToChat(chatId, 0, tag, 'players');
+                    }
+                }
+            };
+
+            const assertCallbackSizes = (payload: Record<string, unknown> | undefined): void => {
+                for (const row of getInlineKeyboard(payload)) {
+                    for (const button of row) {
+                        expect(Buffer.byteLength(button.callback_data, 'utf8')).toBeLessThanOrEqual(
+                            MAX_CALLBACK_DATA_BYTES,
+                        );
+                    }
+                }
+            };
+
+            // 0 clans -> empty state, no pagination row
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:list', chatId, chatType: 'private', userId }),
+            );
+            expect(String(transport.editedMessages().at(-1)?.text)).toContain(
+                'пока нет подключённых кланов',
+            );
+            expect(getInlineKeyboard(transport.editedMessages().at(-1))).toHaveLength(1);
+
+            // 5 clans -> single page, 5 buttons + main menu, no pagination row
+            seedCount(5);
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:list', chatId, chatType: 'private', userId }),
+            );
+            const fiveList = transport.editedMessages().at(-1);
+            expect(String(fiveList?.text)).not.toContain('(страница');
+            expect(getInlineKeyboard(fiveList)).toHaveLength(6);
+            assertCallbackSizes(fiveList);
+
+            // 6 clans -> 2 pages (5 + 1) in both My Clans and Unlink menus
+            seedCount(6);
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:list', chatId, chatType: 'private', userId }),
+            );
+            const sixListP1 = transport.editedMessages().at(-1);
+            expect(String(sixListP1?.text)).toContain('(страница 1 из 2)');
+            expect(getInlineKeyboard(sixListP1)).toHaveLength(7);
+            expect(getInlineKeyboard(sixListP1)[5]).toEqual([
+                { text: 'След. ➡️', callback_data: 'clans:list:2' },
+            ]);
+            assertCallbackSizes(sixListP1);
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:list:2', chatId, chatType: 'private', userId }),
+            );
+            const sixListP2 = transport.editedMessages().at(-1);
+            expect(String(sixListP2?.text)).toContain('(страница 2 из 2)');
+            expect(String(sixListP2?.text)).toContain('#2PPY');
+            expect(String(sixListP2?.text)).not.toContain('#2PPP');
+            expect(getInlineKeyboard(sixListP2)[1]).toEqual([
+                { text: '⬅️ Пред.', callback_data: 'clans:list' },
+            ]);
+            assertCallbackSizes(sixListP2);
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:unlink', chatId, chatType: 'private', userId }),
+            );
+            const sixUnlinkP1 = transport.editedMessages().at(-1);
+            expect(String(sixUnlinkP1?.text)).toContain('(страница 1 из 2)');
+            expect(getInlineKeyboard(sixUnlinkP1)[5]).toEqual([
+                { text: 'След. ➡️', callback_data: 'clans:unlink_list:2' },
+            ]);
+            assertCallbackSizes(sixUnlinkP1);
+
+            // 11 clans -> 3 pages (5 + 5 + 1), page 2 has both prev and next, out-of-range page clamps to 3
+            seedCount(11);
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:list:2', chatId, chatType: 'private', userId }),
+            );
+            const elevenListP2 = transport.editedMessages().at(-1);
+            expect(String(elevenListP2?.text)).toContain('(страница 2 из 3)');
+            expect(String(elevenListP2?.text)).toContain('#2PPY');
+            expect(String(elevenListP2?.text)).toContain('#2PPR');
+            expect(String(elevenListP2?.text)).not.toContain('#2PPP');
+            expect(String(elevenListP2?.text)).not.toContain('#2PPJ');
+            expect(getInlineKeyboard(elevenListP2)[5]).toEqual([
+                { text: '⬅️ Пред.', callback_data: 'clans:list' },
+                { text: 'След. ➡️', callback_data: 'clans:list:3' },
+            ]);
+            assertCallbackSizes(elevenListP2);
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({ data: 'clans:list:99', chatId, chatType: 'private', userId }),
+            );
+            const elevenListClamped = transport.editedMessages().at(-1);
+            expect(String(elevenListClamped?.text)).toContain('(страница 3 из 3)');
+            expect(String(elevenListClamped?.text)).toContain('#2PPJ');
+            expect(getInlineKeyboard(elevenListClamped)).toHaveLength(3);
+            assertCallbackSizes(elevenListClamped);
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_list:3',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            const elevenUnlinkP3 = transport.editedMessages().at(-1);
+            expect(String(elevenUnlinkP3?.text)).toContain('(страница 3 из 3)');
+            expect(getInlineKeyboard(elevenUnlinkP3)[0]?.[0]).toEqual({
+                text: '❌ Clan 11 (#2PPJ)',
+                callback_data: 'clans:unlink_ask:#2PPJ:u:3',
+            });
+            expect(getInlineKeyboard(elevenUnlinkP3)[1]).toEqual([
+                { text: '⬅️ Пред.', callback_data: 'clans:unlink_list:2' },
+            ]);
+            assertCallbackSizes(elevenUnlinkP3);
+
+            // Opening card on page 2 -> Disconnect -> Cancel returns to card with Back still pointing to page 2
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:card:#2PPY:2',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(getInlineKeyboard(transport.editedMessages().at(-1))[2]?.[0]).toEqual({
+                text: '⬅️ Назад',
+                callback_data: 'clans:list:2',
+            });
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_ask:#2PPY:c:2',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            const confirmEdit = transport.editedMessages().at(-1);
+            expect(String(confirmEdit?.text)).toContain(
+                'Отключить клан <b>Clan 6</b> (#2PPY) от этого личного чата?',
+            );
+            expect(getInlineKeyboard(confirmEdit)).toEqual([
+                [
+                    { text: 'Да, отключить', callback_data: 'clans:unlink_confirm:#2PPY:c:2' },
+                    { text: 'Отмена', callback_data: 'clans:unlink_cancel:#2PPY:c:2' },
+                ],
+            ]);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPY')).toBe(true);
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_cancel:#2PPY:c:2',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            const restoredCard = transport.editedMessages().at(-1);
+            expect(String(restoredCard?.text)).toContain('Карточка клана');
+            expect(String(restoredCard?.text)).toContain('#2PPY');
+            expect(getInlineKeyboard(restoredCard)[2]?.[0]).toEqual({
+                text: '⬅️ Назад',
+                callback_data: 'clans:list:2',
+            });
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPY')).toBe(true);
+        });
+
+        it('isolates My Clans list, clan cards, and unlink confirmation across forum topics of the same supergroup', async () => {
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness();
+            const chatId = -5300;
+            const adminId = 5301;
+            const topicA = 101;
+            const topicB = 202;
+
+            transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
+
+            const clanA = makeCompleteClanData({ tag: '#2PP0L', name: 'Topic A Clan' });
+            const clanShared = makeCompleteClanData({ tag: '#2PP0Q', name: 'Shared Clan' });
+            clansRepo.saveClan(clanA.clan);
+            clansRepo.saveClanSnapshot(clanA.clanSnapshot);
+            clansRepo.saveClan(clanShared.clan);
+            clansRepo.saveClanSnapshot(clanShared.clanSnapshot);
+
+            subscriptionRepo.saveTelegramChat(chatId, topicA, 'Topic A');
+            subscriptionRepo.saveTelegramChat(chatId, topicB, 'Topic B');
+            subscriptionRepo.subscribeToChat(chatId, topicA, '#2PP0L', 'players');
+            subscriptionRepo.subscribeToChat(chatId, topicA, '#2PP0Q', 'management');
+            subscriptionRepo.subscribeToChat(chatId, topicB, '#2PP0Q', 'all');
+
+            // Topic B sees only #2PP0Q with preset "Всё вместе"
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:list',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicB,
+                }),
+            );
+            const topicBList = String(transport.editedMessages()[0]?.text);
+            expect(topicBList).toContain('Shared Clan');
+            expect(topicBList).toContain('Пресет: Всё вместе');
+            expect(topicBList).not.toContain('#2PP0L');
+
+            // Trying to open Topic A's clan card from Topic B is rejected via personal alert
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-cross-topic-card',
+                    data: 'clans:card:#2PP0L',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicB,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(1);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-cross-topic-card',
+                text: 'Этот чат не привязан к клану #2PP0L.',
+                show_alert: true,
+            });
+
+            // Unlinking #2PP0Q from Topic A asks confirmation mentioning "этой темы" and leaves Topic B intact
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_ask:#2PP0Q:c:1',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(String(transport.editedMessages()[1]?.text)).toContain(
+                'Отключить клан <b>Shared Clan</b> (#2PP0Q) от этой темы?',
+            );
+            expect(subscriptionRepo.hasSubscription(chatId, topicA, '#2PP0Q')).toBe(true);
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_confirm:#2PP0Q:c:1',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(subscriptionRepo.hasSubscription(chatId, topicA, '#2PP0Q')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(chatId, topicB, '#2PP0Q')).toBe(true);
+            expect(clansRepo.getTrackedClans()).toContain('#2PP0Q');
+        });
+
+        it('handles clans:unlink list, confirmation/cancel, clan removal, repeat click, non-admin and API/DB errors', async () => {
             const {
                 service,
                 transport,
@@ -1407,7 +2583,7 @@ describe('TelegramBotService', () => {
             clansRepo.insertMinimalClan('#2PPLQ');
             subscriptionRepo.saveTelegramChat(chatId, 0, 'Clan group');
             subscriptionRepo.subscribeToChat(chatId, 0, '#2PPLQ', 'players');
-            const subId = subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ', 'players');
+            const subId = subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ');
             expect(subId).not.toBeNull();
             if (subId === null) {
                 throw new Error('Expected subscription_id');
@@ -1421,7 +2597,7 @@ describe('TelegramBotService', () => {
                     payloadVersion: 1,
                     clanTag: '#2PPLQ',
                 },
-                [{ chatId, messageThreadId: 0, audience: 'players', subscriptionId: subId }],
+                [{ chatId, messageThreadId: 0, category: 'summaries', subscriptionId: subId }],
             );
             domainEventsRepo.appendEvent(
                 {
@@ -1431,7 +2607,7 @@ describe('TelegramBotService', () => {
                     payloadVersion: 1,
                     clanTag: '#2PPLQ',
                 },
-                [{ chatId, messageThreadId: 0, audience: 'players', subscriptionId: subId }],
+                [{ chatId, messageThreadId: 0, category: 'summaries', subscriptionId: subId }],
             );
             const dests = domainEventsRepo.getPendingDestinations(10);
             const materializedDest = dests.find((d) => d.eventId === '701');
@@ -1491,7 +2667,7 @@ describe('TelegramBotService', () => {
                 },
             ]);
 
-            // Admin sees list of linked clans
+            // Admin sees informative list of linked clans
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
                     queryId: 'admin-unlink-list',
@@ -1501,44 +2677,84 @@ describe('TelegramBotService', () => {
                     userId: adminId,
                 }),
             );
-            expect(transport.editedMessages()[0]?.text).toBe('Выберите клан для отключения:');
-            expect(getInlineKeyboard(transport.editedMessages()[0])[0]?.[0]?.callback_data).toBe(
-                'clans:unlink:#2PPLQ',
+            expect(String(transport.editedMessages()[0]?.text)).toContain(
+                'Выберите клан для отключения:',
             );
+            expect(String(transport.editedMessages()[0]?.text)).toContain(
+                '⏳ ожидает синхронизации · Пресет: Игроки',
+            );
+            expect(getInlineKeyboard(transport.editedMessages()[0])[0]?.[0]).toEqual({
+                text: '❌ #2PPLQ',
+                callback_data: 'clans:unlink_ask:#2PPLQ:u:1',
+            });
             expect(transport.answeredCallbackQueries()[1]).toEqual({
                 callback_query_id: 'admin-unlink-list',
             });
 
-            // Admin clicks unlink button
+            // Admin clicks clan to disconnect -> bot asks for confirmation without unlinking yet
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
-                    data: 'clans:unlink:#2PPLQ',
+                    data: 'clans:unlink_ask:#2PPLQ:u:1',
                     chatId,
                     chatType: 'group',
                     userId: adminId,
                 }),
             );
-            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ', 'players')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ')).toBe(true);
+            expect(String(transport.editedMessages()[1]?.text)).toContain(
+                'Отключить клан #2PPLQ от этого чата?',
+            );
+            expect(getInlineKeyboard(transport.editedMessages()[1])).toEqual([
+                [
+                    { text: 'Да, отключить', callback_data: 'clans:unlink_confirm:#2PPLQ:u:1' },
+                    { text: 'Отмена', callback_data: 'clans:unlink_cancel:#2PPLQ:u:1' },
+                ],
+            ]);
+
+            // Admin clicks Cancel -> returns to unlink list without disconnecting
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_cancel:#2PPLQ:u:1',
+                    chatId,
+                    chatType: 'group',
+                    userId: adminId,
+                }),
+            );
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ')).toBe(true);
+            expect(String(transport.editedMessages()[2]?.text)).toContain(
+                'Выберите клан для отключения:',
+            );
+
+            // Admin confirms disconnect -> removes subscription and cancels pending destinations/notifications
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    data: 'clans:unlink_confirm:#2PPLQ:u:1',
+                    chatId,
+                    chatType: 'group',
+                    userId: adminId,
+                }),
+            );
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPLQ')).toBe(false);
             expect(clansRepo.getTrackedClans()).toEqual([]);
             expect(rowStatus(db, 'domain_event_destinations', pendingDest.destinationId)).toBe(
                 'cancelled',
             );
             expect(rowStatus(db, 'notifications', pendingNotif.id)).toBe('cancelled');
             expect(rowStatus(db, 'notifications', sentNotif.id)).toBe('sent');
-            expect(String(transport.editedMessages()[1]?.text)).toContain(
+            expect(String(transport.editedMessages()[3]?.text)).toContain(
                 'Готово! Клан #2PPLQ отключён.',
             );
 
-            // Clicking the same stale button again reports not linked
+            // Clicking the same stale confirm button again reports not linked
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
-                    data: 'clans:unlink:#2PPLQ',
+                    data: 'clans:unlink_confirm:#2PPLQ:u:1',
                     chatId,
                     chatType: 'group',
                     userId: adminId,
                 }),
             );
-            expect(String(transport.editedMessages()[2]?.text)).toContain(
+            expect(String(transport.editedMessages()[4]?.text)).toContain(
                 'Этот чат не привязан к клану #2PPLQ.',
             );
 
@@ -1551,7 +2767,7 @@ describe('TelegramBotService', () => {
                     userId: adminId,
                 }),
             );
-            expect(transport.editedMessages()[3]?.text).toBe(
+            expect(transport.editedMessages()[5]?.text).toBe(
                 'В этом чате нет подключённых кланов.',
             );
 
@@ -1564,7 +2780,7 @@ describe('TelegramBotService', () => {
                     userId: adminId,
                 }),
             );
-            expect(String(transport.editedMessages()[4]?.text)).toContain('не поддерживается');
+            expect(String(transport.editedMessages()[6]?.text)).toContain('не поддерживается');
 
             // getChatMember error responds via personal alert without overwriting the shared menu
             const editsBeforePermissionError = transport.editedMessages().length;
@@ -1586,7 +2802,7 @@ describe('TelegramBotService', () => {
                 show_alert: true,
             });
 
-            // DB error during inline unlink
+            // DB error during inline unlink confirm
             const txSpy = vi
                 .spyOn(transactionManager, 'retryInTransaction')
                 .mockImplementation(() => {
@@ -1594,19 +2810,19 @@ describe('TelegramBotService', () => {
                 });
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
-                    data: 'clans:unlink:#2PPLQ',
+                    data: 'clans:unlink_confirm:#2PPLQ:u:1',
                     chatId,
                     chatType: 'group',
                     userId: adminId,
                 }),
             );
             txSpy.mockRestore();
-            expect(String(transport.editedMessages()[5]?.text)).toContain(
+            expect(String(transport.editedMessages()[7]?.text)).toContain(
                 'Не удалось отключить клан',
             );
         });
 
-        it('keeps shared group inline menu intact on repeated non-admin and permission-error unlink callbacks', async () => {
+        it('keeps shared group inline menu intact on repeated non-admin, owner-mismatch and permission-error unlink callbacks', async () => {
             const { service, transport, clansRepo, subscriptionRepo } = createHarness();
             const chatId = -4100;
             const adminId = 700;
@@ -1618,34 +2834,44 @@ describe('TelegramBotService', () => {
             transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
             transport.chatMembers.set(memberKey(chatId, memberId), 'member');
 
-            // Repeated non-admin clicks on both clans:unlink and clans:unlink:#TAG
+            // Repeated non-admin clicks on all unlink callbacks (list, paginate, ask, confirm, cancel)
+            for (const [queryId, data] of [
+                ['q-member-1', 'clans:unlink'],
+                ['q-member-2', 'clans:unlink:#2PPLQ'],
+                ['q-member-3', 'clans:unlink_list:2'],
+                ['q-member-4', 'clans:unlink_ask:#2PPLQ:c:1'],
+                ['q-member-5', 'clans:unlink_confirm:#2PPLQ:c:1'],
+                ['q-member-6', 'clans:unlink_cancel:#2PPLQ:c:1'],
+            ] as const) {
+                await service.bot.handleUpdate(
+                    makeCallbackUpdate({
+                        queryId,
+                        data,
+                        chatId,
+                        chatType: 'supergroup',
+                        userId: memberId,
+                        messageThreadId: 15,
+                    }),
+                );
+            }
+
+            // Private chat owner mismatch on unlink confirm
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
-                    queryId: 'q-member-1',
-                    data: 'clans:unlink',
-                    chatId,
-                    chatType: 'supergroup',
-                    userId: memberId,
-                    messageThreadId: 15,
-                }),
-            );
-            await service.bot.handleUpdate(
-                makeCallbackUpdate({
-                    queryId: 'q-member-2',
-                    data: 'clans:unlink:#2PPLQ',
-                    chatId,
-                    chatType: 'supergroup',
-                    userId: memberId,
-                    messageThreadId: 15,
+                    queryId: 'q-priv-mismatch',
+                    data: 'clans:unlink_confirm:#2PPLQ:c:1',
+                    chatId: 8888,
+                    chatType: 'private',
+                    userId: 9999,
                 }),
             );
 
-            // Permission check API error on clans:unlink:#TAG
+            // Permission check API error on unlink confirm
             transport.failGetChatMember = true;
             await service.bot.handleUpdate(
                 makeCallbackUpdate({
                     queryId: 'q-perm-err',
-                    data: 'clans:unlink:#2PPLQ',
+                    data: 'clans:unlink_confirm:#2PPLQ:c:1',
                     chatId,
                     chatType: 'supergroup',
                     userId: adminId,
@@ -1670,7 +2896,7 @@ describe('TelegramBotService', () => {
 
             expect(transport.editedMessages()).toHaveLength(0);
             expect(transport.sentMessages()).toHaveLength(0);
-            expect(subscriptionRepo.hasSubscription(chatId, 15, '#2PPLQ', 'players')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(chatId, 15, '#2PPLQ')).toBe(true);
             expect(transport.answeredCallbackQueries()).toEqual([
                 {
                     callback_query_id: 'q-member-1',
@@ -1680,6 +2906,31 @@ describe('TelegramBotService', () => {
                 {
                     callback_query_id: 'q-member-2',
                     text: 'Только администратор группы может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-member-3',
+                    text: 'Только администратор группы может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-member-4',
+                    text: 'Только администратор группы может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-member-5',
+                    text: 'Только администратор группы может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-member-6',
+                    text: 'Только администратор группы может управлять подключениями кланов.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-priv-mismatch',
+                    text: 'Только владелец чата может управлять подключениями кланов.',
                     show_alert: true,
                 },
                 {
@@ -1706,10 +2957,855 @@ describe('TelegramBotService', () => {
                 }),
             );
             expect(transport.editedMessages()).toHaveLength(1);
-            expect(transport.editedMessages()[0]?.text).toBe('Выберите клан для отключения:');
-            expect(transport.answeredCallbackQueries()).toHaveLength(5);
-            expect(transport.answeredCallbackQueries()[4]).toEqual({
+            expect(String(transport.editedMessages()[0]?.text)).toContain(
+                'Выберите клан для отключения:',
+            );
+            expect(transport.answeredCallbackQueries()).toHaveLength(10);
+            expect(transport.answeredCallbackQueries()[9]).toEqual({
                 callback_query_id: 'q-admin-ok',
+            });
+        });
+
+        it('opens settings screen, applies all 3 presets, toggles categories to custom, and blocks disabling last category', async () => {
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness();
+            const chatId = 6001;
+            const userId = 6001;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.saveTelegramChat(chatId, 0, 'Leader Private');
+            subscriptionRepo.subscribeToChat(chatId, 0, '#2PPLQ', 'management');
+            const initialSubId = subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ');
+            expect(initialSubId).not.toBeNull();
+
+            // Open before clan sync: Pending synchronization placeholder is hidden, no getChatMember in private chat
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-open-unsynced',
+                    data: 'settings:open:#2PPLQ',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(transport.calls.some((call) => call.method === 'getChatMember')).toBe(false);
+            const openEdit = transport.editedMessages()[0];
+            expect(String(openEdit?.text)).toContain('Клан: #2PPLQ');
+            expect(String(openEdit?.text)).not.toContain('Pending synchronization');
+            expect(String(openEdit?.text)).toContain('Пресет: Руководство');
+            expect(String(openEdit?.text)).toContain('Первая атака не по зеркалу: выкл');
+            expect(String(openEdit?.text)).toContain('Часовой пояс: UTC+3');
+            const openKeyboard = getInlineKeyboard(openEdit);
+            expect(openKeyboard).toHaveLength(9);
+            expect(openKeyboard[0]?.map((b) => b.text)).toEqual([
+                'Игроки',
+                'Руководство',
+                'Всё вместе',
+            ]);
+            expect(openKeyboard[1]?.[0]?.text).toBe('▫️ Итоги и сравнения');
+            expect(openKeyboard[4]?.[0]?.text).toBe('✅ Дисциплина и аналитика');
+            expect(openKeyboard[5]?.[0]?.text).toBe('✅ Системные оповещения');
+            expect(openKeyboard[6]?.[0]).toEqual({
+                text: '▫️ Первая атака не по зеркалу',
+                callback_data: 'settings:mirror:#2PPLQ',
+            });
+            expect(openKeyboard[7]?.[0]).toEqual({
+                text: '🕒 Часовой пояс: UTC+3',
+                callback_data: 'settings:tz:#2PPLQ',
+            });
+            expect(openKeyboard[8]?.[0]).toEqual({ text: '⬅️ Назад', callback_data: 'clans:list' });
+
+            // Sync clan name (including HTML chars) and apply all 3 presets
+            clansRepo.saveClan({
+                tag: '#2PPLQ',
+                name: 'Dark <Dragons>',
+                description: 'desc',
+                locationId: 0,
+                locationName: '',
+                chatLanguageId: 0,
+                chatLanguage: '',
+                isFamilyFriendly: true,
+            });
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-preset-players',
+                    data: 'settings:preset:#2PPLQ:players',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.categories).toEqual({
+                summaries: true,
+                reminders: true,
+                roster: true,
+                discipline: false,
+                system: false,
+            });
+            expect(String(transport.editedMessages()[1]?.text)).toContain(
+                'Клан: <b>Dark &lt;Dragons&gt;</b> (#2PPLQ)',
+            );
+            expect(String(transport.editedMessages()[1]?.text)).toContain('Пресет: Игроки');
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-preset-all',
+                    data: 'settings:preset:#2PPLQ:all',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.categories).toEqual({
+                summaries: true,
+                reminders: true,
+                roster: true,
+                discipline: true,
+                system: true,
+            });
+            expect(String(transport.editedMessages()[2]?.text)).toContain('Пресет: Всё вместе');
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-preset-management',
+                    data: 'settings:preset:#2PPLQ:management',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.categories).toEqual({
+                summaries: false,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: true,
+            });
+            expect(String(transport.editedMessages()[3]?.text)).toContain('Пресет: Руководство');
+
+            // Disable system -> only discipline remains -> custom preset status
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-toggle-system-off',
+                    data: 'settings:category:#2PPLQ:system',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.categories).toEqual({
+                summaries: false,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: false,
+            });
+            const customEdit = transport.editedMessages()[4];
+            expect(String(customEdit?.text)).toContain('Пресет: своя настройка');
+            expect(getInlineKeyboard(customEdit)[4]?.[0]?.text).toBe('✅ Дисциплина и аналитика');
+            expect(getInlineKeyboard(customEdit)[5]?.[0]?.text).toBe('▫️ Системные оповещения');
+
+            // Attempt to disable the LAST remaining category -> alert, no editMessageText, DB unchanged
+            const editsBeforeLastCategory = transport.editedMessages().length;
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-disable-last',
+                    data: 'settings:category:#2PPLQ:discipline',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(editsBeforeLastCategory);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-disable-last',
+                text: 'Оставьте хотя бы одну категорию или отключите клан',
+                show_alert: true,
+            });
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.categories).toEqual({
+                summaries: false,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: false,
+            });
+
+            // Re-enable system -> automatically recognizes preset "Руководство" again, same subscription_id
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-toggle-system-on',
+                    data: 'settings:category:#2PPLQ:system',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(String(transport.editedMessages()[5]?.text)).toContain('Пресет: Руководство');
+            expect(subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ')).toBe(initialSubId);
+        });
+
+        it('enforces group/supergroup admin and private owner permissions on settings callbacks without overwriting shared message', async () => {
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness();
+            const chatId = -6100;
+            const adminId = 801;
+            const creatorId = 802;
+            const memberId = 803;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.saveTelegramChat(chatId, 0, 'Clan Group');
+            subscriptionRepo.subscribeToChat(chatId, 0, '#2PPLQ', 'players');
+            transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
+            transport.chatMembers.set(memberKey(chatId, creatorId), 'creator');
+            transport.chatMembers.set(memberKey(chatId, memberId), 'member');
+
+            // Regular member cannot open, apply preset, toggle category, or toggle mirror rule; shared message untouched
+            for (const [queryId, data] of [
+                ['q-mem-open', 'settings:open:#2PPLQ'],
+                ['q-mem-preset', 'settings:preset:#2PPLQ:all'],
+                ['q-mem-cat', 'settings:category:#2PPLQ:discipline'],
+                ['q-mem-mirror', 'settings:mirror:#2PPLQ'],
+            ] as const) {
+                await service.bot.handleUpdate(
+                    makeCallbackUpdate({
+                        queryId,
+                        data,
+                        chatId,
+                        chatType: 'group',
+                        userId: memberId,
+                    }),
+                );
+            }
+            expect(transport.editedMessages()).toHaveLength(0);
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.categories).toEqual({
+                summaries: true,
+                reminders: true,
+                roster: true,
+                discipline: false,
+                system: false,
+            });
+            expect(subscriptionRepo.getSubscription(chatId, 0, '#2PPLQ')?.mirrorRuleEnabled).toBe(
+                false,
+            );
+            expect(transport.answeredCallbackQueries()).toEqual([
+                {
+                    callback_query_id: 'q-mem-open',
+                    text: 'Только администратор группы может изменять настройки подписки.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-mem-preset',
+                    text: 'Только администратор группы может изменять настройки подписки.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-mem-cat',
+                    text: 'Только администратор группы может изменять настройки подписки.',
+                    show_alert: true,
+                },
+                {
+                    callback_query_id: 'q-mem-mirror',
+                    text: 'Только администратор группы может изменять настройки подписки.',
+                    show_alert: true,
+                },
+            ]);
+
+            // getChatMember error sends personal alert without overwriting shared message
+            transport.failGetChatMember = true;
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-perm-err',
+                    data: 'settings:preset:#2PPLQ:all',
+                    chatId,
+                    chatType: 'group',
+                    userId: adminId,
+                }),
+            );
+            transport.failGetChatMember = false;
+            expect(transport.editedMessages()).toHaveLength(0);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-perm-err',
+                text: 'Не удалось проверить права пользователя. Попробуйте ещё раз позже.',
+                show_alert: true,
+            });
+
+            // Unsupported chat type & private chat mismatch do not overwrite message
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-channel',
+                    data: 'settings:open:#2PPLQ',
+                    chatId: -6199,
+                    chatType: 'channel',
+                    userId: adminId,
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-priv-mismatch',
+                    data: 'settings:open:#2PPLQ',
+                    chatId: 7777,
+                    chatType: 'private',
+                    userId: 8888,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(0);
+            expect(transport.answeredCallbackQueries().at(-2)).toEqual({
+                callback_query_id: 'q-channel',
+                text: 'Этот тип Telegram-чата пока не поддерживается.',
+                show_alert: true,
+            });
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-priv-mismatch',
+                text: 'Только владелец чата может изменять настройки подписки.',
+                show_alert: true,
+            });
+
+            // Creator and administrator succeed
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-creator-preset',
+                    data: 'settings:preset:#2PPLQ:all',
+                    chatId,
+                    chatType: 'group',
+                    userId: creatorId,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(1);
+            expect(String(transport.editedMessages()[0]?.text)).toContain('Пресет: Всё вместе');
+
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-admin-toggle',
+                    data: 'settings:category:#2PPLQ:roster',
+                    chatId,
+                    chatType: 'group',
+                    userId: adminId,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(2);
+            expect(String(transport.editedMessages()[1]?.text)).toContain('Пресет: своя настройка');
+        });
+
+        it('isolates subscription settings between different forum topics of the same supergroup', async () => {
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness();
+            const chatId = -6200;
+            const adminId = 901;
+            const topicA = 11;
+            const topicB = 22;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.saveTelegramChat(chatId, topicA, 'Topic A');
+            subscriptionRepo.saveTelegramChat(chatId, topicB, 'Topic B');
+            subscriptionRepo.subscribeToChat(chatId, topicA, '#2PPLQ', 'players');
+            subscriptionRepo.subscribeToChat(chatId, topicB, '#2PPLQ', 'players');
+            transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
+
+            // Change topic A to management preset and disable system
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-topic-a-preset',
+                    data: 'settings:preset:#2PPLQ:management',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-topic-a-cat',
+                    data: 'settings:category:#2PPLQ:system',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+
+            // Topic A updated, topic B completely untouched
+            expect(subscriptionRepo.getSubscription(chatId, topicA, '#2PPLQ')?.categories).toEqual({
+                summaries: false,
+                reminders: false,
+                roster: false,
+                discipline: true,
+                system: false,
+            });
+            expect(subscriptionRepo.getSubscription(chatId, topicB, '#2PPLQ')?.categories).toEqual({
+                summaries: true,
+                reminders: true,
+                roster: true,
+                discipline: false,
+                system: false,
+            });
+
+            // Opening settings in topic B shows its own players preset
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-topic-b-open',
+                    data: 'settings:open:#2PPLQ',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicB,
+                }),
+            );
+            expect(String(transport.editedMessages().at(-1)?.text)).toContain('Пресет: Игроки');
+        });
+
+        it('applies settings changes only to new events without cancelling already queued notifications and handles stale/DB/not-modified errors', async () => {
+            const {
+                service,
+                transport,
+                clansRepo,
+                subscriptionRepo,
+                domainEventsRepo,
+                notificationRepo,
+                transactionManager,
+                db,
+            } = createHarness();
+            const chatId = 6300;
+            const userId = 6300;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.saveTelegramChat(chatId, 0, 'Leader');
+            subscriptionRepo.subscribeToChat(chatId, 0, '#2PPLQ', 'players');
+            const subId = subscriptionRepo.getSubscriptionId(chatId, 0, '#2PPLQ');
+            expect(subId).not.toBeNull();
+            if (subId === null) {
+                throw new Error('Expected subscription_id');
+            }
+
+            // Seed already-queued domain event destination + notification for summaries before changing preset
+            domainEventsRepo.appendEvent(
+                {
+                    eventType: 'war_ended',
+                    eventId: '8901',
+                    payload: '{}',
+                    payloadVersion: 1,
+                    clanTag: '#2PPLQ',
+                },
+                [{ chatId, messageThreadId: 0, category: 'summaries', subscriptionId: subId }],
+            );
+            const [dest] = domainEventsRepo.getPendingDestinations(10);
+            expect(dest).toBeDefined();
+            if (dest === undefined) {
+                throw new Error('Expected seeded destination');
+            }
+            notificationRepo.enqueueDomainEventIfAbsent(
+                'existing war summary',
+                dest.destinationId,
+                'war_ended',
+                '8901',
+                chatId,
+                0,
+            );
+            const [notif] = notificationRepo.getPending(10);
+            expect(notif).toBeDefined();
+            if (notif === undefined) {
+                throw new Error('Expected seeded notification');
+            }
+
+            // Switch preset to management (disables summaries, enables discipline & system)
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-switch-mgmt',
+                    data: 'settings:preset:#2PPLQ:management',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+
+            // Already queued destination and notification are NOT cancelled
+            expect(rowStatus(db, 'domain_event_destinations', dest.destinationId)).toBe('pending');
+            expect(rowStatus(db, 'notifications', notif.id)).toBe('pending');
+            // Future event routing reflects the new categories
+            expect(
+                subscriptionRepo.getSubscriptionDestinationsForClan('#2PPLQ', 'summaries'),
+            ).toEqual([]);
+            expect(
+                subscriptionRepo.getSubscriptionDestinationsForClan('#2PPLQ', 'discipline'),
+            ).toEqual([{ subscriptionId: subId, chatId, messageThreadId: 0 }]);
+
+            // Clicking the already-active preset when Telegram responds "message is not modified" succeeds cleanly
+            transport.editMessageTextResponder = () =>
+                Promise.resolve({
+                    ok: false,
+                    error_code: 400,
+                    description: 'Bad Request: message is not modified',
+                });
+            await expect(
+                service.bot.handleUpdate(
+                    makeCallbackUpdate({
+                        queryId: 'q-not-modified',
+                        data: 'settings:preset:#2PPLQ:management',
+                        chatId,
+                        chatType: 'private',
+                        userId,
+                    }),
+                ),
+            ).resolves.toBeUndefined();
+            transport.editMessageTextResponder = undefined;
+
+            // Stale button for unlinked clan shows personal alert without editing
+            const editsBeforeErrors = transport.editedMessages().length;
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-unlinked',
+                    data: 'settings:open:#999888',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(editsBeforeErrors);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-unlinked',
+                text: 'Этот чат не привязан к клану #999888.',
+                show_alert: true,
+            });
+
+            // DB error during settings update shows personal alert without editing
+            const txSpy = vi
+                .spyOn(transactionManager, 'retryInTransaction')
+                .mockImplementation(() => {
+                    throw new DatabaseError('settings write failed');
+                });
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-db-err',
+                    data: 'settings:preset:#2PPLQ:all',
+                    chatId,
+                    chatType: 'private',
+                    userId,
+                }),
+            );
+            txSpy.mockRestore();
+            expect(transport.editedMessages()).toHaveLength(editsBeforeErrors);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-db-err',
+                text: 'Не удалось обновить настройки. Попробуйте ещё раз позже.',
+                show_alert: true,
+            });
+        });
+
+        it('toggles mirror rule on/off, preserves preset/categories and subscription_id, and isolates across forum topics', async () => {
+            const { service, transport, clansRepo, subscriptionRepo, transactionManager } =
+                createHarness();
+            const chatId = -6400;
+            const adminId = 950;
+            const topicA = 101;
+            const topicB = 202;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            subscriptionRepo.saveTelegramChat(chatId, topicA, 'Topic A');
+            subscriptionRepo.saveTelegramChat(chatId, topicB, 'Topic B');
+            subscriptionRepo.subscribeToChat(chatId, topicA, '#2PPLQ', 'players');
+            subscriptionRepo.subscribeToChat(chatId, topicB, '#2PPLQ', 'players');
+            transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
+
+            const initialSubIdA = subscriptionRepo.getSubscriptionId(chatId, topicA, '#2PPLQ');
+            expect(
+                subscriptionRepo.getSubscription(chatId, topicA, '#2PPLQ')?.mirrorRuleEnabled,
+            ).toBe(false);
+            expect(
+                subscriptionRepo.getSubscription(chatId, topicB, '#2PPLQ')?.mirrorRuleEnabled,
+            ).toBe(false);
+
+            // Toggle mirror rule ON in topic A
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-mirror-on',
+                    data: 'settings:mirror:#2PPLQ',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(
+                subscriptionRepo.getSubscription(chatId, topicA, '#2PPLQ')?.mirrorRuleEnabled,
+            ).toBe(true);
+            expect(
+                subscriptionRepo.getSubscription(chatId, topicB, '#2PPLQ')?.mirrorRuleEnabled,
+            ).toBe(false);
+            expect(subscriptionRepo.getSubscriptionId(chatId, topicA, '#2PPLQ')).toBe(
+                initialSubIdA,
+            );
+            const editOn = transport.editedMessages()[0];
+            expect(String(editOn?.text)).toContain('Первая атака не по зеркалу: вкл');
+            expect(String(editOn?.text)).toContain('Пресет: Игроки');
+            expect(getInlineKeyboard(editOn)[6]?.[0]).toEqual({
+                text: '✅ Первая атака не по зеркалу',
+                callback_data: 'settings:mirror:#2PPLQ',
+            });
+
+            // Switching preset preserves mirrorRuleEnabled=true
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-preset-keep-mirror',
+                    data: 'settings:preset:#2PPLQ:all',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(
+                subscriptionRepo.getSubscription(chatId, topicA, '#2PPLQ')?.mirrorRuleEnabled,
+            ).toBe(true);
+            const editAfterPreset = transport.editedMessages()[1];
+            expect(String(editAfterPreset?.text)).toContain('Пресет: Всё вместе');
+            expect(String(editAfterPreset?.text)).toContain('Первая атака не по зеркалу: вкл');
+            expect(getInlineKeyboard(editAfterPreset)[6]?.[0]?.text).toBe(
+                '✅ Первая атака не по зеркалу',
+            );
+
+            // Toggle mirror rule OFF in topic A
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-mirror-off',
+                    data: 'settings:mirror:#2PPLQ',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(
+                subscriptionRepo.getSubscription(chatId, topicA, '#2PPLQ')?.mirrorRuleEnabled,
+            ).toBe(false);
+            const editOff = transport.editedMessages()[2];
+            expect(String(editOff?.text)).toContain('Первая атака не по зеркалу: выкл');
+            expect(getInlineKeyboard(editOff)[6]?.[0]?.text).toBe('▫️ Первая атака не по зеркалу');
+
+            // Stale unlinked clan and DB error show personal alert without overwriting message
+            const editsBeforeErrors = transport.editedMessages().length;
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-mirror-unlinked',
+                    data: 'settings:mirror:#999888',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(transport.editedMessages()).toHaveLength(editsBeforeErrors);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-mirror-unlinked',
+                text: 'Этот чат не привязан к клану #999888.',
+                show_alert: true,
+            });
+
+            const txSpy = vi
+                .spyOn(transactionManager, 'retryInTransaction')
+                .mockImplementation(() => {
+                    throw new DatabaseError('mirror write failed');
+                });
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-mirror-db-err',
+                    data: 'settings:mirror:#2PPLQ',
+                    chatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            txSpy.mockRestore();
+            expect(transport.editedMessages()).toHaveLength(editsBeforeErrors);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-mirror-db-err',
+                text: 'Не удалось обновить настройки. Попробуйте ещё раз позже.',
+                show_alert: true,
+            });
+        });
+
+        it('selects timezone via CIS quick list and full UTC-12..UTC+14 grid, enforces permissions, and isolates forum topics', async () => {
+            const { service, transport, clansRepo, subscriptionRepo, transactionManager } =
+                createHarness();
+            const groupChatId = -6400;
+            const adminId = 951;
+            const memberId = 952;
+            const topicA = 101;
+            const topicB = 202;
+
+            clansRepo.insertMinimalClan('#2PPLQ');
+            clansRepo.saveClan({
+                tag: '#2PPLQ',
+                name: 'Nordic <Clan>',
+                description: 'desc',
+                locationId: 0,
+                locationName: '',
+                chatLanguageId: 0,
+                chatLanguage: '',
+                isFamilyFriendly: true,
+            });
+            subscriptionRepo.saveTelegramChat(groupChatId, topicA, 'Topic A');
+            subscriptionRepo.saveTelegramChat(groupChatId, topicB, 'Topic B');
+            subscriptionRepo.subscribeToChat(groupChatId, topicA, '#2PPLQ', 'players');
+            subscriptionRepo.subscribeToChat(groupChatId, topicB, '#2PPLQ', 'players');
+            const initialSubIdA = subscriptionRepo.getSubscriptionId(groupChatId, topicA, '#2PPLQ');
+            transport.chatMembers.set(memberKey(groupChatId, adminId), 'administrator');
+            transport.chatMembers.set(memberKey(groupChatId, memberId), 'member');
+
+            // Regular member cannot open quick list, full grid, or update timezone; shared message untouched
+            for (const [queryId, data] of [
+                ['q-tz-mem-open', 'settings:tz:#2PPLQ'],
+                ['q-tz-mem-all', 'settings:tzall:#2PPLQ'],
+                ['q-tz-mem-set', 'settings:tzset:#2PPLQ:5'],
+            ] as const) {
+                await service.bot.handleUpdate(
+                    makeCallbackUpdate({
+                        queryId,
+                        data,
+                        chatId: groupChatId,
+                        chatType: 'supergroup',
+                        userId: memberId,
+                        messageThreadId: topicA,
+                    }),
+                );
+            }
+            expect(transport.editedMessages()).toHaveLength(0);
+            expect(
+                subscriptionRepo.getSubscription(groupChatId, topicA, '#2PPLQ')
+                    ?.timezoneOffsetHours,
+            ).toBe(3);
+            expect(transport.answeredCallbackQueries()).toHaveLength(3);
+            for (const answer of transport.answeredCallbackQueries()) {
+                expect(answer.show_alert).toBe(true);
+                expect(answer.text).toBe(
+                    'Только администратор группы может изменять настройки подписки.',
+                );
+            }
+
+            // Admin opens CIS quick-pick screen
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-tz-open',
+                    data: 'settings:tz:#2PPLQ',
+                    chatId: groupChatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            const quickEdit = transport.editedMessages()[0];
+            expect(String(quickEdit?.text)).toContain('🕒 <b>Часовой пояс подписки</b>');
+            expect(String(quickEdit?.text)).toContain('Клан: <b>Nordic &lt;Clan&gt;</b> (#2PPLQ)');
+            expect(String(quickEdit?.text)).toContain('Текущий пояс: UTC+3');
+            const quickKeyboard = getInlineKeyboard(quickEdit);
+            expect(quickKeyboard.map((row) => row[0]?.text)).toEqual([
+                'UTC+2 Кишинёв',
+                '✅ UTC+3 Москва/Минск',
+                'UTC+4 Баку',
+                'UTC+5 Астана/Ташкент',
+                'UTC+6 Бишкек',
+                'UTC+7 Новосибирск',
+                '🌍 Другой пояс',
+                '⬅️ Назад',
+            ]);
+
+            // Admin selects UTC+5 Астана/Ташкент from CIS list -> returns to settings screen
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-tz-cis-5',
+                    data: 'settings:tzset:#2PPLQ:5',
+                    chatId: groupChatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(
+                subscriptionRepo.getSubscription(groupChatId, topicA, '#2PPLQ')
+                    ?.timezoneOffsetHours,
+            ).toBe(5);
+            expect(
+                subscriptionRepo.getSubscription(groupChatId, topicB, '#2PPLQ')
+                    ?.timezoneOffsetHours,
+            ).toBe(3);
+            expect(subscriptionRepo.getSubscriptionId(groupChatId, topicA, '#2PPLQ')).toBe(
+                initialSubIdA,
+            );
+            const afterCisEdit = transport.editedMessages()[1];
+            expect(String(afterCisEdit?.text)).toContain('⚙️ <b>Настройки подписки</b>');
+            expect(String(afterCisEdit?.text)).toContain('Часовой пояс: UTC+5');
+            expect(getInlineKeyboard(afterCisEdit)[7]?.[0]).toEqual({
+                text: '🕒 Часовой пояс: UTC+5',
+                callback_data: 'settings:tz:#2PPLQ',
+            });
+
+            // Admin opens "🌍 Другой пояс" -> full UTC-12..UTC+14 grid
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-tz-all',
+                    data: 'settings:tzall:#2PPLQ',
+                    chatId: groupChatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            const allEdit = transport.editedMessages()[2];
+            expect(String(allEdit?.text)).toContain(
+                '🌍 <b>Выбор часового пояса (UTC-12..UTC+14)</b>',
+            );
+            expect(String(allEdit?.text)).toContain('Текущий пояс: UTC+5');
+            const allKeyboard = getInlineKeyboard(allEdit);
+            expect(allKeyboard).toHaveLength(10);
+            const flatOffsets = allKeyboard.slice(0, 9).flat();
+            expect(flatOffsets).toHaveLength(27);
+            expect(flatOffsets[0]?.text).toBe('UTC-12');
+            expect(flatOffsets[17]?.text).toBe('✅ UTC+5');
+            expect(flatOffsets[26]?.text).toBe('UTC+14');
+            expect(allKeyboard[9]?.[0]).toEqual({
+                text: '⬅️ Назад',
+                callback_data: 'settings:tz:#2PPLQ',
+            });
+
+            // Admin selects UTC-5 from full grid -> saved and returns to settings screen
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-tz-set-neg5',
+                    data: 'settings:tzset:#2PPLQ:-5',
+                    chatId: groupChatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            expect(
+                subscriptionRepo.getSubscription(groupChatId, topicA, '#2PPLQ')
+                    ?.timezoneOffsetHours,
+            ).toBe(-5);
+            const afterNeg5Edit = transport.editedMessages()[3];
+            expect(String(afterNeg5Edit?.text)).toContain('Часовой пояс: UTC-5');
+            expect(getInlineKeyboard(afterNeg5Edit)[7]?.[0]?.text).toBe('🕒 Часовой пояс: UTC-5');
+
+            // DB failure during tz update returns personal alert without overwriting message
+            const editsBeforeDbErr = transport.editedMessages().length;
+            const txSpy = vi
+                .spyOn(transactionManager, 'retryInTransaction')
+                .mockImplementation(() => {
+                    throw new DatabaseError('tz write failed');
+                });
+            await service.bot.handleUpdate(
+                makeCallbackUpdate({
+                    queryId: 'q-tz-db-err',
+                    data: 'settings:tzset:#2PPLQ:14',
+                    chatId: groupChatId,
+                    chatType: 'supergroup',
+                    userId: adminId,
+                    messageThreadId: topicA,
+                }),
+            );
+            txSpy.mockRestore();
+            expect(transport.editedMessages()).toHaveLength(editsBeforeDbErr);
+            expect(transport.answeredCallbackQueries().at(-1)).toEqual({
+                callback_query_id: 'q-tz-db-err',
+                text: 'Не удалось обновить настройки. Попробуйте ещё раз позже.',
+                show_alert: true,
             });
         });
 
@@ -1911,6 +4007,129 @@ describe('TelegramBotService', () => {
             expect(transport.calls).toHaveLength(0);
         });
 
+        it('registers setMyCommands, setMyDescription and setMyShortDescription with Fan Content Policy disclaimer on start()', async () => {
+            const { service, transport } = createHarness();
+            const controller = new AbortController();
+
+            transport.getUpdatesResponder = async (payload, signal) => {
+                if (payload.limit === 1 || controller.signal.aborted) {
+                    return { ok: true, result: [] };
+                }
+
+                return await new Promise<ApiResponse<unknown>>((_resolve, reject) => {
+                    queueMicrotask(() => {
+                        controller.abort();
+                    });
+                    signal?.addEventListener(
+                        'abort',
+                        () => {
+                            const err = new Error('Aborted');
+                            err.name = 'AbortError';
+                            reject(err);
+                        },
+                        { once: true },
+                    );
+                });
+            };
+
+            await service.start(controller.signal);
+
+            const commandsCall = transport.calls.find((call) => call.method === 'setMyCommands');
+            const descriptionCall = transport.calls.find(
+                (call) => call.method === 'setMyDescription',
+            );
+            const shortDescriptionCall = transport.calls.find(
+                (call) => call.method === 'setMyShortDescription',
+            );
+
+            expect(commandsCall?.payload.commands).toEqual(TELEGRAM_BOT_COMMANDS);
+            expect(
+                (commandsCall?.payload.commands as { command: string }[]).map((c) => c.command),
+            ).toEqual(['start', 'help', 'link', 'unlink']);
+
+            expect(descriptionCall?.payload.description).toBe(TELEGRAM_BOT_DESCRIPTION);
+            expect(String(descriptionCall?.payload.description)).toContain(
+                SUPERCELL_FAN_CONTENT_DISCLAIMER,
+            );
+            expect(TELEGRAM_BOT_DESCRIPTION.length).toBeLessThanOrEqual(512);
+
+            expect(shortDescriptionCall?.payload.short_description).toBe(
+                TELEGRAM_BOT_SHORT_DESCRIPTION,
+            );
+            expect(String(shortDescriptionCall?.payload.short_description)).toContain('Supercell');
+            expect(TELEGRAM_BOT_SHORT_DESCRIPTION.length).toBeLessThanOrEqual(120);
+        });
+
+        it('logs warnings and still starts polling when setMyCommands, setMyDescription or setMyShortDescription fail', async () => {
+            const logger = createLogger({ level: 'silent' });
+            const warnSpy = vi.spyOn(logger, 'warn');
+            const { service, transport } = createHarness({ logger });
+            const controller = new AbortController();
+
+            transport.failSetMyCommands = true;
+            transport.failSetMyDescription = true;
+            transport.failSetMyShortDescription = true;
+
+            let pollCount = 0;
+            transport.getUpdatesResponder = async (payload, signal) => {
+                if (payload.limit === 1 || controller.signal.aborted) {
+                    return { ok: true, result: [] };
+                }
+
+                pollCount += 1;
+                if (pollCount === 1) {
+                    return {
+                        ok: true,
+                        result: [
+                            makeMessageUpdate({
+                                updateId: 40,
+                                chatId: 1040,
+                                chatType: 'private',
+                                text: '/help',
+                            }),
+                        ],
+                    };
+                }
+
+                return await new Promise<ApiResponse<unknown>>((_resolve, reject) => {
+                    queueMicrotask(() => {
+                        controller.abort();
+                    });
+                    signal?.addEventListener(
+                        'abort',
+                        () => {
+                            const err = new Error('Aborted');
+                            err.name = 'AbortError';
+                            reject(err);
+                        },
+                        { once: true },
+                    );
+                });
+            };
+
+            await service.start(controller.signal);
+
+            expect(pollCount).toBe(2);
+            expect(transport.calls.filter((c) => c.method === 'setMyCommands')).toHaveLength(1);
+            expect(transport.calls.filter((c) => c.method === 'setMyDescription')).toHaveLength(1);
+            expect(
+                transport.calls.filter((c) => c.method === 'setMyShortDescription'),
+            ).toHaveLength(1);
+            expect(transport.sentMessages()).toHaveLength(1);
+            expect(String(transport.sentMessages()[0]?.text)).toContain(
+                SUPERCELL_FAN_CONTENT_DISCLAIMER,
+            );
+
+            const warnedMethods = warnSpy.mock.calls
+                .map((args) => (args[0] as { method?: string } | undefined)?.method)
+                .filter((method): method is string => method !== undefined);
+            expect(warnedMethods).toEqual([
+                'setMyCommands',
+                'setMyDescription',
+                'setMyShortDescription',
+            ]);
+        });
+
         it('polls with allowed_updates=[message, callback_query, my_chat_member], handles middleware errors without crashing and stops on AbortSignal', async () => {
             const { service, transport, subscriptionRepo } = createHarness({
                 pollingTimeoutSeconds: 2,
@@ -1981,7 +4200,7 @@ describe('TelegramBotService', () => {
             await service.start(controller.signal);
 
             expect(pollCount).toBe(3);
-            expect(subscriptionRepo.hasSubscription(6001, 0, '#2PPLQ', 'management')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(6001, 0, '#2PPLQ')).toBe(true);
             expect(service.isRunning()).toBe(false);
         });
 
@@ -2053,7 +4272,12 @@ describe('TelegramBotService', () => {
             });
 
             const server = await startLoopbackServer((_req, res, recorded) => {
-                if (recorded.url.endsWith('/deleteWebhook')) {
+                if (
+                    recorded.url.endsWith('/deleteWebhook') ||
+                    recorded.url.endsWith('/setMyCommands') ||
+                    recorded.url.endsWith('/setMyDescription') ||
+                    recorded.url.endsWith('/setMyShortDescription')
+                ) {
                     res.setHeader('content-type', 'application/json');
                     res.end(JSON.stringify({ ok: true, result: true }));
                     return;
@@ -2151,7 +4375,7 @@ describe('TelegramBotService', () => {
 
             await service.start(controller.signal);
 
-            expect(subscriptionRepo.hasSubscription(-1001, 0, '#2PPLQ', 'players')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(-1001, 0, '#2PPLQ')).toBe(false);
             expect(transport.sentMessages()).toHaveLength(0);
         });
     });
@@ -2174,12 +4398,7 @@ describe('TelegramBotService', () => {
             clansRepo.insertMinimalClan('#2PPLQ');
             subscriptionRepo.saveTelegramChat(oldChatId, 0, 'Old Group');
             subscriptionRepo.subscribeToChat(oldChatId, 0, '#2PPLQ', 'players');
-            const originalSubId = subscriptionRepo.getSubscriptionId(
-                oldChatId,
-                0,
-                '#2PPLQ',
-                'players',
-            );
+            const originalSubId = subscriptionRepo.getSubscriptionId(oldChatId, 0, '#2PPLQ');
             expect(originalSubId).not.toBeNull();
 
             // Seed one pending destination and one materialized destination with a pending notification
@@ -2195,7 +4414,7 @@ describe('TelegramBotService', () => {
                     {
                         chatId: oldChatId,
                         messageThreadId: 0,
-                        audience: 'players',
+                        category: 'summaries',
                         subscriptionId: originalSubId ?? 0,
                     },
                 ],
@@ -2212,7 +4431,7 @@ describe('TelegramBotService', () => {
                     {
                         chatId: oldChatId,
                         messageThreadId: 0,
-                        audience: 'players',
+                        category: 'summaries',
                         subscriptionId: originalSubId ?? 0,
                     },
                 ],
@@ -2241,10 +4460,8 @@ describe('TelegramBotService', () => {
                 },
             } as unknown as Update);
 
-            expect(subscriptionRepo.hasSubscription(oldChatId, 0, '#2PPLQ', 'players')).toBe(false);
-            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ', 'players')).toBe(
-                originalSubId,
-            );
+            expect(subscriptionRepo.hasSubscription(oldChatId, 0, '#2PPLQ')).toBe(false);
+            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ')).toBe(originalSubId);
 
             const migratedDest = domainEventsRepo.getPendingDestinations(10);
             expect(migratedDest).toHaveLength(1);
@@ -2272,9 +4489,7 @@ describe('TelegramBotService', () => {
                 },
             } as unknown as Update);
 
-            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ', 'players')).toBe(
-                originalSubId,
-            );
+            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ')).toBe(originalSubId);
             expect(notificationRepo.getPending(10)).toHaveLength(1);
         });
 
@@ -2286,12 +4501,7 @@ describe('TelegramBotService', () => {
             clansRepo.insertMinimalClan('#2PPLQ');
             subscriptionRepo.saveTelegramChat(oldChatId, 0, 'Old Group');
             subscriptionRepo.subscribeToChat(oldChatId, 0, '#2PPLQ', 'players');
-            const originalSubId = subscriptionRepo.getSubscriptionId(
-                oldChatId,
-                0,
-                '#2PPLQ',
-                'players',
-            );
+            const originalSubId = subscriptionRepo.getSubscriptionId(oldChatId, 0, '#2PPLQ');
             notificationRepo.enqueueIfAbsent('Legacy pending', 'war_ended', 'mf-1', oldChatId, 0);
 
             await service.bot.handleUpdate({
@@ -2304,9 +4514,7 @@ describe('TelegramBotService', () => {
                 },
             } as unknown as Update);
 
-            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ', 'players')).toBe(
-                originalSubId,
-            );
+            expect(subscriptionRepo.getSubscriptionId(newChatId, 0, '#2PPLQ')).toBe(originalSubId);
             const pendingNotifs = notificationRepo.getPending(10);
             expect(pendingNotifs).toHaveLength(1);
             expect(pendingNotifs[0]?.chatId).toBe(newChatId);
@@ -2344,10 +4552,8 @@ describe('TelegramBotService', () => {
             subscriptionRepo.saveTelegramChat(-7005, 0, 'Muted Group');
             subscriptionRepo.subscribeToChat(-7005, 0, '#2PPLQ', 'players');
 
-            const sub7001Topic =
-                subscriptionRepo.getSubscriptionId(-7001, 15, '#SOLE', 'players') ?? 0;
-            const sub7003 =
-                subscriptionRepo.getSubscriptionId(7003, 0, '#2PPLQ', 'management') ?? 0;
+            const sub7001Topic = subscriptionRepo.getSubscriptionId(-7001, 15, '#SOLE') ?? 0;
+            const sub7003 = subscriptionRepo.getSubscriptionId(7003, 0, '#2PPLQ') ?? 0;
 
             // Pending destination for -7001 topic 15
             domainEventsRepo.appendEvent(
@@ -2362,7 +4568,7 @@ describe('TelegramBotService', () => {
                     {
                         chatId: -7001,
                         messageThreadId: 15,
-                        audience: 'players',
+                        category: 'summaries',
                         subscriptionId: sub7001Topic,
                     },
                 ],
@@ -2380,7 +4586,7 @@ describe('TelegramBotService', () => {
                     {
                         chatId: 7003,
                         messageThreadId: 0,
-                        audience: 'management',
+                        category: 'discipline',
                         subscriptionId: sub7003,
                     },
                 ],
@@ -2468,10 +4674,667 @@ describe('TelegramBotService', () => {
                     can_send_messages: true,
                 }),
             );
-            expect(subscriptionRepo.hasSubscription(-7002, 0, '#2PPLQ', 'players')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(-7002, 0, '#2PPLQ')).toBe(true);
 
             // Zero Telegram HTTP calls were made during my_chat_member handling
             expect(transport.calls).toHaveLength(0);
+        });
+    });
+
+    describe('clan limits, quotas and per-user command rate limiting (#5)', () => {
+        it('enforces a limit of 5 clans per destination with independent quotas across forum topics and frees slot on /unlink', async () => {
+            const clock = new FakeClock(1_000_000);
+            const notify = vi.fn();
+            const getCompleteClanData = vi.fn((tag: string) =>
+                Promise.resolve(makeCompleteClanData({ tag, name: `Clan ${tag}` })),
+            );
+            const { service, transport, subscriptionRepo, clansRepo } = createHarness({
+                clock,
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
+
+            const chatId = -1009001;
+            const adminId = 9001;
+            transport.chatMembers.set(memberKey(chatId, adminId), 'administrator');
+
+            const generalTags = ['#2PP2', '#2PP8', '#2PP9', '#2PPP', '#2PPY'];
+            for (const tag of generalTags) {
+                await service.bot.handleUpdate(
+                    makeMessageUpdate({
+                        chatId,
+                        chatType: 'supergroup',
+                        title: 'Forum Guild',
+                        userId: adminId,
+                        text: `/link ${tag}`,
+                    }),
+                );
+            }
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 0)).toBe(5);
+            expect(notify).toHaveBeenCalledTimes(5);
+            expect(getCompleteClanData).toHaveBeenCalledTimes(5);
+
+            // Reset rate-limit window so the 6th command tests destination limit, not rate limit.
+            clock.advance(60_000);
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Forum Guild',
+                    userId: adminId,
+                    text: '/link #2PPL',
+                }),
+            );
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 0)).toBe(5);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPL')).toBe(false);
+            expect(clansRepo.isClanTracked('#2PPL')).toBe(false);
+            expect(getCompleteClanData).toHaveBeenCalledTimes(5);
+            expect(notify).toHaveBeenCalledTimes(5);
+            const chatLimitMessage = String(transport.sentMessages().at(-1)?.text);
+            expect(chatLimitMessage).toContain(
+                'Достигнут лимит пилота: не более 5 кланов в одном чате',
+            );
+
+            // Forum topic 42 in the exact same supergroup has its own independent quota of 5 clans.
+            const topicTags = ['#8PP2', '#8PP8', '#8PP9', '#8PPP', '#8PPY'];
+            clock.advance(60_000);
+            for (const tag of topicTags) {
+                await service.bot.handleUpdate(
+                    makeMessageUpdate({
+                        chatId,
+                        chatType: 'supergroup',
+                        title: 'Forum Guild',
+                        userId: adminId,
+                        messageThreadId: 42,
+                        text: `/link ${tag}`,
+                    }),
+                );
+            }
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 42)).toBe(5);
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 0)).toBe(5);
+
+            clock.advance(60_000);
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Forum Guild',
+                    userId: adminId,
+                    messageThreadId: 42,
+                    text: '/link #8PPL',
+                }),
+            );
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 42)).toBe(5);
+            expect(subscriptionRepo.hasSubscription(chatId, 42, '#8PPL')).toBe(false);
+            const topicLimitReply = transport.sentMessages().at(-1);
+            expect(topicLimitReply?.message_thread_id).toBe(42);
+            expect(String(topicLimitReply?.text)).toContain(
+                'Достигнут лимит пилота: не более 5 кланов в одной теме',
+            );
+
+            // Unlinking one clan from the general chat frees a destination slot for #2PPL.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Forum Guild',
+                    userId: adminId,
+                    text: '/unlink #2PP2',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Forum Guild',
+                    userId: adminId,
+                    text: '/link #2PPL',
+                }),
+            );
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 0)).toBe(5);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPL')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PP2')).toBe(false);
+        });
+
+        it('enforces configurable instance-wide tracked clans limit and re-checks untracked clans', async () => {
+            const clock = new FakeClock(2_000_000);
+            const notify = vi.fn();
+            const getCompleteClanData = vi.fn((tag: string) =>
+                Promise.resolve(makeCompleteClanData({ tag, name: `Clan ${tag}` })),
+            );
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness({
+                clock,
+                maxTrackedClans: 3,
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8001,
+                    chatType: 'private',
+                    userId: 8001,
+                    text: '/link #2PP2',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8002,
+                    chatType: 'private',
+                    userId: 8002,
+                    text: '/link #2PP8',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8003,
+                    chatType: 'private',
+                    userId: 8003,
+                    text: '/link #2PP9',
+                }),
+            );
+
+            expect(clansRepo.countTrackedClans()).toBe(3);
+
+            // A brand-new 4th clan from a fresh chat (0/5 destination) must be rejected by instance limit.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8004,
+                    chatType: 'private',
+                    userId: 8004,
+                    text: '/link #2PPP',
+                }),
+            );
+
+            expect(clansRepo.countTrackedClans()).toBe(3);
+            expect(clansRepo.isClanTracked('#2PPP')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(8004, 0, '#2PPP')).toBe(false);
+            expect(getCompleteClanData).toHaveBeenCalledTimes(3);
+            expect(notify).toHaveBeenCalledTimes(3);
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain(
+                'Достигнут лимит пилота на число отслеживаемых кланов',
+            );
+
+            // Unlinking #2PP9 disables tracking (tracked count drops to 2) so #2PPP can now be linked.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8003,
+                    chatType: 'private',
+                    userId: 8003,
+                    text: '/unlink #2PP9',
+                }),
+            );
+            expect(clansRepo.countTrackedClans()).toBe(2);
+            expect(clansRepo.isClanTracked('#2PP9')).toBe(false);
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8004,
+                    chatType: 'private',
+                    userId: 8004,
+                    text: '/link #2PPP',
+                }),
+            );
+            expect(clansRepo.countTrackedClans()).toBe(3);
+            expect(subscriptionRepo.hasSubscription(8004, 0, '#2PPP')).toBe(true);
+
+            // Re-linking previously untracked #2PP9 must respect instance limit again.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 8003,
+                    chatType: 'private',
+                    userId: 8003,
+                    text: '/link #2PP9',
+                }),
+            );
+            expect(clansRepo.countTrackedClans()).toBe(3);
+            expect(clansRepo.isClanTracked('#2PP9')).toBe(false);
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain(
+                'Достигнут лимит пилота на число отслеживаемых кланов',
+            );
+        });
+
+        it('does not consume quota on repeated /link, allows already-tracked clans at instance limit, and still counts them toward chat limit', async () => {
+            const clock = new FakeClock(3_000_000);
+            const getCompleteClanData = vi.fn((tag: string) =>
+                Promise.resolve(makeCompleteClanData({ tag, name: `Clan ${tag}` })),
+            );
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness({
+                clock,
+                maxTrackedClans: 6,
+                cocApiClient: { getCompleteClanData },
+            });
+
+            // Seed 6 tracked clans across other chats so instance is strictly at limit (6/6).
+            const trackedTags = ['#2PP2', '#2PP8', '#2PP9', '#2PPP', '#2PPY', '#2PPL'];
+            for (let i = 0; i < trackedTags.length; i += 1) {
+                const tag = trackedTags[i] ?? '#2PP2';
+                const otherChatId = 7100 + i;
+                clansRepo.insertMinimalClan(tag);
+                subscriptionRepo.saveTelegramChat(otherChatId, 0, `Other ${String(i)}`);
+                subscriptionRepo.subscribeToChat(otherChatId, 0, tag, 'management');
+            }
+            expect(clansRepo.countTrackedClans()).toBe(6);
+
+            // Fresh private chat 7200 links 5 already-tracked clans even though instance is at 6/6.
+            for (let i = 0; i < 5; i += 1) {
+                const tag = trackedTags[i] ?? '#2PP2';
+                await service.bot.handleUpdate(
+                    makeMessageUpdate({
+                        chatId: 7200,
+                        chatType: 'private',
+                        userId: 7200,
+                        text: `/link ${tag}`,
+                    }),
+                );
+            }
+
+            expect(clansRepo.countTrackedClans()).toBe(6);
+            expect(subscriptionRepo.countSubscriptionsForDestination(7200, 0)).toBe(5);
+            const originalSubId = subscriptionRepo.getSubscriptionId(7200, 0, '#2PP2');
+            expect(originalSubId).not.toBeNull();
+
+            clock.advance(60_000);
+            const callsBeforeRepeat = getCompleteClanData.mock.calls.length;
+
+            // Repeated /link of an already-linked clan at 5/5 chat and 6/6 instance must succeed idempotently.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 7200,
+                    chatType: 'private',
+                    userId: 7200,
+                    text: '/link #2PP2',
+                }),
+            );
+
+            expect(subscriptionRepo.getSubscriptionId(7200, 0, '#2PP2')).toBe(originalSubId);
+            expect(getCompleteClanData).toHaveBeenCalledTimes(callsBeforeRepeat);
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain('уже подключён');
+
+            // Connecting a 6th already-tracked clan (#2PPL) to chat 7200 must hit the 5-clan destination limit.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 7200,
+                    chatType: 'private',
+                    userId: 7200,
+                    text: '/link #2PPL',
+                }),
+            );
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(7200, 0)).toBe(5);
+            expect(subscriptionRepo.hasSubscription(7200, 0, '#2PPL')).toBe(false);
+            expect(getCompleteClanData).toHaveBeenCalledTimes(callsBeforeRepeat);
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain(
+                'Достигнут лимит пилота: не более 5 кланов в одном чате',
+            );
+        });
+
+        it('does not consume destination or instance quota when CoC API returns 404 for a non-existent clan', async () => {
+            const clock = new FakeClock(4_000_000);
+            const notify = vi.fn();
+            const getCompleteClanData = vi.fn((tag: string) => {
+                if (tag === '#999PPP') {
+                    return Promise.reject(
+                        new CocApiError('Clan not found', {
+                            kind: 'not_found',
+                            endpoint: `/clans/${encodeURIComponent(tag)}`,
+                            statusCode: 404,
+                            retryable: false,
+                        }),
+                    );
+                }
+                return Promise.resolve(makeCompleteClanData({ tag, name: `Clan ${tag}` }));
+            });
+
+            const { service, transport, clansRepo, subscriptionRepo } = createHarness({
+                clock,
+                maxTrackedClans: 5,
+                cocApiClient: { getCompleteClanData },
+                clanManager: { notify },
+            });
+
+            // Seed 4 clans in private chat 7300 (4/5 destination, 4/5 instance).
+            for (const tag of ['#2PP2', '#2PP8', '#2PP9', '#2PPP']) {
+                clansRepo.insertMinimalClan(tag);
+                subscriptionRepo.saveTelegramChat(7300, 0, 'Leader');
+                subscriptionRepo.subscribeToChat(7300, 0, tag, 'management');
+            }
+
+            // Attempt linking a non-existent clan -> 404 must consume neither quota.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 7300,
+                    chatType: 'private',
+                    userId: 7300,
+                    text: '/link #999PPP',
+                }),
+            );
+
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain(
+                'Клан #999PPP не найден',
+            );
+            expect(subscriptionRepo.countSubscriptionsForDestination(7300, 0)).toBe(4);
+            expect(clansRepo.countTrackedClans()).toBe(4);
+            expect(notify).not.toHaveBeenCalled();
+
+            // The 5th slot in both destination and instance is still available for a real clan.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: 7300,
+                    chatType: 'private',
+                    userId: 7300,
+                    text: '/link #2PPY',
+                }),
+            );
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(7300, 0)).toBe(5);
+            expect(clansRepo.countTrackedClans()).toBe(5);
+            expect(subscriptionRepo.hasSubscription(7300, 0, '#2PPY')).toBe(true);
+            expect(notify).toHaveBeenCalledTimes(1);
+        });
+
+        it('enforces destination and instance limits atomically inside SQLite transactions under concurrent /link races', async () => {
+            const clock = new FakeClock(5_000_000);
+            const notify = vi.fn();
+            let releaseFirst!: () => void;
+            let releaseSecond!: () => void;
+            const firstGate = new Promise<void>((resolve) => {
+                releaseFirst = resolve;
+            });
+            const secondGate = new Promise<void>((resolve) => {
+                releaseSecond = resolve;
+            });
+            let lookupCalls = 0;
+
+            const { service, db, transport, clansRepo, subscriptionRepo } = createHarness({
+                clock,
+                maxTrackedClans: 5,
+                clanManager: { notify },
+                cocApiClient: {
+                    async getCompleteClanData(tag: string) {
+                        // Pure transactions invariant: HTTP lookup must run outside any SQLite transaction.
+                        expect(db.connection.inTransaction).toBe(false);
+                        lookupCalls += 1;
+                        if (lookupCalls === 1) {
+                            await firstGate;
+                        } else {
+                            await secondGate;
+                        }
+                        return makeCompleteClanData({ tag, name: `Race ${tag}` });
+                    },
+                },
+            });
+
+            // Seed 4 clans in supergroup -1007400 (4/5 destination, 4/5 instance).
+            const chatId = -1007400;
+            transport.chatMembers.set(memberKey(chatId, 11), 'administrator');
+            transport.chatMembers.set(memberKey(chatId, 12), 'administrator');
+            for (const tag of ['#2PP2', '#2PP8', '#2PP9', '#2PPP']) {
+                clansRepo.insertMinimalClan(tag);
+                subscriptionRepo.saveTelegramChat(chatId, 0, 'Race Group');
+                subscriptionRepo.subscribeToChat(chatId, 0, tag, 'players');
+            }
+
+            // Two admins concurrently pass pre-check and hit CoC API outside transaction.
+            const firstLink = service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 901,
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Race Group',
+                    userId: 11,
+                    text: '/link #2PPY',
+                }),
+            );
+            const secondLink = service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 902,
+                    chatId,
+                    chatType: 'supergroup',
+                    title: 'Race Group',
+                    userId: 12,
+                    text: '/link #2PPL',
+                }),
+            );
+
+            await vi.waitFor(() => {
+                expect(lookupCalls).toBe(2);
+            });
+
+            releaseFirst();
+            await firstLink;
+            releaseSecond();
+            await secondLink;
+
+            expect(subscriptionRepo.countSubscriptionsForDestination(chatId, 0)).toBe(5);
+            expect(clansRepo.countTrackedClans()).toBe(5);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPY')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(chatId, 0, '#2PPL')).toBe(false);
+            expect(notify).toHaveBeenCalledTimes(1);
+            expect(transport.sentMessages().map((m) => String(m.text))).toEqual(
+                expect.arrayContaining([
+                    expect.stringContaining('Подключён клан <b>Race #2PPY</b>'),
+                    expect.stringContaining(
+                        'Достигнут лимит пилота: не более 5 кланов в одном чате',
+                    ),
+                ]),
+            );
+        });
+
+        it('enforces instance limit atomically inside SQLite transactions under concurrent /link races across different chats', async () => {
+            const clock = new FakeClock(5_500_000);
+            const notify = vi.fn();
+            let releaseFirst!: () => void;
+            let releaseSecond!: () => void;
+            const firstGate = new Promise<void>((resolve) => {
+                releaseFirst = resolve;
+            });
+            const secondGate = new Promise<void>((resolve) => {
+                releaseSecond = resolve;
+            });
+            let lookupCalls = 0;
+
+            const { service, db, transport, clansRepo, subscriptionRepo } = createHarness({
+                clock,
+                maxTrackedClans: 1,
+                clanManager: { notify },
+                cocApiClient: {
+                    async getCompleteClanData(tag: string) {
+                        expect(db.connection.inTransaction).toBe(false);
+                        lookupCalls += 1;
+                        if (lookupCalls === 1) {
+                            await firstGate;
+                        } else {
+                            await secondGate;
+                        }
+                        return makeCompleteClanData({ tag, name: `Race ${tag}` });
+                    },
+                },
+            });
+
+            const firstLink = service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 911,
+                    chatId: 7411,
+                    chatType: 'private',
+                    userId: 7411,
+                    text: '/link #2PPY',
+                }),
+            );
+            const secondLink = service.bot.handleUpdate(
+                makeMessageUpdate({
+                    updateId: 912,
+                    chatId: 7412,
+                    chatType: 'private',
+                    userId: 7412,
+                    text: '/link #2PPL',
+                }),
+            );
+
+            await vi.waitFor(() => {
+                expect(lookupCalls).toBe(2);
+            });
+
+            releaseFirst();
+            await firstLink;
+            releaseSecond();
+            await secondLink;
+
+            expect(clansRepo.countTrackedClans()).toBe(1);
+            expect(subscriptionRepo.hasSubscription(7411, 0, '#2PPY')).toBe(true);
+            expect(subscriptionRepo.hasSubscription(7412, 0, '#2PPL')).toBe(false);
+            expect(notify).toHaveBeenCalledTimes(1);
+            expect(transport.sentMessages().map((m) => String(m.text))).toEqual(
+                expect.arrayContaining([
+                    expect.stringContaining('Подключён клан <b>Race #2PPY</b>'),
+                    expect.stringContaining('Достигнут лимит пилота на число отслеживаемых кланов'),
+                ]),
+            );
+        });
+
+        it('rate-limits /link and /unlink at 5 commands/min per user, isolates other users and /start, and resets deterministically after 60s', async () => {
+            const clock = new FakeClock(6_000_000);
+            const getCompleteClanData = vi.fn((tag: string) =>
+                Promise.resolve(makeCompleteClanData({ tag, name: `Clan ${tag}` })),
+            );
+            const { service, transport, subscriptionRepo } = createHarness({
+                clock,
+                cocApiClient: { getCompleteClanData },
+            });
+
+            const userA = 7501;
+            const userB = 7502;
+
+            // 5 commands from user A within 1 minute (mix of /link and /unlink) all proceed.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/link #2PP2',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/unlink #2PP2',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/link #2PP8',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/unlink #2PP8',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/link #2PP9',
+                }),
+            );
+
+            expect(getCompleteClanData).toHaveBeenCalledTimes(3);
+            expect(subscriptionRepo.hasSubscription(userA, 0, '#2PP9')).toBe(true);
+
+            // 6th command (/link) and 7th command (/unlink) within the same minute are rejected before CoC API / DB.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/link #2PPP',
+                }),
+            );
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/unlink #2PP9',
+                }),
+            );
+
+            expect(getCompleteClanData).toHaveBeenCalledTimes(3);
+            expect(subscriptionRepo.hasSubscription(userA, 0, '#2PPP')).toBe(false);
+            expect(subscriptionRepo.hasSubscription(userA, 0, '#2PP9')).toBe(true);
+            const sentAfterThrottle = transport.sentMessages();
+            expect(String(sentAfterThrottle.at(-2)?.text)).toBe(COMMAND_RATE_LIMIT_EXCEEDED_TEXT);
+            expect(String(sentAfterThrottle.at(-1)?.text)).toBe(COMMAND_RATE_LIMIT_EXCEEDED_TEXT);
+
+            // /start for user A and /link for user B remain unaffected.
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/start',
+                }),
+            );
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain('Добро пожаловать');
+
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userB,
+                    chatType: 'private',
+                    userId: userB,
+                    text: '/link #2PPP',
+                }),
+            );
+            expect(subscriptionRepo.hasSubscription(userB, 0, '#2PPP')).toBe(true);
+
+            // 1 ms before window expires -> user A is still rate-limited.
+            clock.advance(59_999);
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/unlink #2PP9',
+                }),
+            );
+            expect(subscriptionRepo.hasSubscription(userA, 0, '#2PP9')).toBe(true);
+            expect(String(transport.sentMessages().at(-1)?.text)).toBe(
+                COMMAND_RATE_LIMIT_EXCEEDED_TEXT,
+            );
+
+            // Exactly at 60_000 ms -> window resets and user A can execute /unlink again.
+            clock.advance(1);
+            await service.bot.handleUpdate(
+                makeMessageUpdate({
+                    chatId: userA,
+                    chatType: 'private',
+                    userId: userA,
+                    text: '/unlink #2PP9',
+                }),
+            );
+            expect(subscriptionRepo.hasSubscription(userA, 0, '#2PP9')).toBe(false);
+            expect(String(transport.sentMessages().at(-1)?.text)).toContain('отвязан от клана');
+        });
+
+        it('rejects non-positive limit configuration in TelegramBotService constructor', () => {
+            expect(() => createHarness({ maxClansPerDestination: 0 })).toThrow(ValidationError);
+            expect(() => createHarness({ maxTrackedClans: 0 })).toThrow(ValidationError);
+            expect(() => createHarness({ maxTrackedClans: -1 })).toThrow(ValidationError);
         });
     });
 });

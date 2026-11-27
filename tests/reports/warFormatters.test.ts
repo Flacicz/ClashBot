@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ValidationError } from '../../src/common/index.js';
 import {
@@ -439,6 +439,74 @@ describe('ClanwarViolationsFormatter (golden parity)', () => {
                 '• ТУРАН (№3 ➜ №5)',
         );
     });
+
+    it('omits not-mirror section when mirrorRuleEnabled is false, keeps missed/one-attack violations, and falls back to no-violations when not-mirror was the only violation', () => {
+        const missed: ClanwarSlacker[] = [{ playerTag: '#PLAYER1', playerName: 'Flacicz' }];
+        const oneAttack: ClanwarSlacker[] = [{ playerTag: '#PLAYER2', playerName: 'Alex' }];
+        const notMirror: NotMirrorAttack[] = [
+            {
+                attackerTag: '#PLAYER3',
+                attackerName: 'ТУРАН',
+                attackerPosition: 3,
+                defenderPosition: 5,
+            },
+        ];
+
+        const allViolationsMirrorDisabled = ClanwarViolationsFormatter.buildReport(
+            '#2J8PJ9VLG',
+            missed,
+            oneAttack,
+            notMirror,
+            { mirrorRuleEnabled: false },
+        );
+        expectMatchesGolden(
+            allViolationsMirrorDisabled,
+            'clanwarViolations',
+            'all-violations-mirror-disabled',
+        );
+
+        // When not-mirror is the ONLY violation and rule is disabled -> standard no-violations message
+        const onlyNotMirrorDisabled = ClanwarViolationsFormatter.buildReport(
+            '#2J8PJ9VLG',
+            [],
+            [],
+            notMirror,
+            { mirrorRuleEnabled: false },
+        );
+        expectMatchesGolden(onlyNotMirrorDisabled, 'clanwarViolations', 'no-violations');
+
+        // format(event, { mirrorRuleEnabled: false }) does not query not-mirror attacks
+        const getNotMirror = vi.fn(() => notMirror);
+        const reader: ClanwarViolationsReader = {
+            getSlackersWithNoAttacks: () => missed,
+            getSlackersWithOneAttack: () => oneAttack,
+            getPlayersWithFirstAttackNotOnMirror: getNotMirror,
+        };
+        const formatter = new ClanwarViolationsFormatter(reader);
+        expect(formatter.format(SAMPLE_WAR_ENDED_EVENT, { mirrorRuleEnabled: false })).toBe(
+            allViolationsMirrorDisabled,
+        );
+        expect(getNotMirror).not.toHaveBeenCalled();
+
+        expectMatchesGolden(
+            formatter.format(SAMPLE_WAR_ENDED_EVENT, { mirrorRuleEnabled: true }),
+            'clanwarViolations',
+            'all-violations',
+        );
+        expect(getNotMirror).toHaveBeenCalledTimes(1);
+
+        const onlyNotMirrorReader: ClanwarViolationsReader = {
+            getSlackersWithNoAttacks: () => [],
+            getSlackersWithOneAttack: () => [],
+            getPlayersWithFirstAttackNotOnMirror: () => notMirror,
+        };
+        const onlyNotMirrorFormatter = new ClanwarViolationsFormatter(onlyNotMirrorReader);
+        expectMatchesGolden(
+            onlyNotMirrorFormatter.format(SAMPLE_WAR_ENDED_EVENT, { mirrorRuleEnabled: false }),
+            'clanwarViolations',
+            'no-violations',
+        );
+    });
 });
 
 describe('ClanwarsLeagueRoundEndedFormatter (golden parity)', () => {
@@ -856,6 +924,76 @@ describe('ClanwarsLeagueRoundViolationsFormatter (golden parity)', () => {
         expect(() =>
             ClanwarsLeagueRoundViolationsFormatter.buildReport('#2J8PJ9VLG', 8, [], []),
         ).toThrow(ValidationError);
+    });
+
+    it('omits not-mirror section when mirrorRuleEnabled is false, keeps missed [0/1] violations, and falls back to no-violations when not-mirror was the only violation', () => {
+        const missed: ClanwarSlacker[] = [{ playerTag: '#PLAYER1', playerName: 'Flacicz' }];
+        const notMirror: NotMirrorAttack[] = [
+            {
+                attackerTag: '#PLAYER2',
+                attackerName: 'ТУРАН',
+                attackerPosition: 3,
+                defenderPosition: 5,
+            },
+        ];
+
+        const allViolationsDisabled = ClanwarsLeagueRoundViolationsFormatter.buildReport(
+            '#2J8PJ9VLG',
+            4,
+            missed,
+            notMirror,
+            { mirrorRuleEnabled: false },
+        );
+        expectMatchesGolden(
+            allViolationsDisabled,
+            'cwlRoundViolations',
+            'round-4-all-violations-mirror-disabled',
+        );
+
+        const onlyNotMirrorDisabled = ClanwarsLeagueRoundViolationsFormatter.buildReport(
+            '#2J8PJ9VLG',
+            3,
+            [],
+            notMirror,
+            { mirrorRuleEnabled: false },
+        );
+        expectMatchesGolden(onlyNotMirrorDisabled, 'cwlRoundViolations', 'round-3-no-violations');
+
+        const getNotMirror = vi.fn(() => notMirror);
+        const cwlReader: CwlRoundInfoReader = {
+            getRoundInfo: () => ({ season: '2026-04', roundNumber: 4 }),
+        };
+        const warReader: CwlRoundViolationsReader = {
+            getSlackersWithNoAttacks: () => missed,
+            getPlayersWithFirstAttackNotOnMirror: getNotMirror,
+        };
+        const formatter = new ClanwarsLeagueRoundViolationsFormatter(cwlReader, warReader);
+        expect(formatter.format(SAMPLE_CWL_ROUND_ENDED_EVENT, { mirrorRuleEnabled: false })).toBe(
+            allViolationsDisabled,
+        );
+        expect(getNotMirror).not.toHaveBeenCalled();
+
+        expectMatchesGolden(
+            formatter.format(SAMPLE_CWL_ROUND_ENDED_EVENT, { mirrorRuleEnabled: true }),
+            'cwlRoundViolations',
+            'round-4-all-violations',
+        );
+        expect(getNotMirror).toHaveBeenCalledTimes(1);
+
+        const onlyNotMirrorFormatter = new ClanwarsLeagueRoundViolationsFormatter(
+            { getRoundInfo: () => ({ season: '2026-04', roundNumber: 3 }) },
+            {
+                getSlackersWithNoAttacks: () => [],
+                getPlayersWithFirstAttackNotOnMirror: () => notMirror,
+            },
+        );
+        expectMatchesGolden(
+            onlyNotMirrorFormatter.format(SAMPLE_CWL_ROUND_ENDED_EVENT, {
+                mirrorRuleEnabled: false,
+            }),
+            'cwlRoundViolations',
+            'round-3-no-violations',
+        );
     });
 });
 

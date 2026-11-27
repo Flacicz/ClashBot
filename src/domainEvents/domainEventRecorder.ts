@@ -5,7 +5,7 @@ import type {
 import type { SubscriptionRepo } from '../database/repos/subscriptionRepo.js';
 import type { ApplicationEvent } from '../events/applicationEvents.js';
 import type { DomainEventPayloadSerializer } from './domainEventPayloadSerializer.js';
-import { audiencesForEvent } from './eventNotificationPolicy.js';
+import { categoriesForEvent } from './eventNotificationPolicy.js';
 
 export class DomainEventRecorder {
     private readonly serializer: DomainEventPayloadSerializer;
@@ -25,20 +25,20 @@ export class DomainEventRecorder {
     recordAll(events: readonly ApplicationEvent[]): void {
         for (const event of events) {
             const serialized = this.serializer.serialize(event);
-            const audiences = audiencesForEvent(event);
+            const categories = categoriesForEvent(event);
             const destinationRecords: DomainEventDestinationRecord[] = [];
 
-            for (const audience of audiences) {
+            for (const category of categories) {
                 const destinations = this.subscriptionRepo.getSubscriptionDestinationsForClan(
                     serialized.clanTag,
-                    audience,
+                    category,
                 );
 
                 for (const destination of destinations) {
                     destinationRecords.push({
                         chatId: destination.chatId,
                         messageThreadId: destination.messageThreadId,
-                        audience,
+                        category,
                         subscriptionId: destination.subscriptionId,
                     });
                 }

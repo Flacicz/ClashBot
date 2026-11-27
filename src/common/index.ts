@@ -2,7 +2,10 @@ export { FakeClock, SystemClock, type Clock } from './clock.js';
 export {
     escapeHtml,
     formatRemainingTimePhrase,
-    formatUnixToMoscowDateTime,
+    formatUnixToDate,
+    formatUnixToDateTime,
+    formatUtcOffset,
+    pluralizeRu,
     removeTrailingNewlines,
 } from './formatUtils.js';
 export {

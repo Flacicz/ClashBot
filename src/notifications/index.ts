@@ -14,6 +14,7 @@ export {
     type EventFormatter,
     type NotificationEventType,
     type NotificationServiceDependencies,
+    type TimezoneAwareEventFormatter,
     type WakeableNotificationWorker,
 } from './notificationService.js';
 export {

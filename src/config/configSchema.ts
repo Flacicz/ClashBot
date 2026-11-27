@@ -5,6 +5,7 @@ export const DEFAULT_BASE_URL = 'https://api.clashofclans.com/v1/';
 export const DEFAULT_DATABASE_PATH = 'data/database.sqlite';
 export const DEFAULT_MIGRATION_PATH = 'migrations';
 export const DEFAULT_ATTACK_GUIDES_PATH = 'resources/telegram/attack_guides.json';
+export const DEFAULT_MAX_TRACKED_CLANS = 20;
 
 const apiConfigSchema = z
     .object({
@@ -33,11 +34,22 @@ const telegramConfigSchema = z
     })
     .default({});
 
+const limitsConfigSchema = z
+    .object({
+        max_tracked_clans: z
+            .number()
+            .int('limits.max_tracked_clans must be an integer')
+            .positive('limits.max_tracked_clans must be a positive integer')
+            .default(DEFAULT_MAX_TRACKED_CLANS),
+    })
+    .default({});
+
 export const jsonConfigSchema = z
     .object({
         api: apiConfigSchema,
         database: databaseConfigSchema,
         telegram: telegramConfigSchema,
+        limits: limitsConfigSchema,
     })
     .superRefine((data, ctx) => {
         if (data.api.use_tunnel && data.api.tunnel_base_url.length === 0) {
@@ -61,6 +73,7 @@ export interface AppConfig {
     readonly databasePath: string;
     readonly migrationPath: string;
     readonly attackGuidesPath: string;
+    readonly maxTrackedClans: number;
     readonly supercellToken: string;
     readonly telegramToken: string;
 }

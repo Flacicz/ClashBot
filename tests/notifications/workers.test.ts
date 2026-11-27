@@ -314,7 +314,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
         h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'players');
 
-        const sub2Id = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'players');
+        const sub2Id = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG);
         expect(sub2Id).not.toBeNull();
 
         h.tx.retryInTransaction(() => {
@@ -440,7 +440,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         const h = createHarness();
         h.subscriptionRepo.saveTelegramChat(-1001, 0, 'Players');
         h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
-        const subId = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'players') ?? 1;
+        const subId = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG) ?? 1;
 
         // Append a malformed event payload followed by a valid event
         h.domainEventsRepo.appendEvent(
@@ -455,7 +455,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
                 {
                     chatId: -1001,
                     messageThreadId: 0,
-                    audience: 'players',
+                    category: 'roster',
                     subscriptionId: subId,
                 },
             ],
@@ -542,7 +542,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
         h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'players');
 
-        const sub2Id = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'players');
+        const sub2Id = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG);
         expect(sub2Id).not.toBeNull();
 
         h.tx.retryInTransaction(() => {
@@ -565,12 +565,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         const notif1Id = firstNotif?.id ?? 0;
         const notif2Id = secondNotif?.id ?? 0;
         const secondChatId = secondNotif?.chatId ?? 0;
-        const secondSubId = h.subscriptionRepo.getSubscriptionId(
-            secondChatId,
-            0,
-            CLAN_TAG,
-            'players',
-        );
+        const secondSubId = h.subscriptionRepo.getSubscriptionId(secondChatId, 0, CLAN_TAG);
         expect(secondSubId).not.toBeNull();
 
         // When notification 1 is sent over HTTP, the 2nd notification's subscription is unlinked before notification 2 starts
@@ -1027,7 +1022,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         const h = createHarness();
         h.subscriptionRepo.saveTelegramChat(-1001, 0, 'Report Chat');
         h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'management');
-        const subId = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'management') ?? 1;
+        const subId = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG) ?? 1;
 
         h.domainEventsRepo.appendEvent(
             {
@@ -1037,7 +1032,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
                 payloadVersion: 1,
                 clanTag: CLAN_TAG,
             },
-            [{ chatId: -1001, messageThreadId: 0, audience: 'management', subscriptionId: subId }],
+            [{ chatId: -1001, messageThreadId: 0, category: 'discipline', subscriptionId: subId }],
         );
         const destId = h.domainEventsRepo.getPendingDestinations(10)[0]?.destinationId ?? 0;
 
@@ -1145,8 +1140,8 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         h.subscriptionRepo.saveTelegramChat(-1002, 0, 'Exhausted Chat');
         h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'management');
         h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'management');
-        const sub1 = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'management') ?? 1;
-        const sub2 = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'management') ?? 2;
+        const sub1 = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG) ?? 1;
+        const sub2 = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG) ?? 2;
 
         h.domainEventsRepo.appendEvent(
             {
@@ -1157,8 +1152,8 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
                 clanTag: CLAN_TAG,
             },
             [
-                { chatId: -1001, messageThreadId: 0, audience: 'management', subscriptionId: sub1 },
-                { chatId: -1002, messageThreadId: 0, audience: 'management', subscriptionId: sub2 },
+                { chatId: -1001, messageThreadId: 0, category: 'discipline', subscriptionId: sub1 },
+                { chatId: -1002, messageThreadId: 0, category: 'discipline', subscriptionId: sub2 },
             ],
         );
         const dests = h.domainEventsRepo.getPendingDestinations(10);
@@ -1254,7 +1249,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         const h = createHarness();
         h.subscriptionRepo.saveTelegramChat(-1001, 0, 'Recovery Chat');
         h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'management');
-        const subId = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'management') ?? 1;
+        const subId = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG) ?? 1;
 
         h.domainEventsRepo.appendEvent(
             {
@@ -1264,7 +1259,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
                 payloadVersion: 1,
                 clanTag: CLAN_TAG,
             },
-            [{ chatId: -1001, messageThreadId: 0, audience: 'management', subscriptionId: subId }],
+            [{ chatId: -1001, messageThreadId: 0, category: 'discipline', subscriptionId: subId }],
         );
         const destId = h.domainEventsRepo.getPendingDestinations(10)[0]?.destinationId ?? 0;
 
@@ -1442,10 +1437,8 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         h.subscriptionRepo.saveTelegramChat(-3002, 0, 'Unlink Multi Chat');
         h.subscriptionRepo.subscribeToChat(-3001, 0, CLAN_TAG, 'management');
         h.subscriptionRepo.subscribeToChat(-3002, 0, CLAN_TAG, 'management');
-        const subStale =
-            h.subscriptionRepo.getSubscriptionId(-3001, 0, CLAN_TAG, 'management') ?? 0;
-        const subUnlink =
-            h.subscriptionRepo.getSubscriptionId(-3002, 0, CLAN_TAG, 'management') ?? 0;
+        const subStale = h.subscriptionRepo.getSubscriptionId(-3001, 0, CLAN_TAG) ?? 0;
+        const subUnlink = h.subscriptionRepo.getSubscriptionId(-3002, 0, CLAN_TAG) ?? 0;
 
         h.domainEventsRepo.appendEvent(
             {
@@ -1459,13 +1452,13 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
                 {
                     chatId: -3001,
                     messageThreadId: 0,
-                    audience: 'management',
+                    category: 'discipline',
                     subscriptionId: subStale,
                 },
                 {
                     chatId: -3002,
                     messageThreadId: 0,
-                    audience: 'management',
+                    category: 'discipline',
                     subscriptionId: subUnlink,
                 },
             ],
@@ -1511,7 +1504,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
             if (chatId === -3002 && text === 'Unlink Part 1/3') {
                 h.tx.retryInTransaction(() => {
                     h.domainEventsRepo.cancelForSubscription(subUnlink);
-                    h.subscriptionRepo.unsubscribeFromChat(-3002, 0, CLAN_TAG, 'management');
+                    h.subscriptionRepo.unsubscribeFromChat(-3002, 0, CLAN_TAG);
                 });
             }
             h.sentMessages.push({ chatId, text, messageThreadId });
@@ -1560,8 +1553,8 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
         h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'players');
 
-        const sub1Id = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'players');
-        const sub2Id = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'players');
+        const sub1Id = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG);
+        const sub2Id = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG);
         expect(sub1Id).not.toBeNull();
         expect(sub2Id).not.toBeNull();
 
@@ -1613,7 +1606,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         // Case 2: DomainEventWorker already materialized Chat 2, then /unlink runs BEFORE NotificationWorker claims -> cancelled, never sent!
         h.tx.retryInTransaction(() => {
             h.domainEventsRepo.cancelForSubscription(sub2Id ?? 0);
-            h.subscriptionRepo.unsubscribeFromChat(-1002, 0, CLAN_TAG, 'players');
+            h.subscriptionRepo.unsubscribeFromChat(-1002, 0, CLAN_TAG);
         });
 
         await h.notificationWorker.processPending();
@@ -1641,8 +1634,8 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
         h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'players');
 
-        const sub1Id = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'players') ?? 0;
-        const sub2Id = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'players') ?? 0;
+        const sub1Id = h.subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG) ?? 0;
+        const sub2Id = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG) ?? 0;
 
         // Two events for sub1 (first will be claimed in-flight, second stays pending until /unlink cancels it)
         // and one event for sub2 (claimed in-flight, /unlink runs during HTTP, then HTTP fails transiently)
@@ -1689,7 +1682,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
                 // /unlink wins while sub1First is in-flight -> cancels sub1Second (pending), leaves sub1First ('sending')
                 h.tx.retryInTransaction(() => {
                     h.domainEventsRepo.cancelForSubscription(sub1Id);
-                    h.subscriptionRepo.unsubscribeFromChat(-1001, 0, CLAN_TAG, 'players');
+                    h.subscriptionRepo.unsubscribeFromChat(-1001, 0, CLAN_TAG);
                 });
                 h.sentMessages.push({ chatId, text, messageThreadId });
                 await Promise.resolve();
@@ -1700,7 +1693,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
                 // /unlink wins while sub2First is in-flight, THEN Telegram responds with transient 500
                 h.tx.retryInTransaction(() => {
                     h.domainEventsRepo.cancelForSubscription(sub2Id);
-                    h.subscriptionRepo.unsubscribeFromChat(-1002, 0, CLAN_TAG, 'players');
+                    h.subscriptionRepo.unsubscribeFromChat(-1002, 0, CLAN_TAG);
                 });
                 await Promise.resolve();
                 throw new TelegramDeliveryError('Internal Server Error', {
@@ -1738,8 +1731,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         h.subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
         h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'players');
 
-        const unlinkedSubId =
-            h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'players') ?? 0;
+        const unlinkedSubId = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG) ?? 0;
 
         h.tx.retryInTransaction(() => {
             h.recorder.recordAll([
@@ -1768,7 +1760,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         // Chat -1002 unlinked before restart
         h.tx.retryInTransaction(() => {
             h.domainEventsRepo.cancelForSubscription(unlinkedSubId);
-            h.subscriptionRepo.unsubscribeFromChat(-1002, 0, CLAN_TAG, 'players');
+            h.subscriptionRepo.unsubscribeFromChat(-1002, 0, CLAN_TAG);
         });
 
         // Start a brand-new NotificationWorker only 5 seconds later (before 60s TTL!)
@@ -1806,8 +1798,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'players');
         h.subscriptionRepo.subscribeToChat(-1003, 5, CLAN_TAG, 'players');
 
-        const relinkedOldSubId =
-            h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'players') ?? 0;
+        const relinkedOldSubId = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG) ?? 0;
 
         h.tx.retryInTransaction(() => {
             h.recorder.recordAll([
@@ -1839,12 +1830,11 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         // /unlink -> /link on chat -1002 creates a NEW subscription generation (sub2 != relinkedOldSubId)
         h.tx.retryInTransaction(() => {
             h.domainEventsRepo.cancelForSubscription(relinkedOldSubId);
-            h.subscriptionRepo.unsubscribeFromChat(-1002, 0, CLAN_TAG, 'players');
+            h.subscriptionRepo.unsubscribeFromChat(-1002, 0, CLAN_TAG);
             h.subscriptionRepo.saveTelegramChat(-1002, 0, 'Relinked Chat');
             h.subscriptionRepo.subscribeToChat(-1002, 0, CLAN_TAG, 'players');
         });
-        const relinkedNewSubId =
-            h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG, 'players') ?? 0;
+        const relinkedNewSubId = h.subscriptionRepo.getSubscriptionId(-1002, 0, CLAN_TAG) ?? 0;
         expect(relinkedNewSubId).not.toBe(relinkedOldSubId);
 
         // Record a new event for the NEW subscription generation
@@ -2346,12 +2336,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
 
         h.subscriptionRepo.saveTelegramChat(oldChatId, 0, 'Clan Group');
         h.subscriptionRepo.subscribeToChat(oldChatId, 0, CLAN_TAG, 'players');
-        const originalSubId = h.subscriptionRepo.getSubscriptionId(
-            oldChatId,
-            0,
-            CLAN_TAG,
-            'players',
-        );
+        const originalSubId = h.subscriptionRepo.getSubscriptionId(oldChatId, 0, CLAN_TAG);
         expect(originalSubId).not.toBeNull();
 
         // Record 3 events: first 2 are materialized into notifications, 3rd remains pending in domain_event_destinations
@@ -2443,10 +2428,8 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         // Only 1 request went to oldChatId; both notifications were delivered to newChatId!
         expect(sentChatIds).toEqual([oldChatId, newChatId, newChatId]);
 
-        expect(h.subscriptionRepo.hasSubscription(oldChatId, 0, CLAN_TAG, 'players')).toBe(false);
-        expect(h.subscriptionRepo.getSubscriptionId(newChatId, 0, CLAN_TAG, 'players')).toBe(
-            originalSubId,
-        );
+        expect(h.subscriptionRepo.hasSubscription(oldChatId, 0, CLAN_TAG)).toBe(false);
+        expect(h.subscriptionRepo.getSubscriptionId(newChatId, 0, CLAN_TAG)).toBe(originalSubId);
 
         // Pending domain_event_destination (Charlie) was also migrated to newChatId
         const pendingDests = h.domainEventsRepo.getPendingDestinations(10);
@@ -2536,9 +2519,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
 
         // Subscriptions and telegram_chats for deadChatId are removed
         expect(h.subscriptionRepo.getSubscriptionsForChat(deadChatId)).toEqual([]);
-        expect(h.subscriptionRepo.hasSubscription(healthyChatId, 0, CLAN_TAG, 'players')).toBe(
-            true,
-        );
+        expect(h.subscriptionRepo.hasSubscription(healthyChatId, 0, CLAN_TAG)).toBe(true);
 
         // #SOLE lost its only subscription -> tracking_enabled = 0; #2PPLQ stays tracked because healthyChatId is active
         expect(h.clansRepo.getTrackedClans()).toEqual([CLAN_TAG]);
@@ -2633,12 +2614,8 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         expect(h.sentMessages).toHaveLength(2);
         expect(h.sentMessages.every((m) => m.messageThreadId === activeTopicId)).toBe(true);
 
-        expect(
-            h.subscriptionRepo.hasSubscription(chatId, deletedTopicId, CLAN_TAG, 'players'),
-        ).toBe(false);
-        expect(h.subscriptionRepo.hasSubscription(chatId, activeTopicId, CLAN_TAG, 'players')).toBe(
-            true,
-        );
+        expect(h.subscriptionRepo.hasSubscription(chatId, deletedTopicId, CLAN_TAG)).toBe(false);
+        expect(h.subscriptionRepo.hasSubscription(chatId, activeTopicId, CLAN_TAG)).toBe(true);
         expect(h.clansRepo.getTrackedClans()).toEqual([CLAN_TAG]);
     });
 
@@ -2688,7 +2665,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
 
         await h.notificationWorker.processPending();
 
-        expect(h.subscriptionRepo.hasSubscription(chatId, 0, CLAN_TAG, 'players')).toBe(true);
+        expect(h.subscriptionRepo.hasSubscription(chatId, 0, CLAN_TAG)).toBe(true);
         expect(h.sentMessages).toHaveLength(1);
         expect(h.sentMessages[0]?.text).toContain('Bob');
     });
@@ -2701,7 +2678,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         // Overlap case: target supergroup already linked before old group's 400 migrate_to_chat_id arrives
         h.subscriptionRepo.saveTelegramChat(oldChatId, 0, 'Old Group');
         h.subscriptionRepo.subscribeToChat(oldChatId, 0, CLAN_TAG, 'players');
-        const oldSubId = h.subscriptionRepo.getSubscriptionId(oldChatId, 0, CLAN_TAG, 'players');
+        const oldSubId = h.subscriptionRepo.getSubscriptionId(oldChatId, 0, CLAN_TAG);
 
         h.tx.retryInTransaction(() => {
             h.recorder.recordAll([
@@ -2719,12 +2696,7 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         // Admin already ran /link in target supergroup before worker sends the old notification
         h.subscriptionRepo.saveTelegramChat(targetChatId, 0, 'New Supergroup');
         h.subscriptionRepo.subscribeToChat(targetChatId, 0, CLAN_TAG, 'players');
-        const targetSubId = h.subscriptionRepo.getSubscriptionId(
-            targetChatId,
-            0,
-            CLAN_TAG,
-            'players',
-        );
+        const targetSubId = h.subscriptionRepo.getSubscriptionId(targetChatId, 0, CLAN_TAG);
         expect(targetSubId).not.toBe(oldSubId);
 
         // Also seed a self-migrating legacy notification to verify loop guard
@@ -2756,10 +2728,8 @@ describe('DomainEventWorker & NotificationWorker integration', () => {
         await h.notificationWorker.processPending();
 
         // Deduplicated old subscription removed, target subscription preserved, old in-flight notification cancelled
-        expect(h.subscriptionRepo.hasSubscription(oldChatId, 0, CLAN_TAG, 'players')).toBe(false);
-        expect(h.subscriptionRepo.getSubscriptionId(targetChatId, 0, CLAN_TAG, 'players')).toBe(
-            targetSubId,
-        );
+        expect(h.subscriptionRepo.hasSubscription(oldChatId, 0, CLAN_TAG)).toBe(false);
+        expect(h.subscriptionRepo.getSubscriptionId(targetChatId, 0, CLAN_TAG)).toBe(targetSubId);
         const oldNotifStatus = h.db.connection
             .prepare<[], { status: string; last_error: string | null }>(
                 "SELECT status, last_error FROM notifications WHERE event_id = '5001';",

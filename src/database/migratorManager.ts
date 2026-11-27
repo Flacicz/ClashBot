@@ -9,8 +9,12 @@ import { toDatabaseError } from './sqliteErrors.js';
 import { type TransactionManager } from './transactionManager.js';
 
 export const LEGACY_REBUILD_MIGRATION_VERSION = '003_clan_info_schema_v1_to_v2.sql';
+export const SUBSCRIPTION_PRESETS_MIGRATION_VERSION = '016_subscription_presets_and_categories.sql';
 
-const LEGACY_REBUILD_MIGRATIONS = new Set<string>([LEGACY_REBUILD_MIGRATION_VERSION]);
+const FOREIGN_KEY_REBUILD_MIGRATIONS = new Set<string>([
+    LEGACY_REBUILD_MIGRATION_VERSION,
+    SUBSCRIPTION_PRESETS_MIGRATION_VERSION,
+]);
 
 interface ForeignKeyViolationRow {
     readonly table: string;
@@ -182,10 +186,10 @@ export class MigratorManager {
     }
 
     private applyMigrationIfNeeded(version: string, filePath: string): void {
-        const needsLegacyRebuild = LEGACY_REBUILD_MIGRATIONS.has(version);
+        const needsForeignKeyRebuild = FOREIGN_KEY_REBUILD_MIGRATIONS.has(version);
         let foreignKeysGuard: ForeignKeysGuard | undefined;
 
-        if (needsLegacyRebuild) {
+        if (needsForeignKeyRebuild) {
             foreignKeysGuard = new ForeignKeysGuard(this.db, this.logger);
         } else {
             requireForeignKeysEnabled(this.db.connection);

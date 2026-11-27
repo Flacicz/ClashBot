@@ -1,22 +1,23 @@
 import {
     escapeHtml,
     formatRemainingTimePhrase,
-    formatUnixToMoscowDateTime,
+    formatUnixToDateTime,
 } from '../common/formatUtils.js';
 import {
     WAR_REMINDER_KINDS,
     WAR_REMINDER_WAR_KINDS,
     type WarReminderEvent,
 } from '../events/applicationEvents.js';
+import { DEFAULT_TIMEZONE_OFFSET_HOURS } from '../models/subscription.js';
 
 const SECONDS_PER_HOUR = 60 * 60;
 const NOMINAL_SIX_HOURS_SECONDS = 6 * SECONDS_PER_HOUR;
 const NOMINAL_ONE_HOUR_SECONDS = 1 * SECONDS_PER_HOUR;
 
-function formatWarDetails(event: WarReminderEvent): string {
+function formatWarDetails(event: WarReminderEvent, timezoneOffsetHours: number): string {
     return (
         `Клан: <code>${escapeHtml(event.clanTag)}</code>\n` +
-        `🕒 Окончание: <b>${formatUnixToMoscowDateTime(event.endTime)}</b>\n\n`
+        `🕒 Окончание: <b>${formatUnixToDateTime(event.endTime, timezoneOffsetHours)}</b>\n\n`
     );
 }
 
@@ -26,83 +27,104 @@ function assertNever(value: never): never {
 
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class WarReminderFormatter {
-    static format(event: WarReminderEvent): string {
+    static format(
+        event: WarReminderEvent,
+        timezoneOffsetHours: number = DEFAULT_TIMEZONE_OFFSET_HOURS,
+    ): string {
         const isCwl = event.warKind === WAR_REMINDER_WAR_KINDS.cwl;
 
         switch (event.kind) {
             case WAR_REMINDER_KINDS.started:
                 return isCwl
-                    ? WarReminderFormatter.formatStartOfCwlReminder(event)
-                    : WarReminderFormatter.formatStartOfWarReminder(event);
+                    ? WarReminderFormatter.formatStartOfCwlReminder(event, timezoneOffsetHours)
+                    : WarReminderFormatter.formatStartOfWarReminder(event, timezoneOffsetHours);
             case WAR_REMINDER_KINDS.sixHoursLeft:
                 return isCwl
-                    ? WarReminderFormatter.formatSixHoursLeftCwlReminder(event)
-                    : WarReminderFormatter.formatSixHoursLeftReminder(event);
+                    ? WarReminderFormatter.formatSixHoursLeftCwlReminder(event, timezoneOffsetHours)
+                    : WarReminderFormatter.formatSixHoursLeftReminder(event, timezoneOffsetHours);
             case WAR_REMINDER_KINDS.oneHourLeft:
                 return isCwl
-                    ? WarReminderFormatter.formatOneHourLeftCwlReminder(event)
-                    : WarReminderFormatter.formatOneHourLeftReminder(event);
+                    ? WarReminderFormatter.formatOneHourLeftCwlReminder(event, timezoneOffsetHours)
+                    : WarReminderFormatter.formatOneHourLeftReminder(event, timezoneOffsetHours);
             default:
                 return assertNever(event.kind);
         }
     }
 
-    static formatStartOfWarReminder(event: WarReminderEvent): string {
+    static formatStartOfWarReminder(
+        event: WarReminderEvent,
+        timezoneOffsetHours: number = DEFAULT_TIMEZONE_OFFSET_HOURS,
+    ): string {
         return (
             '⚔️ <b>Война кланов началась!</b>\n\n' +
-            formatWarDetails(event) +
+            formatWarDetails(event, timezoneOffsetHours) +
             '🎯 Участники войны, не забудьте использовать свои атаки.'
         );
     }
 
-    static formatSixHoursLeftReminder(event: WarReminderEvent): string {
+    static formatSixHoursLeftReminder(
+        event: WarReminderEvent,
+        timezoneOffsetHours: number = DEFAULT_TIMEZONE_OFFSET_HOURS,
+    ): string {
         const remaining = formatRemainingTimePhrase(
             event.remainingSeconds ?? NOMINAL_SIX_HOURS_SECONDS,
         );
         return (
             `⏳ <b>До окончания войны ${remaining}</b>\n\n` +
-            formatWarDetails(event) +
+            formatWarDetails(event, timezoneOffsetHours) +
             '📢 Участники войны, используйте оставшиеся атаки, пока есть время!'
         );
     }
 
-    static formatOneHourLeftReminder(event: WarReminderEvent): string {
+    static formatOneHourLeftReminder(
+        event: WarReminderEvent,
+        timezoneOffsetHours: number = DEFAULT_TIMEZONE_OFFSET_HOURS,
+    ): string {
         const remaining = formatRemainingTimePhrase(
             event.remainingSeconds ?? NOMINAL_ONE_HOUR_SECONDS,
         );
         return (
             `🚨 <b>До окончания войны ${remaining}</b>\n\n` +
-            formatWarDetails(event) +
+            formatWarDetails(event, timezoneOffsetHours) +
             '⏰ Участники войны, завершите все оставшиеся атаки!'
         );
     }
 
-    static formatStartOfCwlReminder(event: WarReminderEvent): string {
+    static formatStartOfCwlReminder(
+        event: WarReminderEvent,
+        timezoneOffsetHours: number = DEFAULT_TIMEZONE_OFFSET_HOURS,
+    ): string {
         return (
             '⚔️ <b>Раунд ЛВК начался!</b>\n\n' +
-            formatWarDetails(event) +
+            formatWarDetails(event, timezoneOffsetHours) +
             '🎯 Участники раунда ЛВК, не забудьте использовать свои атаки.'
         );
     }
 
-    static formatSixHoursLeftCwlReminder(event: WarReminderEvent): string {
+    static formatSixHoursLeftCwlReminder(
+        event: WarReminderEvent,
+        timezoneOffsetHours: number = DEFAULT_TIMEZONE_OFFSET_HOURS,
+    ): string {
         const remaining = formatRemainingTimePhrase(
             event.remainingSeconds ?? NOMINAL_SIX_HOURS_SECONDS,
         );
         return (
             `⏳ <b>До окончания раунда ЛВК ${remaining}</b>\n\n` +
-            formatWarDetails(event) +
+            formatWarDetails(event, timezoneOffsetHours) +
             '📢 Участники раунда ЛВК, используйте оставшиеся атаки, пока есть время!'
         );
     }
 
-    static formatOneHourLeftCwlReminder(event: WarReminderEvent): string {
+    static formatOneHourLeftCwlReminder(
+        event: WarReminderEvent,
+        timezoneOffsetHours: number = DEFAULT_TIMEZONE_OFFSET_HOURS,
+    ): string {
         const remaining = formatRemainingTimePhrase(
             event.remainingSeconds ?? NOMINAL_ONE_HOUR_SECONDS,
         );
         return (
             `🚨 <b>До окончания раунда ЛВК ${remaining}</b>\n\n` +
-            formatWarDetails(event) +
+            formatWarDetails(event, timezoneOffsetHours) +
             '⏰ Участники раунда ЛВК, завершите все оставшиеся атаки!'
         );
     }

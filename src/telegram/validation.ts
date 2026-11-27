@@ -1,7 +1,9 @@
+import { SUBSCRIPTION_PRESETS, type SubscriptionPreset } from '../models/subscription.js';
+
 export const MIN_TOWN_HALL = 7;
 export const MAX_TOWN_HALL = 18;
 
-export type Audience = 'players' | 'management';
+export type SupportedTelegramChatType = 'private' | 'group' | 'supergroup';
 
 const UNSIGNED_INTEGER_PATTERN = /^\d+$/;
 
@@ -18,13 +20,19 @@ export function parseTownHall(value: string): number | null {
     return townHall;
 }
 
-export function resolveAudience(chatType: string): Audience | null {
+export function isSupportedTelegramChatType(
+    chatType: string,
+): chatType is SupportedTelegramChatType {
+    return chatType === 'private' || chatType === 'group' || chatType === 'supergroup';
+}
+
+export function resolveDefaultPreset(chatType: string): SubscriptionPreset | null {
     if (chatType === 'private') {
-        return 'management';
+        return SUBSCRIPTION_PRESETS.management;
     }
 
     if (chatType === 'group' || chatType === 'supergroup') {
-        return 'players';
+        return SUBSCRIPTION_PRESETS.players;
     }
 
     return null;

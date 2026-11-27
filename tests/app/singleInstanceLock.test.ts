@@ -75,6 +75,7 @@ function makeTestConfig(dbPath: string, overrides: Partial<AppConfig> = {}): App
         databasePath: dbPath,
         migrationPath: MIGRATIONS_PATH,
         attackGuidesPath: ATTACK_GUIDES_PATH,
+        maxTrackedClans: 20,
         supercellToken: 'test-supercell-token',
         telegramToken: '123456:TEST-TOKEN',
         ...overrides,
@@ -242,7 +243,7 @@ describe('Single-instance database lock in application lifecycle', () => {
             const migrations = verified
                 .prepare('SELECT COUNT(*) AS count FROM schema_migrations')
                 .get() as { count: number };
-            expect(migrations.count).toBe(15);
+            expect(migrations.count).toBe(16);
         } finally {
             verified.close();
         }

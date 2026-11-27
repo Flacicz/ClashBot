@@ -199,7 +199,7 @@ describe('ClanInfoService', () => {
         subscriptionRepo.saveTelegramChat(5001, 0, 'Management');
         subscriptionRepo.subscribeToChat(-1001, 0, CLAN_TAG, 'players');
         subscriptionRepo.subscribeToChat(5001, 0, CLAN_TAG, 'management');
-        const playersSubId = subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG, 'players');
+        const playersSubId = subscriptionRepo.getSubscriptionId(-1001, 0, CLAN_TAG);
 
         // 1. Initial sync (no events)
         apiClient.clanData = makeClanData(CLAN_TAG, [
@@ -271,7 +271,7 @@ describe('ClanInfoService', () => {
         expect(pending).toHaveLength(4);
         for (const dest of pending) {
             expect(dest.chatId).toBe(-1001);
-            expect(dest.audience).toBe('players');
+            expect(dest.category).toBe('roster');
             expect(dest.subscriptionId).toBe(playersSubId);
             expect(dest.payloadVersion).toBe(1);
         }

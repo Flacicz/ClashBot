@@ -94,13 +94,27 @@ describe('parseClanTag', () => {
 });
 
 describe('parseBotCommand', () => {
-    it('parses /start without arguments and ignores /start with extra arguments', () => {
+    it('parses /start with or without arguments as start command', () => {
         expect(parseBotCommand('/start')).toEqual({ kind: 'start' });
         expect(parseBotCommand('/START@clash_bot')).toEqual({
             kind: 'start',
             botUsername: 'clash_bot',
         });
-        expect(parseBotCommand('/start extra')).toBeNull();
+        expect(parseBotCommand('/start extra')).toEqual({ kind: 'start' });
+        expect(parseBotCommand('/start deep_link arg2')).toEqual({ kind: 'start' });
+        expect(parseBotCommand('/start@clash_bot payload')).toEqual({
+            kind: 'start',
+            botUsername: 'clash_bot',
+        });
+    });
+
+    it('parses /help with or without arguments and preserves @bot_username', () => {
+        expect(parseBotCommand('/help')).toEqual({ kind: 'help' });
+        expect(parseBotCommand('/HELP@clash_bot')).toEqual({
+            kind: 'help',
+            botUsername: 'clash_bot',
+        });
+        expect(parseBotCommand('/help link')).toEqual({ kind: 'help' });
     });
 
     it('parses valid /link and /unlink commands with normalized clan tag', () => {
@@ -160,9 +174,23 @@ describe('parseBotCommand', () => {
         });
     });
 
-    it('ignores unsupported commands and non-command messages', () => {
-        expect(parseBotCommand('/help')).toBeNull();
-        expect(parseBotCommand('/unknown@clash_bot arg')).toBeNull();
+    it('parses unknown slash commands and ignores non-command messages', () => {
+        expect(parseBotCommand('/unknown')).toEqual({
+            kind: 'unknown',
+            name: 'unknown',
+        });
+        expect(parseBotCommand('/UNKNOWN@clash_bot arg')).toEqual({
+            kind: 'unknown',
+            name: 'unknown',
+            botUsername: 'clash_bot',
+        });
+        expect(parseBotCommand('/foo@OtherBot')).toEqual({
+            kind: 'unknown',
+            name: 'foo',
+            botUsername: 'OtherBot',
+        });
         expect(parseBotCommand('plain text')).toBeNull();
+        expect(parseBotCommand('/')).toBeNull();
+        expect(parseBotCommand('/unknown@')).toBeNull();
     });
 });

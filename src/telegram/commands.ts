@@ -6,6 +6,8 @@ export interface ParsedCommand {
 
 export type BotCommand =
     | { readonly kind: 'start'; readonly botUsername?: string }
+    | { readonly kind: 'help'; readonly botUsername?: string }
+    | { readonly kind: 'unknown'; readonly name: string; readonly botUsername?: string }
     | {
           readonly kind: 'link' | 'unlink';
           readonly status: 'ok';
@@ -82,7 +84,11 @@ export function parseBotCommand(text: string): BotCommand | null {
         command.botUsername !== undefined ? { botUsername: command.botUsername } : {};
 
     if (command.name === 'start') {
-        return command.arguments.length === 0 ? { kind: 'start', ...botUsernameField } : null;
+        return { kind: 'start', ...botUsernameField };
+    }
+
+    if (command.name === 'help') {
+        return { kind: 'help', ...botUsernameField };
     }
 
     if (command.name === 'link' || command.name === 'unlink') {
@@ -103,5 +109,5 @@ export function parseBotCommand(text: string): BotCommand | null {
         return { kind: command.name, status: 'ok', clanTag, ...botUsernameField };
     }
 
-    return null;
+    return { kind: 'unknown', name: command.name, ...botUsernameField };
 }

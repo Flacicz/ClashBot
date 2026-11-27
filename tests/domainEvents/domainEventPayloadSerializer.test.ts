@@ -3,17 +3,17 @@ import { describe, expect, it } from 'vitest';
 import {
     CURRENT_DOMAIN_EVENT_PAYLOAD_VERSION,
     DomainEventPayloadSerializer,
-    audiencesForEvent,
+    categoriesForEvent,
 } from '../../src/domainEvents/index.js';
 import type { ApplicationEvent } from '../../src/events/index.js';
-import type { Audience } from '../../src/telegram/validation.js';
+import type { NotificationCategory } from '../../src/models/subscription.js';
 
 interface PayloadContractCase {
     readonly event: ApplicationEvent;
     readonly eventType: string;
     readonly eventId: string;
     readonly payload: Record<string, unknown>;
-    readonly audiences: readonly Audience[];
+    readonly categories: readonly NotificationCategory[];
 }
 
 const CLAN_TAG = '#2PPLQ';
@@ -34,7 +34,7 @@ const ALL_EVENT_CASES: readonly PayloadContractCase[] = [
             player_name: 'Alice & Bob',
             membership_id: 11,
         },
-        audiences: ['players'],
+        categories: ['roster'],
     },
     {
         event: {
@@ -51,7 +51,7 @@ const ALL_EVENT_CASES: readonly PayloadContractCase[] = [
             player_name: 'Eve',
             membership_id: 12,
         },
-        audiences: ['players'],
+        categories: ['roster'],
     },
     {
         event: {
@@ -72,7 +72,7 @@ const ALL_EVENT_CASES: readonly PayloadContractCase[] = [
             new_role: 'elder',
             snapshot_id: 13,
         },
-        audiences: ['players'],
+        categories: ['roster'],
     },
     {
         event: {
@@ -95,7 +95,7 @@ const ALL_EVENT_CASES: readonly PayloadContractCase[] = [
                 opponent_clan_id: 23,
             },
         },
-        audiences: ['players', 'management'],
+        categories: ['summaries', 'discipline'],
     },
     {
         event: {
@@ -110,7 +110,7 @@ const ALL_EVENT_CASES: readonly PayloadContractCase[] = [
                 raid_id: 31,
             },
         },
-        audiences: ['players', 'management'],
+        categories: ['summaries', 'discipline'],
     },
     {
         event: {
@@ -135,7 +135,7 @@ const ALL_EVENT_CASES: readonly PayloadContractCase[] = [
                 opponent_clan_id: 44,
             },
         },
-        audiences: ['players', 'management'],
+        categories: ['summaries', 'discipline'],
     },
     {
         event: {
@@ -154,7 +154,7 @@ const ALL_EVENT_CASES: readonly PayloadContractCase[] = [
             attempts: 3,
             outage_id: 51,
         },
-        audiences: ['management'],
+        categories: ['system'],
     },
     {
         event: {
@@ -169,7 +169,7 @@ const ALL_EVENT_CASES: readonly PayloadContractCase[] = [
             service_name: 'RaidService',
             outage_id: 51,
         },
-        audiences: ['management'],
+        categories: ['system'],
     },
     {
         event: {
@@ -188,7 +188,7 @@ const ALL_EVENT_CASES: readonly PayloadContractCase[] = [
             war_kind: 'cwl',
             reminder_kind: 'six_hours_left',
         },
-        audiences: ['players'],
+        categories: ['reminders'],
     },
     {
         event: {
@@ -207,7 +207,7 @@ const ALL_EVENT_CASES: readonly PayloadContractCase[] = [
             end_time: 1800,
             reminder_kind: 'forty_eight_hours_left',
         },
-        audiences: ['players'],
+        categories: ['reminders'],
     },
 ];
 
@@ -228,9 +228,9 @@ describe('DomainEventPayloadSerializer', () => {
         }
     });
 
-    it('maps every application event to the exact target audiences', () => {
+    it('maps every application event to the exact target notification categories', () => {
         for (const testCase of ALL_EVENT_CASES) {
-            expect(audiencesForEvent(testCase.event)).toEqual(testCase.audiences);
+            expect(categoriesForEvent(testCase.event)).toEqual(testCase.categories);
         }
     });
 

@@ -1,5 +1,13 @@
 import { z } from 'zod';
 
+import {
+    isNotificationCategory,
+    isSubscriptionPreset,
+    isValidTimezoneOffsetHours,
+    type NotificationCategory,
+    type SubscriptionPreset,
+} from '../models/subscription.js';
+import { parseClanTag } from './commands.js';
 import { parseTownHall } from './validation.js';
 
 export const MAX_CALLBACK_DATA_BYTES = 64;
@@ -9,12 +17,26 @@ export const CALLBACK_COMMANDS = {
     HELP_MAIN: 'help:main',
     CLANS_LINK: 'clans:link',
     CLANS_LIST: 'clans:list',
+    CLANS_CARD: 'clans:card',
     CLANS_UNLINK: 'clans:unlink',
+    CLANS_UNLINK_LIST: 'clans:unlink_list',
+    CLANS_UNLINK_ASK: 'clans:unlink_ask',
+    CLANS_UNLINK_CONFIRM: 'clans:unlink_confirm',
+    CLANS_UNLINK_CANCEL: 'clans:unlink_cancel',
+    SETTINGS_OPEN: 'settings:open',
+    SETTINGS_PRESET: 'settings:preset',
+    SETTINGS_CATEGORY: 'settings:category',
+    SETTINGS_MIRROR: 'settings:mirror',
+    SETTINGS_TZ: 'settings:tz',
+    SETTINGS_TZ_ALL: 'settings:tzall',
+    SETTINGS_TZ_SET: 'settings:tzset',
     GUIDES_TOWNHALLS: 'guides:townhalls',
     GUIDES_TOWNHALL: 'guides:townhall',
     GUIDES_STRATEGY: 'guides:strategy',
     GUIDES_GUIDE: 'guides:guide',
 } as const;
+
+export type UnlinkCallbackSource = 'card' | 'unlink';
 
 export interface CallbackData {
     readonly command: string;
@@ -25,8 +47,47 @@ export type KnownCallbackData =
     | { readonly kind: 'menu:start' }
     | { readonly kind: 'help:main' }
     | { readonly kind: 'clans:link' }
-    | { readonly kind: 'clans:list' }
+    | { readonly kind: 'clans:list'; readonly page: number }
+    | { readonly kind: 'clans:card'; readonly clanTag: string; readonly page: number }
     | { readonly kind: 'clans:unlink'; readonly clanTag: string | null }
+    | { readonly kind: 'clans:unlink_list'; readonly page: number }
+    | {
+          readonly kind: 'clans:unlink_ask';
+          readonly clanTag: string;
+          readonly source: UnlinkCallbackSource;
+          readonly page: number;
+      }
+    | {
+          readonly kind: 'clans:unlink_confirm';
+          readonly clanTag: string;
+          readonly source: UnlinkCallbackSource;
+          readonly page: number;
+      }
+    | {
+          readonly kind: 'clans:unlink_cancel';
+          readonly clanTag: string;
+          readonly source: UnlinkCallbackSource;
+          readonly page: number;
+      }
+    | { readonly kind: 'settings:open'; readonly clanTag: string }
+    | {
+          readonly kind: 'settings:preset';
+          readonly clanTag: string;
+          readonly preset: SubscriptionPreset;
+      }
+    | {
+          readonly kind: 'settings:category';
+          readonly clanTag: string;
+          readonly category: NotificationCategory;
+      }
+    | { readonly kind: 'settings:mirror'; readonly clanTag: string }
+    | { readonly kind: 'settings:tz'; readonly clanTag: string }
+    | { readonly kind: 'settings:tzall'; readonly clanTag: string }
+    | {
+          readonly kind: 'settings:tzset';
+          readonly clanTag: string;
+          readonly timezoneOffsetHours: number;
+      }
     | { readonly kind: 'guides:townhalls' }
     | { readonly kind: 'guides:townhall'; readonly townHall: number }
     | { readonly kind: 'guides:strategy'; readonly townHall: number; readonly armyId: string }
@@ -58,8 +119,116 @@ const callbackQuerySchema = z.object({
     }),
 });
 
+export function isWithinCallbackDataLimit(data: string): boolean {
+    return Buffer.byteLength(data, 'utf8') <= MAX_CALLBACK_DATA_BYTES;
+}
+
+const POSITIVE_INT_PATTERN = /^[1-9]\d*$/;
+
+function parsePositivePage(raw: string): number | null {
+    if (!POSITIVE_INT_PATTERN.test(raw)) {
+        return null;
+    }
+    const parsed = Number(raw);
+    return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null;
+}
+
+function encodeUnlinkSource(source: UnlinkCallbackSource): 'c' | 'u' {
+    return source === 'card' ? 'c' : 'u';
+}
+
+function parseUnlinkSource(raw: string): UnlinkCallbackSource | null {
+    if (raw === 'c') {
+        return 'card';
+    }
+    if (raw === 'u') {
+        return 'unlink';
+    }
+    return null;
+}
+
+export function buildClansListCallbackData(page = 1): string {
+    return page <= 1
+        ? CALLBACK_COMMANDS.CLANS_LIST
+        : `${CALLBACK_COMMANDS.CLANS_LIST}:${String(page)}`;
+}
+
+export function buildClanCardCallbackData(clanTag: string, page = 1): string {
+    return page <= 1
+        ? `${CALLBACK_COMMANDS.CLANS_CARD}:${clanTag}`
+        : `${CALLBACK_COMMANDS.CLANS_CARD}:${clanTag}:${String(page)}`;
+}
+
+export function buildClanUnlinkListCallbackData(page = 1): string {
+    return page <= 1
+        ? CALLBACK_COMMANDS.CLANS_UNLINK
+        : `${CALLBACK_COMMANDS.CLANS_UNLINK_LIST}:${String(page)}`;
+}
+
 export function buildClanUnlinkCallbackData(clanTag: string): string {
     return `${CALLBACK_COMMANDS.CLANS_UNLINK}:${clanTag}`;
+}
+
+export function buildClanUnlinkAskCallbackData(
+    clanTag: string,
+    source: UnlinkCallbackSource,
+    page = 1,
+): string {
+    return `${CALLBACK_COMMANDS.CLANS_UNLINK_ASK}:${clanTag}:${encodeUnlinkSource(source)}:${String(Math.max(1, Math.trunc(page)))}`;
+}
+
+export function buildClanUnlinkConfirmCallbackData(
+    clanTag: string,
+    source: UnlinkCallbackSource,
+    page = 1,
+): string {
+    return `${CALLBACK_COMMANDS.CLANS_UNLINK_CONFIRM}:${clanTag}:${encodeUnlinkSource(source)}:${String(Math.max(1, Math.trunc(page)))}`;
+}
+
+export function buildClanUnlinkCancelCallbackData(
+    clanTag: string,
+    source: UnlinkCallbackSource,
+    page = 1,
+): string {
+    return `${CALLBACK_COMMANDS.CLANS_UNLINK_CANCEL}:${clanTag}:${encodeUnlinkSource(source)}:${String(Math.max(1, Math.trunc(page)))}`;
+}
+
+export function buildSettingsOpenCallbackData(clanTag: string): string {
+    return `${CALLBACK_COMMANDS.SETTINGS_OPEN}:${clanTag}`;
+}
+
+export function buildSettingsPresetCallbackData(
+    clanTag: string,
+    preset: SubscriptionPreset,
+): string {
+    return `${CALLBACK_COMMANDS.SETTINGS_PRESET}:${clanTag}:${preset}`;
+}
+
+export function buildSettingsCategoryCallbackData(
+    clanTag: string,
+    category: NotificationCategory,
+): string {
+    return `${CALLBACK_COMMANDS.SETTINGS_CATEGORY}:${clanTag}:${category}`;
+}
+
+export function buildSettingsMirrorCallbackData(clanTag: string): string {
+    return `${CALLBACK_COMMANDS.SETTINGS_MIRROR}:${clanTag}`;
+}
+
+export function buildSettingsTimezoneCallbackData(clanTag: string): string {
+    return `${CALLBACK_COMMANDS.SETTINGS_TZ}:${clanTag}`;
+}
+
+export function buildSettingsTimezoneAllCallbackData(clanTag: string): string {
+    return `${CALLBACK_COMMANDS.SETTINGS_TZ_ALL}:${clanTag}`;
+}
+
+export function buildSettingsTimezoneSetCallbackData(
+    clanTag: string,
+    timezoneOffsetHours: number,
+): string {
+    const normalizedOffset = timezoneOffsetHours === 0 ? 0 : timezoneOffsetHours;
+    return `${CALLBACK_COMMANDS.SETTINGS_TZ_SET}:${clanTag}:${String(normalizedOffset)}`;
 }
 
 export function buildTownHallCallbackData(townHall: number): string {
@@ -72,6 +241,17 @@ export function buildStrategyCallbackData(townHall: number, armyId: string): str
 
 export function buildGuideCallbackData(townHall: number, guideId: string): string {
     return `${CALLBACK_COMMANDS.GUIDES_GUIDE}:${String(townHall)}:${guideId}`;
+}
+
+const TIMEZONE_OFFSET_ARG_PATTERN = /^(?:0|-?[1-9]\d?)$/;
+
+function parseTimezoneOffsetArg(raw: string): number | null {
+    if (!TIMEZONE_OFFSET_ARG_PATTERN.test(raw)) {
+        return null;
+    }
+
+    const parsed = Number(raw);
+    return isValidTimezoneOffsetHours(parsed) ? parsed : null;
 }
 
 export function parseCallbackData(data: string): CallbackData | null {
@@ -99,6 +279,10 @@ export function parseCallbackData(data: string): CallbackData | null {
 }
 
 export function parseKnownCallbackData(data: string): KnownCallbackData | null {
+    if (!isWithinCallbackDataLimit(data)) {
+        return null;
+    }
+
     const parsed = parseCallbackData(data);
     if (parsed === null) {
         return null;
@@ -113,16 +297,125 @@ export function parseKnownCallbackData(data: string): KnownCallbackData | null {
             return args.length === 0 ? { kind: 'help:main' } : null;
         case CALLBACK_COMMANDS.CLANS_LINK:
             return args.length === 0 ? { kind: 'clans:link' } : null;
-        case CALLBACK_COMMANDS.CLANS_LIST:
-            return args.length === 0 ? { kind: 'clans:list' } : null;
-        case CALLBACK_COMMANDS.CLANS_UNLINK:
+        case CALLBACK_COMMANDS.CLANS_LIST: {
+            if (args.length === 0) {
+                return { kind: 'clans:list', page: 1 };
+            }
+            if (args.length === 1 && args[0] !== undefined) {
+                const page = parsePositivePage(args[0]);
+                return page !== null ? { kind: 'clans:list', page } : null;
+            }
+            return null;
+        }
+        case CALLBACK_COMMANDS.CLANS_CARD: {
+            if (args.length === 1 && args[0] !== undefined) {
+                const clanTag = parseClanTag(args[0]);
+                return clanTag !== null ? { kind: 'clans:card', clanTag, page: 1 } : null;
+            }
+            if (args.length === 2 && args[0] !== undefined && args[1] !== undefined) {
+                const clanTag = parseClanTag(args[0]);
+                const page = parsePositivePage(args[1]);
+                return clanTag !== null && page !== null
+                    ? { kind: 'clans:card', clanTag, page }
+                    : null;
+            }
+            return null;
+        }
+        case CALLBACK_COMMANDS.CLANS_UNLINK: {
             if (args.length === 0) {
                 return { kind: 'clans:unlink', clanTag: null };
             }
             if (args.length === 1 && args[0] !== undefined) {
-                return { kind: 'clans:unlink', clanTag: args[0] };
+                const clanTag = parseClanTag(args[0]);
+                return clanTag !== null ? { kind: 'clans:unlink', clanTag } : null;
             }
             return null;
+        }
+        case CALLBACK_COMMANDS.CLANS_UNLINK_LIST: {
+            if (args.length !== 1 || args[0] === undefined) {
+                return null;
+            }
+            const page = parsePositivePage(args[0]);
+            return page !== null ? { kind: 'clans:unlink_list', page } : null;
+        }
+        case CALLBACK_COMMANDS.CLANS_UNLINK_ASK:
+        case CALLBACK_COMMANDS.CLANS_UNLINK_CONFIRM:
+        case CALLBACK_COMMANDS.CLANS_UNLINK_CANCEL: {
+            if (
+                args.length !== 3 ||
+                args[0] === undefined ||
+                args[1] === undefined ||
+                args[2] === undefined
+            ) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            const source = parseUnlinkSource(args[1]);
+            const page = parsePositivePage(args[2]);
+            if (clanTag === null || source === null || page === null) {
+                return null;
+            }
+            return { kind: parsed.command, clanTag, source, page };
+        }
+        case CALLBACK_COMMANDS.SETTINGS_OPEN: {
+            if (args.length !== 1 || args[0] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            return clanTag !== null ? { kind: 'settings:open', clanTag } : null;
+        }
+        case CALLBACK_COMMANDS.SETTINGS_PRESET: {
+            if (args.length !== 2 || args[0] === undefined || args[1] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            if (clanTag === null || !isSubscriptionPreset(args[1])) {
+                return null;
+            }
+            return { kind: 'settings:preset', clanTag, preset: args[1] };
+        }
+        case CALLBACK_COMMANDS.SETTINGS_CATEGORY: {
+            if (args.length !== 2 || args[0] === undefined || args[1] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            if (clanTag === null || !isNotificationCategory(args[1])) {
+                return null;
+            }
+            return { kind: 'settings:category', clanTag, category: args[1] };
+        }
+        case CALLBACK_COMMANDS.SETTINGS_MIRROR: {
+            if (args.length !== 1 || args[0] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            return clanTag !== null ? { kind: 'settings:mirror', clanTag } : null;
+        }
+        case CALLBACK_COMMANDS.SETTINGS_TZ: {
+            if (args.length !== 1 || args[0] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            return clanTag !== null ? { kind: 'settings:tz', clanTag } : null;
+        }
+        case CALLBACK_COMMANDS.SETTINGS_TZ_ALL: {
+            if (args.length !== 1 || args[0] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            return clanTag !== null ? { kind: 'settings:tzall', clanTag } : null;
+        }
+        case CALLBACK_COMMANDS.SETTINGS_TZ_SET: {
+            if (args.length !== 2 || args[0] === undefined || args[1] === undefined) {
+                return null;
+            }
+            const clanTag = parseClanTag(args[0]);
+            const timezoneOffsetHours = parseTimezoneOffsetArg(args[1]);
+            if (clanTag === null || timezoneOffsetHours === null) {
+                return null;
+            }
+            return { kind: 'settings:tzset', clanTag, timezoneOffsetHours };
+        }
         case CALLBACK_COMMANDS.GUIDES_TOWNHALLS:
             return args.length === 0 ? { kind: 'guides:townhalls' } : null;
         case CALLBACK_COMMANDS.GUIDES_TOWNHALL: {

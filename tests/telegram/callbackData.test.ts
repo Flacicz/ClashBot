@@ -1,11 +1,32 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    ALL_NOTIFICATION_CATEGORIES,
+    ALL_SUBSCRIPTION_PRESETS,
+    MAX_TIMEZONE_OFFSET_HOURS,
+    MIN_TIMEZONE_OFFSET_HOURS,
+} from '../../src/models/subscription.js';
+import {
+    buildClanCardCallbackData,
+    buildClansListCallbackData,
+    buildClanUnlinkAskCallbackData,
     buildClanUnlinkCallbackData,
+    buildClanUnlinkCancelCallbackData,
+    buildClanUnlinkConfirmCallbackData,
+    buildClanUnlinkListCallbackData,
     buildGuideCallbackData,
+    buildSettingsCategoryCallbackData,
+    buildSettingsMirrorCallbackData,
+    buildSettingsOpenCallbackData,
+    buildSettingsPresetCallbackData,
+    buildSettingsTimezoneAllCallbackData,
+    buildSettingsTimezoneCallbackData,
+    buildSettingsTimezoneSetCallbackData,
     buildStrategyCallbackData,
     buildTownHallCallbackData,
     CALLBACK_COMMANDS,
+    isWithinCallbackDataLimit,
+    MAX_CALLBACK_DATA_BYTES,
     parseCallbackContext,
     parseCallbackData,
     parseKnownCallbackData,
@@ -101,14 +122,64 @@ describe('callback_data builders and parseKnownCallbackData', () => {
         expect(parseKnownCallbackData('menu:start')).toEqual({ kind: 'menu:start' });
         expect(parseKnownCallbackData('help:main')).toEqual({ kind: 'help:main' });
         expect(parseKnownCallbackData('clans:link')).toEqual({ kind: 'clans:link' });
-        expect(parseKnownCallbackData('clans:list')).toEqual({ kind: 'clans:list' });
+        expect(parseKnownCallbackData('clans:list')).toEqual({ kind: 'clans:list', page: 1 });
+        expect(parseKnownCallbackData(buildClansListCallbackData(1))).toEqual({
+            kind: 'clans:list',
+            page: 1,
+        });
+        expect(parseKnownCallbackData(buildClansListCallbackData(3))).toEqual({
+            kind: 'clans:list',
+            page: 3,
+        });
+        expect(parseKnownCallbackData(buildClanCardCallbackData('#2PPLQ'))).toEqual({
+            kind: 'clans:card',
+            clanTag: '#2PPLQ',
+            page: 1,
+        });
+        expect(parseKnownCallbackData(buildClanCardCallbackData('#2PPLQ', 2))).toEqual({
+            kind: 'clans:card',
+            clanTag: '#2PPLQ',
+            page: 2,
+        });
         expect(parseKnownCallbackData('clans:unlink')).toEqual({
             kind: 'clans:unlink',
             clanTag: null,
         });
+        expect(parseKnownCallbackData(buildClanUnlinkListCallbackData(1))).toEqual({
+            kind: 'clans:unlink',
+            clanTag: null,
+        });
+        expect(parseKnownCallbackData(buildClanUnlinkListCallbackData(2))).toEqual({
+            kind: 'clans:unlink_list',
+            page: 2,
+        });
         expect(parseKnownCallbackData(buildClanUnlinkCallbackData('#2PPLQ'))).toEqual({
             kind: 'clans:unlink',
             clanTag: '#2PPLQ',
+        });
+        expect(parseKnownCallbackData(buildClanUnlinkAskCallbackData('#2PPLQ', 'card', 2))).toEqual(
+            {
+                kind: 'clans:unlink_ask',
+                clanTag: '#2PPLQ',
+                source: 'card',
+                page: 2,
+            },
+        );
+        expect(
+            parseKnownCallbackData(buildClanUnlinkConfirmCallbackData('#2PPLQ', 'unlink', 3)),
+        ).toEqual({
+            kind: 'clans:unlink_confirm',
+            clanTag: '#2PPLQ',
+            source: 'unlink',
+            page: 3,
+        });
+        expect(
+            parseKnownCallbackData(buildClanUnlinkCancelCallbackData('#2PPLQ', 'card', 2)),
+        ).toEqual({
+            kind: 'clans:unlink_cancel',
+            clanTag: '#2PPLQ',
+            source: 'card',
+            page: 2,
         });
         expect(parseKnownCallbackData('guides:townhalls')).toEqual({ kind: 'guides:townhalls' });
         expect(parseKnownCallbackData(buildTownHallCallbackData(7))).toEqual({
@@ -125,16 +196,175 @@ describe('callback_data builders and parseKnownCallbackData', () => {
             townHall: 12,
             guideId: 'th12_zap',
         });
+        expect(parseKnownCallbackData(buildSettingsOpenCallbackData('#2PPLQ'))).toEqual({
+            kind: 'settings:open',
+            clanTag: '#2PPLQ',
+        });
+        expect(parseKnownCallbackData('settings:open:2pplq')).toEqual({
+            kind: 'settings:open',
+            clanTag: '#2PPLQ',
+        });
+        for (const preset of ALL_SUBSCRIPTION_PRESETS) {
+            expect(
+                parseKnownCallbackData(buildSettingsPresetCallbackData('#2PPLQ', preset)),
+            ).toEqual({
+                kind: 'settings:preset',
+                clanTag: '#2PPLQ',
+                preset,
+            });
+        }
+        for (const category of ALL_NOTIFICATION_CATEGORIES) {
+            expect(
+                parseKnownCallbackData(buildSettingsCategoryCallbackData('#2PPLQ', category)),
+            ).toEqual({
+                kind: 'settings:category',
+                clanTag: '#2PPLQ',
+                category,
+            });
+        }
+        expect(parseKnownCallbackData(buildSettingsMirrorCallbackData('#2PPLQ'))).toEqual({
+            kind: 'settings:mirror',
+            clanTag: '#2PPLQ',
+        });
+        expect(parseKnownCallbackData('settings:mirror:2pplq')).toEqual({
+            kind: 'settings:mirror',
+            clanTag: '#2PPLQ',
+        });
+        expect(parseKnownCallbackData(buildSettingsTimezoneCallbackData('#2PPLQ'))).toEqual({
+            kind: 'settings:tz',
+            clanTag: '#2PPLQ',
+        });
+        expect(parseKnownCallbackData(buildSettingsTimezoneAllCallbackData('#2PPLQ'))).toEqual({
+            kind: 'settings:tzall',
+            clanTag: '#2PPLQ',
+        });
+        for (
+            let offset = MIN_TIMEZONE_OFFSET_HOURS;
+            offset <= MAX_TIMEZONE_OFFSET_HOURS;
+            offset += 1
+        ) {
+            expect(
+                parseKnownCallbackData(buildSettingsTimezoneSetCallbackData('#2PPLQ', offset)),
+            ).toEqual({
+                kind: 'settings:tzset',
+                clanTag: '#2PPLQ',
+                timezoneOffsetHours: offset,
+            });
+        }
     });
 
-    it('rejects unknown commands, invalid town halls, and wrong argument counts', () => {
+    it('keeps all settings and My Clans callback_data strictly within Telegram 64-byte UTF-8 limit even for max-length clan tags', () => {
+        const longestClanTag = '#PYLQGRJCUV0289P';
+        const timezoneOffsets: number[] = [];
+        for (
+            let offset = MIN_TIMEZONE_OFFSET_HOURS;
+            offset <= MAX_TIMEZONE_OFFSET_HOURS;
+            offset += 1
+        ) {
+            timezoneOffsets.push(offset);
+        }
+        const payloads: string[] = [
+            buildClansListCallbackData(1),
+            buildClansListCallbackData(9999),
+            buildClanCardCallbackData(longestClanTag, 1),
+            buildClanCardCallbackData(longestClanTag, 9999),
+            buildClanUnlinkListCallbackData(9999),
+            buildClanUnlinkCallbackData(longestClanTag),
+            buildClanUnlinkAskCallbackData(longestClanTag, 'card', 9999),
+            buildClanUnlinkAskCallbackData(longestClanTag, 'unlink', 9999),
+            buildClanUnlinkConfirmCallbackData(longestClanTag, 'card', 9999),
+            buildClanUnlinkConfirmCallbackData(longestClanTag, 'unlink', 9999),
+            buildClanUnlinkCancelCallbackData(longestClanTag, 'card', 9999),
+            buildClanUnlinkCancelCallbackData(longestClanTag, 'unlink', 9999),
+            buildSettingsOpenCallbackData(longestClanTag),
+            buildSettingsMirrorCallbackData(longestClanTag),
+            buildSettingsTimezoneCallbackData(longestClanTag),
+            buildSettingsTimezoneAllCallbackData(longestClanTag),
+            ...ALL_SUBSCRIPTION_PRESETS.map((preset) =>
+                buildSettingsPresetCallbackData(longestClanTag, preset),
+            ),
+            ...ALL_NOTIFICATION_CATEGORIES.map((category) =>
+                buildSettingsCategoryCallbackData(longestClanTag, category),
+            ),
+            ...timezoneOffsets.map((offset) =>
+                buildSettingsTimezoneSetCallbackData(longestClanTag, offset),
+            ),
+        ];
+
+        for (const payload of payloads) {
+            expect(
+                Buffer.byteLength(payload, 'utf8'),
+                `Payload "${payload}" exceeds ${String(MAX_CALLBACK_DATA_BYTES)} bytes`,
+            ).toBeLessThanOrEqual(MAX_CALLBACK_DATA_BYTES);
+            expect(isWithinCallbackDataLimit(payload)).toBe(true);
+            expect(parseKnownCallbackData(payload)).not.toBeNull();
+        }
+
+        const oversized = `guides:guide:15:${'a'.repeat(60)}`;
+        expect(isWithinCallbackDataLimit(oversized)).toBe(false);
+        expect(parseKnownCallbackData(oversized)).toBeNull();
+    });
+
+    it('rejects unknown commands, invalid town halls, invalid pages/cards/unlink args, invalid settings arguments, and wrong argument counts', () => {
         const invalidCallbacks = [
             'unknown:action',
             'menu:start:extra',
             'help:main:extra',
             'clans:link:extra',
             'clans:list:extra',
+            'clans:list:0',
+            'clans:list:-1',
+            'clans:list:01',
+            'clans:list:1:2',
+            'clans:card',
+            'clans:card:#BAD!',
+            'clans:card:#2PPLQ:0',
+            'clans:card:#2PPLQ:abc',
+            'clans:card:#2PPLQ:1:extra',
+            'clans:unlink:#BAD!',
             'clans:unlink:#2PPLQ:extra',
+            'clans:unlink_list',
+            'clans:unlink_list:0',
+            'clans:unlink_list:abc',
+            'clans:unlink_list:2:extra',
+            'clans:unlink_ask:#2PPLQ:c',
+            'clans:unlink_ask:#2PPLQ:x:1',
+            'clans:unlink_ask:#2PPLQ:c:0',
+            'clans:unlink_ask:#BAD!:c:1',
+            'clans:unlink_confirm:#2PPLQ:u',
+            'clans:unlink_confirm:#2PPLQ:bad:1',
+            'clans:unlink_cancel:#2PPLQ:c:0',
+            'clans:unlink_cancel:#2PPLQ:c:1:extra',
+            'settings:open',
+            'settings:open:#INVALID!',
+            'settings:open:#2PPLQ:extra',
+            'settings:preset:#2PPLQ',
+            'settings:preset:#2PPLQ:unknown',
+            'settings:preset:#BAD!:players',
+            'settings:preset:#2PPLQ:players:extra',
+            'settings:category:#2PPLQ',
+            'settings:category:#2PPLQ:unknown',
+            'settings:category:#BAD!:summaries',
+            'settings:category:#2PPLQ:summaries:extra',
+            'settings:mirror',
+            'settings:mirror:#BAD!',
+            'settings:mirror:#2PPLQ:extra',
+            'settings:tz',
+            'settings:tz:#BAD!',
+            'settings:tz:#2PPLQ:extra',
+            'settings:tzall',
+            'settings:tzall:#BAD!',
+            'settings:tzall:#2PPLQ:extra',
+            'settings:tzset:#2PPLQ',
+            'settings:tzset:#BAD!:3',
+            'settings:tzset:#2PPLQ:-13',
+            'settings:tzset:#2PPLQ:15',
+            'settings:tzset:#2PPLQ:-0',
+            'settings:tzset:#2PPLQ:03',
+            'settings:tzset:#2PPLQ:+3',
+            'settings:tzset:#2PPLQ:3.5',
+            'settings:tzset:#2PPLQ:abc',
+            'settings:tzset:#2PPLQ:3:extra',
             'guides:townhalls:extra',
             'guides:townhall',
             'guides:townhall:6',

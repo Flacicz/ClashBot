@@ -66,7 +66,9 @@ export { RaidRepo } from './raidRepo.js';
 export {
     GENERAL_CHAT_THREAD_ID,
     SubscriptionRepo,
+    type ClanSubscriptionSummary,
     type MigrateChatSubscriptionsResult,
+    type SubscribeToChatOptions,
     type SubscriptionDestination,
     type SubscriptionRecord,
     type TelegramDestination,

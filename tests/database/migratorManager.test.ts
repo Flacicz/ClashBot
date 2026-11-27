@@ -25,6 +25,7 @@ const EXPECTED_MIGRATION_VERSIONS = [
     '013_notification_claim_status.sql',
     '014_history_completeness.sql',
     '015_notification_expiry.sql',
+    '016_subscription_presets_and_categories.sql',
 ];
 
 function createTempDir(prefix: string): string {
@@ -113,7 +114,7 @@ describe('MigratorManager', () => {
         }
     });
 
-    it('applies all 15 migrations to a fresh :memory: database in lexicographical order', () => {
+    it('applies all 16 migrations to a fresh :memory: database in lexicographical order', () => {
         const db = trackDb(new Database(':memory:'));
         const transactions = new TransactionManager(db);
         const migrator = new MigratorManager(db, transactions);
@@ -152,9 +153,76 @@ describe('MigratorManager', () => {
         expect(hasColumn(db, 'wars', 'last_observed_at')).toBe(true);
         expect(hasColumn(db, 'clan_raids', 'is_complete')).toBe(true);
         expect(hasColumn(db, 'clan_raids', 'last_observed_at')).toBe(true);
+        expect(hasColumn(db, 'clan_subscriptions', 'notify_summaries')).toBe(true);
+        expect(hasColumn(db, 'clan_subscriptions', 'notify_reminders')).toBe(true);
+        expect(hasColumn(db, 'clan_subscriptions', 'notify_roster')).toBe(true);
+        expect(hasColumn(db, 'clan_subscriptions', 'notify_discipline')).toBe(true);
+        expect(hasColumn(db, 'clan_subscriptions', 'notify_system')).toBe(true);
+        expect(hasColumn(db, 'clan_subscriptions', 'mirror_rule_enabled')).toBe(true);
+        expect(hasColumn(db, 'clan_subscriptions', 'timezone_offset_hours')).toBe(true);
+        expect(hasColumn(db, 'clan_subscriptions', 'audience')).toBe(false);
+        expect(hasColumn(db, 'domain_event_destinations', 'category')).toBe(true);
+        expect(hasColumn(db, 'domain_event_destinations', 'audience')).toBe(false);
 
         // Migration 014 enforces CHECK (is_complete IN (0, 1)) on wars and clan_raids
         db.exec("INSERT INTO clans (tag, name) VALUES ('#M14', 'Migration 14 Clan');");
+        db.exec(
+            "INSERT INTO telegram_chats (chat_id, message_thread_id, title) VALUES (-10016, 0, 'M16');",
+        );
+
+        // Migration 016 defaults for new subscriptions: mirror_rule_enabled = 0, timezone_offset_hours = 3
+        db.exec(`
+            INSERT INTO clan_subscriptions (clan_tag, chat_id, message_thread_id, notify_summaries)
+                VALUES ('#M14', -10016, 0, 1);
+        `);
+        const freshSub = db.connection
+            .prepare<
+                [],
+                {
+                    notify_summaries: number;
+                    notify_reminders: number;
+                    notify_roster: number;
+                    notify_discipline: number;
+                    notify_system: number;
+                    mirror_rule_enabled: number;
+                    timezone_offset_hours: number;
+                }
+            >(
+                "SELECT notify_summaries, notify_reminders, notify_roster, notify_discipline, notify_system, mirror_rule_enabled, timezone_offset_hours FROM clan_subscriptions WHERE clan_tag = '#M14';",
+            )
+            .get();
+        expect(freshSub).toEqual({
+            notify_summaries: 1,
+            notify_reminders: 0,
+            notify_roster: 0,
+            notify_discipline: 0,
+            notify_system: 0,
+            mirror_rule_enabled: 0,
+            timezone_offset_hours: 3,
+        });
+
+        // Migration 016 rejects 0 enabled categories, invalid mirror flag, and out-of-range timezone
+        expect(() => {
+            db.exec(`
+                INSERT INTO clan_subscriptions (clan_tag, chat_id, message_thread_id)
+                    VALUES ('#M14', -10016, 1);
+            `);
+        }).toThrow();
+        expect(() => {
+            db.exec(`
+                UPDATE clan_subscriptions SET timezone_offset_hours = -13 WHERE clan_tag = '#M14';
+            `);
+        }).toThrow();
+        expect(() => {
+            db.exec(`
+                UPDATE clan_subscriptions SET timezone_offset_hours = 15 WHERE clan_tag = '#M14';
+            `);
+        }).toThrow();
+        expect(() => {
+            db.exec(`
+                UPDATE clan_subscriptions SET mirror_rule_enabled = 2 WHERE clan_tag = '#M14';
+            `);
+        }).toThrow();
         expect(() => {
             db.exec(`
                 INSERT INTO wars (war_uid, clan_tag, state, war_type, team_size, preparation_start_time, is_complete)
@@ -212,7 +280,7 @@ describe('MigratorManager', () => {
         expect(foreignKeysValid(db)).toBe(true);
     });
 
-    it('applies all 15 migrations to a file-backed WAL database and is idempotent on rerun', () => {
+    it('applies all 16 migrations to a file-backed WAL database and is idempotent on rerun', () => {
         const dir = trackDir('clashbot-migrate-wal-');
         const dbPath = path.join(dir, 'clashbot.sqlite');
 
@@ -348,7 +416,7 @@ describe('MigratorManager', () => {
         });
 
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(15);
+        expect(rowCount(db, 'schema_migrations')).toBe(16);
 
         // Migration 012 partial unique index (recreated in 013) prevents duplicate legacy notification insert
         const insertResult = db.connection
@@ -400,7 +468,7 @@ describe('MigratorManager', () => {
 
         // Upgrade to v013
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(15);
+        expect(rowCount(db, 'schema_migrations')).toBe(16);
         expect(hasColumn(db, 'notifications', 'claimed_at')).toBe(true);
 
         const rows = db.connection
@@ -502,7 +570,7 @@ describe('MigratorManager', () => {
 
         // Idempotent rerun after upgrade
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(15);
+        expect(rowCount(db, 'schema_migrations')).toBe(16);
         expect(foreignKeysValid(db)).toBe(true);
         expect(foreignKeysEnabled(db)).toBe(true);
     });
@@ -537,7 +605,7 @@ describe('MigratorManager', () => {
         `);
 
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(15);
+        expect(rowCount(db, 'schema_migrations')).toBe(16);
         expect(hasColumn(db, 'wars', 'is_complete')).toBe(true);
         expect(hasColumn(db, 'wars', 'last_observed_at')).toBe(true);
         expect(hasColumn(db, 'clan_raids', 'is_complete')).toBe(true);
@@ -608,7 +676,7 @@ describe('MigratorManager', () => {
 
         // Idempotent rerun after upgrade
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(15);
+        expect(rowCount(db, 'schema_migrations')).toBe(16);
         expect(foreignKeysValid(db)).toBe(true);
         expect(foreignKeysEnabled(db)).toBe(true);
     });
@@ -674,7 +742,7 @@ describe('MigratorManager', () => {
         `);
 
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(15);
+        expect(rowCount(db, 'schema_migrations')).toBe(16);
         expect(hasColumn(db, 'notifications', 'expires_at')).toBe(true);
 
         const rows = db.connection
@@ -699,9 +767,241 @@ describe('MigratorManager', () => {
 
         // Idempotent rerun after upgrade
         migrator.migrate(REAL_MIGRATIONS_PATH);
-        expect(rowCount(db, 'schema_migrations')).toBe(15);
+        expect(rowCount(db, 'schema_migrations')).toBe(16);
         expect(foreignKeysValid(db)).toBe(true);
         expect(foreignKeysEnabled(db)).toBe(true);
+    });
+
+    it('upgrades populated v015 database through 016 backfilling presets, merging dual-audience pairs, remapping destinations, preserving outbox FKs and monotonic subscription_id', () => {
+        const through015 = trackDir('clashbot-mig-015-');
+        copyRealMigrationsUpTo(through015, 15);
+
+        const db = trackDb(new Database(':memory:'));
+        const transactions = new TransactionManager(db);
+        const migrator = new MigratorManager(db, transactions);
+
+        migrator.migrate(through015);
+        expect(rowCount(db, 'schema_migrations')).toBe(15);
+        expect(hasColumn(db, 'clan_subscriptions', 'audience')).toBe(true);
+        expect(hasColumn(db, 'domain_event_destinations', 'audience')).toBe(true);
+
+        db.exec(`
+            INSERT INTO clans (tag, name) VALUES ('#V15', 'Populated v015 Clan');
+            INSERT INTO telegram_chats (chat_id, message_thread_id, title)
+                VALUES
+                    (-1001, 0, 'Players Group'),
+                    (5001, 0, 'Management PM'),
+                    (-2002, 7, 'Dual-Audience Topic'),
+                    (-3003, 0, 'New Chat Post-Migration');
+
+            INSERT INTO clan_subscriptions (subscription_id, clan_tag, chat_id, message_thread_id, audience, created_at)
+                VALUES
+                    (10, '#V15', -1001, 0, 'players', 1700000100),
+                    (20, '#V15', 5001, 0, 'management', 1700000200),
+                    (30, '#V15', -2002, 7, 'players', 1700000300),
+                    (35, '#V15', -2002, 7, 'management', 1700000350);
+
+            INSERT INTO domain_events (id, event_type, event_id, event_payload, payload_version, clan_tag)
+                VALUES
+                    (1, 'war_ended', '100', '{"war_reference":{"clan_tag":"#V15","war_id":100,"home_clan_id":1,"opponent_clan_id":2}}', 1, '#V15'),
+                    (2, 'PlayerJoinedClanEvent', '200', '{"player_tag":"#P1","player_name":"Alice","membership_id":200}', 1, '#V15'),
+                    (3, 'war_reminder', '100:one_hour_left', '{"war_id":100,"end_time":1700500000,"war_kind":"regular","reminder_kind":"one_hour_left"}', 1, '#V15'),
+                    (4, 'SyncFailureEvent', '300', '{"service_name":"ClanInfoService","error_message":"err","attempts":1,"outage_id":300}', 1, '#V15');
+
+            INSERT INTO domain_event_destinations (id, domain_event_id, chat_id, message_thread_id, audience, subscription_id, status)
+                VALUES
+                    (101, 1, -1001, 0, 'players', 10, 'materialized'),
+                    (102, 1, 5001, 0, 'management', 20, 'pending'),
+                    (103, 1, -2002, 7, 'players', 30, 'materialized'),
+                    (104, 1, -2002, 7, 'management', 35, 'pending'),
+                    (105, 2, -1001, 0, 'players', 10, 'pending'),
+                    (106, 3, -1001, 0, 'players', 10, 'pending'),
+                    (107, 4, 5001, 0, 'management', 20, 'pending'),
+                    (108, 4, -2002, 7, 'management', 35, 'materialized'),
+                    (109, 2, -9999, 0, 'players', 99, 'cancelled');
+
+            INSERT INTO notifications (id, domain_event_destination_id, event_type, event_id, chat_id, message_thread_id, message_text, status, claimed_at)
+                VALUES
+                    (1, 101, 'war_ended', '100', -1001, 0, 'War summary', 'sent', NULL),
+                    (2, 103, 'war_ended', '100', -2002, 7, 'Dual war summary', 'pending', NULL),
+                    (3, 108, 'SyncFailureEvent', '300', -2002, 7, 'Dual sync alert', 'sending', 1700499000);
+        `);
+
+        migrator.migrate(REAL_MIGRATIONS_PATH);
+        expect(rowCount(db, 'schema_migrations')).toBe(16);
+        expect(hasColumn(db, 'clan_subscriptions', 'audience')).toBe(false);
+        expect(hasColumn(db, 'domain_event_destinations', 'category')).toBe(true);
+        expect(foreignKeysEnabled(db)).toBe(true);
+        expect(foreignKeysValid(db)).toBe(true);
+
+        const subs = db.connection
+            .prepare<
+                [],
+                {
+                    subscription_id: number;
+                    clan_tag: string;
+                    chat_id: number;
+                    message_thread_id: number;
+                    notify_summaries: number;
+                    notify_reminders: number;
+                    notify_roster: number;
+                    notify_discipline: number;
+                    notify_system: number;
+                    mirror_rule_enabled: number;
+                    timezone_offset_hours: number;
+                    created_at: number;
+                }
+            >(
+                `SELECT subscription_id, clan_tag, chat_id, message_thread_id,
+                        notify_summaries, notify_reminders, notify_roster, notify_discipline, notify_system,
+                        mirror_rule_enabled, timezone_offset_hours, created_at
+                 FROM clan_subscriptions
+                 ORDER BY subscription_id ASC;`,
+            )
+            .all();
+
+        expect(subs).toEqual([
+            {
+                subscription_id: 10,
+                clan_tag: '#V15',
+                chat_id: -1001,
+                message_thread_id: 0,
+                notify_summaries: 1,
+                notify_reminders: 1,
+                notify_roster: 1,
+                notify_discipline: 0,
+                notify_system: 0,
+                mirror_rule_enabled: 1,
+                timezone_offset_hours: 3,
+                created_at: 1700000100,
+            },
+            {
+                subscription_id: 20,
+                clan_tag: '#V15',
+                chat_id: 5001,
+                message_thread_id: 0,
+                notify_summaries: 0,
+                notify_reminders: 0,
+                notify_roster: 0,
+                notify_discipline: 1,
+                notify_system: 1,
+                mirror_rule_enabled: 1,
+                timezone_offset_hours: 3,
+                created_at: 1700000200,
+            },
+            {
+                subscription_id: 30,
+                clan_tag: '#V15',
+                chat_id: -2002,
+                message_thread_id: 7,
+                notify_summaries: 1,
+                notify_reminders: 1,
+                notify_roster: 1,
+                notify_discipline: 1,
+                notify_system: 1,
+                mirror_rule_enabled: 1,
+                timezone_offset_hours: 3,
+                created_at: 1700000300,
+            },
+        ]);
+
+        const dests = db.connection
+            .prepare<
+                [],
+                {
+                    id: number;
+                    category: string;
+                    subscription_id: number;
+                    status: string;
+                }
+            >(
+                'SELECT id, category, subscription_id, status FROM domain_event_destinations ORDER BY id ASC;',
+            )
+            .all();
+
+        expect(dests).toEqual([
+            { id: 101, category: 'summaries', subscription_id: 10, status: 'materialized' },
+            { id: 102, category: 'discipline', subscription_id: 20, status: 'pending' },
+            { id: 103, category: 'summaries', subscription_id: 30, status: 'materialized' },
+            { id: 104, category: 'discipline', subscription_id: 30, status: 'pending' },
+            { id: 105, category: 'roster', subscription_id: 10, status: 'pending' },
+            { id: 106, category: 'reminders', subscription_id: 10, status: 'pending' },
+            { id: 107, category: 'system', subscription_id: 20, status: 'pending' },
+            { id: 108, category: 'system', subscription_id: 30, status: 'materialized' },
+            { id: 109, category: 'roster', subscription_id: 99, status: 'cancelled' },
+        ]);
+
+        // Notifications keep exact domain_event_destination_id references and statuses
+        const notifs = db.connection
+            .prepare<[], { id: number; domain_event_destination_id: number; status: string }>(
+                'SELECT id, domain_event_destination_id, status FROM notifications ORDER BY id ASC;',
+            )
+            .all();
+        expect(notifs).toEqual([
+            { id: 1, domain_event_destination_id: 101, status: 'sent' },
+            { id: 2, domain_event_destination_id: 103, status: 'pending' },
+            { id: 3, domain_event_destination_id: 108, status: 'sending' },
+        ]);
+
+        // New subscription inserted after migration gets subscription_id > 99, mirror_rule_enabled = 0, timezone_offset_hours = 3
+        db.exec(`
+            INSERT INTO clan_subscriptions (clan_tag, chat_id, message_thread_id, notify_summaries, notify_reminders, notify_roster)
+                VALUES ('#V15', -3003, 0, 1, 1, 1);
+        `);
+        const newSub = db.connection
+            .prepare<
+                [],
+                {
+                    subscription_id: number;
+                    mirror_rule_enabled: number;
+                    timezone_offset_hours: number;
+                }
+            >(
+                'SELECT subscription_id, mirror_rule_enabled, timezone_offset_hours FROM clan_subscriptions WHERE chat_id = -3003;',
+            )
+            .get();
+        expect(newSub?.subscription_id).toBeGreaterThan(99);
+        expect(newSub?.mirror_rule_enabled).toBe(0);
+        expect(newSub?.timezone_offset_hours).toBe(3);
+
+        // Idempotent rerun after upgrade
+        migrator.migrate(REAL_MIGRATIONS_PATH);
+        expect(rowCount(db, 'schema_migrations')).toBe(16);
+        expect(foreignKeysValid(db)).toBe(true);
+        expect(foreignKeysEnabled(db)).toBe(true);
+    });
+
+    it('restores foreign_keys = ON and rolls back cleanly when 016 migration fails before commit', () => {
+        const through015 = trackDir('clashbot-mig-015-fail-');
+        copyRealMigrationsUpTo(through015, 15);
+
+        const db = trackDb(new Database(':memory:'));
+        const transactions = new TransactionManager(db);
+        const migrator = new MigratorManager(db, transactions);
+
+        migrator.migrate(through015);
+        db.exec(`
+            INSERT INTO clans (tag, name) VALUES ('#F16', 'Fail 16 Clan');
+            INSERT INTO telegram_chats (chat_id, message_thread_id, title) VALUES (-10016, 0, 'Fail 16');
+            INSERT INTO clan_subscriptions (subscription_id, clan_tag, chat_id, message_thread_id, audience)
+                VALUES (16, '#F16', -10016, 0, 'players');
+            CREATE TRIGGER fail_016_version BEFORE INSERT ON schema_migrations
+            WHEN NEW.version = '016_subscription_presets_and_categories.sql'
+            BEGIN
+                SELECT RAISE(ABORT, 'injected 016 failure');
+            END;
+        `);
+
+        expect(() => {
+            migrator.migrate(REAL_MIGRATIONS_PATH);
+        }).toThrow(DatabaseError);
+
+        expect(rowCount(db, 'schema_migrations')).toBe(15);
+        expect(hasColumn(db, 'clan_subscriptions', 'audience')).toBe(true);
+        expect(tableExists(db, 'clan_subscriptions_new')).toBe(false);
+        expect(tableExists(db, 'domain_event_destinations_new')).toBe(false);
+        expect(foreignKeysEnabled(db)).toBe(true);
+        expect(foreignKeysValid(db)).toBe(true);
     });
 
     it('rejects non-SQL files in migrations directory without applying any migrations', () => {

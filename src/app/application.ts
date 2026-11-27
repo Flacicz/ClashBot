@@ -221,7 +221,10 @@ export async function createApplication(
                 notificationRepo,
                 transactionManager: transactions,
                 destinationLifecycle,
+                cocApiClient,
                 clanManager,
+                clock,
+                maxTrackedClans: config.maxTrackedClans,
                 logger,
             });
 

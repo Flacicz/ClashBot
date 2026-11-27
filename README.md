@@ -21,7 +21,8 @@ pnpm install --frozen-lockfile
 
 1. Скопируйте [`config.example.json`](config.example.json) в `config.json` и замените контейнерные пути `/app/...` на
    локальные (например, `data/database.sqlite`, `migrations`, `resources/telegram/attack_guides.json`), затем создайте
-   каталог `data/`.
+   каталог `data/`. При необходимости скорректируйте лимит отслеживаемых кланов инстанса
+   `limits.max_tracked_clans` (по умолчанию `20`).
 2. Скопируйте [`.env.example`](.env.example) в `.env` рядом с `config.json` и заполните `SUPERCELL_TOKEN` и
    `TELEGRAM_TOKEN`.
 
@@ -59,11 +60,13 @@ CI/CD, обновлениям, SSH-туннелю и онлайн-бэкапам
   рейдовых выходных с транзакционной фиксацией **доменных событий** и двухэтапным outbox в SQLite (семантика доставки
   `at-least-once`, подробнее в [`docs/architecture.md`](docs/architecture.md)).
 - **Отчёты, нарушения и напоминания**: итоги войн, CWL и рейдов, сравнительная динамика, **напоминания** о контрольных
-  точках, отчёты по **нарушениям** и надёжности состава с разделением на **аудитории** `players` и `management`
-  ([`docs/reports.md`](docs/reports.md)).
-- **Telegram-бот (`grammY`)**: команды `/start`, `/link`, `/unlink`, автоматическое определение **аудитории** по типу
-  чата, поддержка форумных тем (`message_thread_id`) и интерактивный каталог видео-гайдов для ратуш TH7–TH18
-  ([`docs/telegram.md`](docs/telegram.md)).
+  точках, отчёты по **нарушениям** и надёжности состава с гибкой маршрутизацией по 5 **категориям уведомлений** и 3
+  **пресетам подписки** (`Игроки`, `Руководство`, `Всё вместе`, [`docs/reports.md`](docs/reports.md)).
+- **Telegram-бот (`grammY`)**: команды `/start` (в т.ч. `/start <arg>`), `/help`, `/link`, `/unlink`, регистрация
+  подсказок команд и описания бота при старте, автоматический выбор **пресета подписки** по типу чата, поддержка
+  форумных тем (`message_thread_id`), квоты подключения кланов (`5` на чат/тему и настраиваемый `limits.max_tracked_clans`,
+  по умолчанию `20` на инстанс), per-user rate-limit (`5` команд/мин на `/link` и `/unlink`) и интерактивный каталог
+  видео-гайдов для ратуш TH7–TH18 ([`docs/telegram.md`](docs/telegram.md)).
 
 Актуальное подтверждённое состояние **AS-IS** и известные ограничения зафиксированы в
 [`docs/roadmap.md`](docs/roadmap.md).
@@ -75,12 +78,12 @@ CI/CD, обновлениям, SSH-туннелю и онлайн-бэкапам
 | [`AGENTS.md`](AGENTS.md)                               | Правила работы AI-агента, команды проверок, инварианты и Definition of Done            |
 | [`GLOSSARY.md`](GLOSSARY.md)                           | Канонические термины предметной области и запрещённые синонимы                         |
 | [`docs/architecture.md`](docs/architecture.md)         | Архитектура TS/Node.js 24, границы модулей `src/`, схема `config.json`/`.env` и циклы  |
-| [`docs/database.md`](docs/database.md)                 | SQLite WAL, транзакции, миграции `001`–`015`, схема таблиц и контракты репозиториев    |
+| [`docs/database.md`](docs/database.md)                 | SQLite WAL, транзакции, миграции `001`–`016`, схема таблиц и контракты репозиториев    |
 | [`docs/reports.md`](docs/reports.md)                   | `ApplicationEvent`, payload, матрица доставки, форматтеры, напоминания и outbox        |
 | [`docs/telegram.md`](docs/telegram.md)                 | `grammY`, команды, права администратора чата, форумные темы, меню и `TelegramGateway`  |
 | [`docs/deployment.md`](docs/deployment.md)             | Серверные требования, Docker, GHCR CI/CD, SSH-туннель и бэкапы/восстановление SQLite   |
 | [`docs/roadmap.md`](docs/roadmap.md)                   | Подтверждённый функционал AS-IS, известные ограничения и направления развития          |
-| [`docs/adr/`](docs/adr/)                               | Архитектурные решения (ADR `0001`–`0005`)                                              |
+| [`docs/adr/`](docs/adr/)                               | Архитектурные решения (ADR `0001`–`0006`)                                              |
 | [`docs/research/competitors.md`](docs/research/competitors.md) | Рыночный обзор аналогов и позиционирование ClashBot                            |
 
 ## Правовая информация

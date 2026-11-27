@@ -19,6 +19,7 @@ export {
 export {
     LEGACY_REBUILD_MIGRATION_VERSION,
     MigratorManager,
+    SUBSCRIPTION_PRESETS_MIGRATION_VERSION,
     type MigratorManagerOptions,
 } from './migratorManager.js';
 export {
@@ -69,6 +70,7 @@ export {
     type BestAttack,
     type CWLRoundInfo,
     type ClanSide,
+    type ClanSubscriptionSummary,
     type Clanwar,
     type ClanwarAttack,
     type ClanwarAttackStats,
@@ -101,6 +103,7 @@ export {
     type PendingNotification,
     type SqlBindValue,
     type SqlRow,
+    type SubscribeToChatOptions,
     type SubscriptionDestination,
     type SubscriptionRecord,
     type SyncOutageState,
